@@ -71,7 +71,7 @@ class LsmGridRecreationModeller:
                 os.makedirs(cpath)
 
     def printStepInfo(self, msg):
-        print(Fore.CYAN + Style.BRIGHT + msg.upper() + Style.RESET_ALL)
+        print(Fore.CYAN + Style.DIM + msg.upper() + Style.RESET_ALL)
 
 
     def set_params(self, paramType, paramValue):
@@ -96,14 +96,13 @@ class LsmGridRecreationModeller:
 
     
 
-    def start(self):       
+    def assess_map_units(self):       
         
         with self.progress as p:
             
             # import raster
             self.lsm_rst, self.lsm_mtx, self.lsm_nodataMask = self.read_dataset(self.lsm_fileName)
-
-            self.task_overall = self.progress.add_task('[red]Assessing recreational potential', total=15)
+            self.task_overall = self.progress.add_task('[red]Assessing recreational potential', total=7)
             
             # detecting clumps
             self.detect_clumps()
@@ -113,24 +112,29 @@ class LsmGridRecreationModeller:
             self.detect_edges()
 
             # work on population disaggregation
-            self.disaggregate_population()
-            #self.beneficiaries_within_cost()
+            self.disaggregate_population()            
+            self.beneficiaries_within_cost()
 
             # determine supply per class
-            #self.class_total_supply()
-            self.class_diversity()
+            self.class_total_supply()
             self.aggregate_class_total_supply()
-            self.average_total_supply_across_cost()
-            self.average_diversity_across_cost()
-            self.average_beneficiaries_across_cost()
+
+
+            # other indicators below
+            #self.class_diversity()
+            #self.average_total_supply_across_cost()
+            #self.average_diversity_across_cost()
+            #self.average_beneficiaries_across_cost()
 
             
             # seems to work so far, in principle.
             # next steps tested below
-            self.class_flow()
-            self.average_flow_across_cost()
+            #self.class_flow()
+            #self.average_flow_across_cost()
 
         print("DONE. UBER WISHES YOU A JOLLY PLEASANT DAY.")
+
+
 
     def advanceStepTotal(self):
         self.progress.update(self.task_overall, advance=1)
