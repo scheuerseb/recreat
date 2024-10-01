@@ -39,7 +39,7 @@ class LsmGridRecreationModeller:
     cost_thresholds = []
     clump_slices = []
 
-    scenario_name = "default"
+    scenario_name = "current"
     verbose_reporting = False
 
     # progress reporting
