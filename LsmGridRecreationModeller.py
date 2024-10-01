@@ -26,34 +26,41 @@ colorama_init()
 
 class LsmGridRecreationModeller:
 
+    # some status variables
+    verbose_reporting = False
+    scenario_intialized = False
+
+    # working directory
     dataPath = None
+
+    # scenario name and corresponding population and lsm filenames
+    scenario_name = "current"
     pop_fileName = None
     lsm_fileName = None
+
+    # this stores the lsm map as reference map
     lsm_rst = None
     lsm_mtx = None
     lsm_nodataMask = None
 
+    # define relevant recreation patch and edge classes, cost thresholds, etc.
     lu_classes_recreation_edge = []
     lu_classes_recreation_patch = []
     lu_classes_builtup = []
     cost_thresholds = []
+    
+    # the following items are computed 
     clump_slices = []
 
-    scenario_name = "current"
-    verbose_reporting = False
-
     # progress reporting
-    progress = None 
-    
+    progress = None     
     task_overall = None
 
     def __init__(self, dataPath):
         os.system('cls' if os.name == 'nt' else 'clear')
         self.dataPath = dataPath        
         self.progress = self.getProgressBar()   
-
-                
-    
+                    
     def make_environment(self):
         # create directories, if needed
         dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'TMP', 'FLOWS']
@@ -83,13 +90,17 @@ class LsmGridRecreationModeller:
             self.lu_classes_builtup = paramValue
         elif paramType == 'costs':
             self.cost_thresholds = paramValue
-        elif paramType == 'scenario.settings':
-            self.scenario_name = paramValue[0]
-            self.lsm_fileName = paramValue[1]
-            self.pop_fileName = paramValue[2]          
-            self.lsm_rst, self.lsm_mtx, self.lsm_nodataMask = self.read_dataset(self.lsm_fileName)
-            self.make_environment()         
-
+      
+    def set_scenario(self, scenario_name, lsm_filename, population_filename):
+        self.scenario_name = scenario_name
+        self.lsm_fileName = lsm_filename
+        self.pop_fileName = population_filename   
+        
+        # check if folders are properly created in current scenario workspace
+        self.make_environment()         
+        
+        # import lsm
+        self.lsm_rst, self.lsm_mtx, self.lsm_nodataMask = self.read_dataset(self.lsm_fileName)
 
     def assess_map_units(self):       
         
