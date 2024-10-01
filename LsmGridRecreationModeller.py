@@ -353,7 +353,6 @@ class LsmGridRecreationModeller:
         # done
         self.printStepCompleteInfo()
 
-
     def get_aggregate_class_total_supply_for_cost(self, cost, lu_weights = None, write_non_weighted_result = True, task_progress = None):                        
         
         current_total_supply_at_cost = None
@@ -384,7 +383,6 @@ class LsmGridRecreationModeller:
 
         # return aggregated grids for given cost
         return current_total_supply_at_cost, current_weighted_total_supply_at_cost
-
 
     def get_supply_for_lu_and_cost(self, lu, lu_type, cost):        
         # make filename
@@ -456,7 +454,7 @@ class LsmGridRecreationModeller:
                     mtx_lu = self.get_mask_for_lu(lu, lu_type)
                     mtx_res = mtx_lu * mtx_pop
                     # write result
-                    outfile_name = "FLOWS/flow_class_{}_cost{}.tif".format(lu, c) if lu_type == 'patch' else "FLOWS/flow_edge_class_{}_cost{}.tif".format(lu, c)
+                    outfile_name = "FLOWS/flow_class_{}_cost_{}.tif".format(lu, c) if lu_type == 'patch' else "FLOWS/flow_edge_class_{}_cost_{}.tif".format(lu, c)
                     self.write_dataset(outfile_name, mtx_res)
                     p.update(current_task, advance=1)
 
@@ -635,61 +633,64 @@ class LsmGridRecreationModeller:
     def average_flow_across_cost(self, cost_weights = None, write_non_weighted_result = True):
 
         self.printStepInfo("Averaging flow across costs")
+        
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)) 
+        current_task = self.new_progress("[white]Averaging flow across costs", step_count)
 
-        # result grid
-        if write_non_weighted_result:
-            average_flow = self.get_value_matrix()
-        if cost_weights is not None:
-            cost_weighted_average_flow = self.get_value_matrix()
+        with self.progress as p:
 
-        # iterate over lu classes
-        for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):               
-            # determine source of list
-            lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
+            # result grids for integrating averaged flows
+            if write_non_weighted_result:
+                integrated_average_flow = self.get_value_matrix()
+            if cost_weights is not None:
+                integrated_cost_weighted_average_flow = self.get_value_matrix()
 
+            # iterate over cost thresholds and lu classes                
+            for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):               
 
-        for lu in self.lu_classes_recreation_patch:
-            average_class_flow = self.get_value_matrix()
-            if self.apply_cost_weighting():
-                cost_weighted_average_class_flow = self.get_value_matrix() 
+                # result grids for average flow for current cost threshold
+                if write_non_weighted_result:
+                    class_average_flow = self.get_value_matrix()
+                if cost_weights is not None:
+                    cost_weighted_class_average_flow = self.get_value_matrix()
 
-            for c in self.cost_thresholds:
-                mtx_current_flow = self.read_band("FLOWS/flow_class_{}_cost{}.tif".format(lu, c)) 
-                average_flow += mtx_current_flow
-                average_class_flow += mtx_current_flow
+                for c in self.cost_thresholds:
+                    # determine source of list
+                    lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
+                    filename = "FLOWS/flow_class_{}_cost_{}.tif".format(lu, c) if lu_type == 'patch' else "FLOWS/flow_edge_class_{}_cost_{}.tif".format(lu, c)
 
-                if self.apply_cost_weighting():
-                    cost_weighted_average_flow += (mtx_current_flow * self.weights_cost[c])
-                    cost_weighted_average_class_flow += (mtx_current_flow * self.weights_cost[c])
-                
+                    mtx_current_flow = self.read_band(filename) 
+                    if write_non_weighted_result:
+                        class_average_flow += mtx_current_flow
+                    if cost_weights is not None:
+                        cost_weighted_class_average_flow += (mtx_current_flow * cost_weights[c])
+                    p.update(current_task, advance=1)
 
-            # export class flow            
-            average_class_flow = average_class_flow / len(self.cost_thresholds)
-            self.write_dataset("FLOWS/average_flow_class_{}.tif".format(lu), average_class_flow)
-            if self.apply_cost_weighting():
-                cost_weighted_average_class_flow = cost_weighted_average_class_flow / sum(self.weights_cost.values())
-                self.write_dataset("FLOWS/cost_weighted_average_flow_class_{}.tif".format(lu), cost_weighted_average_class_flow)
+                # we have now iterated over cost thresholds
+                # export current class-averaged flow, and integrate with final product
+                if write_non_weighted_result:
+                    class_average_flow = class_average_flow / len(self.cost_thresholds)
+                    self.write_dataset("FLOWS/average_flow_class_{}.tif".format(lu), class_average_flow)
+                    # add to integrated grid
+                    integrated_average_flow += class_average_flow
 
+                if cost_weights is not None:
+                    cost_weighted_class_average_flow = cost_weighted_class_average_flow / sum(cost_weights.values())
+                    self.write_dataset("FLOWS/cost_weighted_average_flow_class_{}.tif".format(lu), cost_weighted_class_average_flow)
+                    # add to integrated grid
+                    integrated_cost_weighted_average_flow += cost_weighted_class_average_flow
 
-        # here, the weights for average cost-weighted flow are different, as they are lu times the sum of cost values 
-        
-        
-        # export averaged diversity grids
-        #average_flow = average_flow / len(self.cost_thresholds)
-        #self.write_dataset("INDICATORS/non_weighted_avg_population.tif", average_flow)
-        
-        #if self.apply_cost_weighting():
-        #    cost_weighted_average_flow = cost_weighted_average_flow / sum(self.weights_cost.values())
-        #    self.write_dataset("INDICATORS/cost_weighted_avg_population.tif", cost_weighted_average_flow)
+            # export integrated grids
+            if write_non_weighted_result:
+                self.write_dataset("FLOWS/integrated_avg_flow.tif", integrated_average_flow)
+            if cost_weights is not None:
+                self.write_dataset("FLOWS/integrated_cost_weighted_avg_flow.tif", integrated_cost_weighted_average_flow)
 
+        self.printStepCompleteInfo()
 
     #
     # Integrate class flows into single grid
     #
-
-
-
 
 
     #
