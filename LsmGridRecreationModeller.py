@@ -39,19 +39,11 @@ class LsmGridRecreationModeller:
     cost_thresholds = []
     clump_slices = []
 
-    weights_lu_supply_aggregation = None
-    weights_cost = None
-
+    
     verbose_reporting = False
 
     # progress reporting
-    progress =  Progress(
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-        MofNCompleteColumn()
-    )
+    progress = None 
     
     task_overall = None
 
@@ -60,7 +52,8 @@ class LsmGridRecreationModeller:
         self.dataPath = dataPath
         self.lsm_fileName = lsmFileName
         self.pop_fileName = populationFileName        
-        self.make_environment()                
+        self.make_environment()         
+        self.progress = self.getProgressBar()       
     
     def make_environment(self):
         # create directories, if needed
@@ -73,6 +66,14 @@ class LsmGridRecreationModeller:
     def printStepInfo(self, msg):
         print(Fore.CYAN + Style.DIM + msg.upper() + Style.RESET_ALL)
 
+    def getProgressBar(self):
+        return Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            MofNCompleteColumn()
+        )
 
     def set_params(self, paramType, paramValue):
         if paramType == 'classes.edge':
@@ -83,26 +84,14 @@ class LsmGridRecreationModeller:
             self.lu_classes_builtup = paramValue
         elif paramType == 'costs':
             self.cost_thresholds = paramValue
-        elif paramType == 'weights.landuse':
-            self.weights_lu_supply_aggregation = paramValue
-        elif paramType == 'weights.cost':
-            self.weights_cost = paramValue
-
-    def apply_cost_weighting(self):
-        return True if self.weights_cost is not None else False
-    def apply_landuse_weighting(self):
-        return True if self.weights_lu_supply_aggregation is not None else False
-
-
-    
 
     def assess_map_units(self):       
         
         with self.progress as p:
             
             # import raster
+            self.task_overall = self.progress.add_task('[red]Assessing recreational potential', total=6)
             self.lsm_rst, self.lsm_mtx, self.lsm_nodataMask = self.read_dataset(self.lsm_fileName)
-            self.task_overall = self.progress.add_task('[red]Assessing recreational potential', total=7)
             
             # detecting clumps
             self.detect_clumps()
@@ -117,28 +106,23 @@ class LsmGridRecreationModeller:
 
             # determine supply per class
             self.class_total_supply()
-            self.aggregate_class_total_supply()
 
-
-            # other indicators below
-            #self.class_diversity()
-            #self.average_total_supply_across_cost()
-            #self.average_diversity_across_cost()
-            #self.average_beneficiaries_across_cost()
-
-            
-            # seems to work so far, in principle.
-            # next steps tested below
-            #self.class_flow()
-            #self.average_flow_across_cost()
-
-        print("DONE. UBER WISHES YOU A JOLLY PLEASANT DAY.")
+        print("DONE ASSESSING MAP UNITS. UBER WISHES YOU A JOLLY PLEASANT DAY.")
 
 
 
     def advanceStepTotal(self):
         self.progress.update(self.task_overall, advance=1)
 
+
+
+
+    #
+    # The following classes will be called from asses_map_units. 
+    # They will disaggregate population and determine clumped land-use class supplies.
+    # Layers written will be specific to given costs.
+    #
+        
     def detect_clumps(self):
         self.printStepInfo("Detecting clumps")
         clump_connectivity = np.full((3,3), 1)
@@ -266,10 +250,7 @@ class LsmGridRecreationModeller:
         task_supply = self.progress.add_task("[white]Determining clumped supply", total=step_count)
 
         for c in self.cost_thresholds:            
-            
-            # make grids for the results: zero-valued grids with full lsm extent
-            current_total_supply_at_cost = self.get_value_matrix() 
-            
+                        
             for lu in self.lu_classes_recreation_patch:
                 # process supply of current class 
                 lu_supply_mtx = self.class_total_supply_for_lu_and_cost("MASKS/mask_{}.tif".format(lu), rst_clumps, c, task_supply)                            
@@ -319,6 +300,78 @@ class LsmGridRecreationModeller:
         # done with current iterations. return result
         del full_lu_mtx
         return lu_supply_mtx
+    
+
+
+    #
+    # The following class aggregates lu-class-specific supply within a given cost to total supply within cost.
+    # It can be called following assessment of map units.
+    # A weighting schema for lu classes can be supplied.
+    #
+    
+    def aggregate_class_total_supply(self, lu_weights = None, outfile_template = None, write_non_weighted_result = True):
+
+        self.printStepInfo('Determining clumped total supply')
+        
+        # progress reporting
+        self.progress = Progress()
+        step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))        
+        task_aggr = self.progress.add_task("[white]Aggregating clumped supply", total=step_count)
+
+        if outfile_template is None:
+            outfile_template = "totalsupply_cost"
+
+        with self.progress as p:
+
+            for c in self.cost_thresholds:
+
+                # make grids for the results: zero-valued grids with full lsm extent
+                if write_non_weighted_result:
+                    current_total_supply_at_cost = self.get_value_matrix() 
+                if lu_weights is not None:
+                    current_weighted_total_supply_at_cost = self.get_value_matrix()
+            
+                for lu in self.lu_classes_recreation_patch:
+                    # get supply of current class 
+                    lu_supply_mtx = self.read_band("SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, c))                
+                    
+                    if write_non_weighted_result:
+                        current_total_supply_at_cost += lu_supply_mtx
+                    if lu_weights is not None:
+                        current_weighted_total_supply_at_cost += (lu_supply_mtx * lu_weights[lu]) 
+                    
+                    self.progress.update(task_aggr, advance=1)
+
+                for lu in self.lu_classes_recreation_edge:
+                    # get supply of current class 
+                    lu_supply_mtx = self.read_band("SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, c))  
+                    
+                    if write_non_weighted_result:
+                        current_total_supply_at_cost += lu_supply_mtx
+                    if lu_weights is not None:
+                        current_weighted_total_supply_at_cost += (lu_supply_mtx * lu_weights[lu]) 
+                    
+                    self.progress.update(task_aggr, advance=1)
+
+                # export total for costs, if requested
+                if write_non_weighted_result:                
+                    self.write_dataset("SUPPLY/{}_{}.tif".format(outfile_template, c), current_total_supply_at_cost)
+                
+                # export weighted total, if aplicable
+                if lu_weights is not None:
+                    current_weighted_total_supply_at_cost = current_weighted_total_supply_at_cost / sum(lu_weights.values())
+                    self.write_dataset("SUPPLY/weighted_{}_{}.tif".format(outfile_template, c), current_weighted_total_supply_at_cost)
+
+        # done
+        print("Done.")
+        
+
+
+
+
+
+
+
 
     def class_diversity(self):
         self.printStepInfo("Determining class diversity within costs")        
@@ -450,45 +503,6 @@ class LsmGridRecreationModeller:
 
 
 
-    def aggregate_class_total_supply(self):
-
-        self.printStepInfo('Determining clumped total supply')
-        
-        step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))
-        task_aggr = self.progress.add_task("[white]Aggregating clumped supply", total=step_count)
-
-        for c in self.cost_thresholds:
-
-            # make grids for the results: zero-valued grids with full lsm extent
-            current_total_supply_at_cost = self.get_value_matrix() 
-            if self.apply_landuse_weighting():
-                current_weighted_total_supply_at_cost = self.get_value_matrix()
-        
-            for lu in self.lu_classes_recreation_patch:
-                # get supply of current class 
-                lu_supply_mtx = self.read_band("SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, c))                
-                current_total_supply_at_cost += lu_supply_mtx
-                if self.apply_landuse_weighting():
-                    current_weighted_total_supply_at_cost += (lu_supply_mtx * self.weights_lu_supply_aggregation[lu]) 
-                self.progress.update(task_aggr, advance=1)
-
-            for lu in self.lu_classes_recreation_edge:
-                # get supply of current class 
-                lu_supply_mtx = self.read_band("SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, c))  
-                current_total_supply_at_cost += lu_supply_mtx
-                if self.apply_landuse_weighting():
-                    current_weighted_total_supply_at_cost += (lu_supply_mtx * self.weights_lu_supply_aggregation[lu]) 
-                self.progress.update(task_aggr, advance=1)
-
-            # export total for cost                
-            self.write_dataset("SUPPLY/totalsupply_cost_{}.tif".format(c), current_total_supply_at_cost)
-            # export weighted total, if aplicable
-            if self.apply_landuse_weighting():
-                current_weighted_total_supply_at_cost = current_weighted_total_supply_at_cost / sum(self.weights_lu_supply_aggregation.values())
-                self.write_dataset("SUPPLY/weighted_totalsupply_cost_{}.tif".format(c), current_weighted_total_supply_at_cost)
-
-        # done
-        self.advanceStepTotal()
 
     def average_total_supply_across_cost(self):
 
