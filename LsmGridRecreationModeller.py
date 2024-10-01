@@ -688,9 +688,42 @@ class LsmGridRecreationModeller:
 
         self.printStepCompleteInfo()
 
+
+
+    # 
+    # Clump detection in land-uses to determine size of patches and edges
+    # To determine per-capita recreational area
     #
-    # Integrate class flows into single grid
-    #
+
+    def determine_clump_lu_size(self):
+        
+        self.printStepInfo("Determining per-capita areas")
+
+        for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):
+            lu_type = 'patch' if lu in self.lu_classes_recreation_patch else 'edge'
+            # get lu mask
+            mtx_lu_mask = self.get_mask_for_lu(lu, lu_type)
+
+            # make clump raster
+            clump_connectivity = np.full((3,3), 1)
+            lu_clumps = self.get_value_matrix()
+            nr_clumps = ndimage.label(mtx_lu_mask, structure=clump_connectivity, output=lu_clumps)
+            print(Fore.YELLOW + Style.BRIGHT + "{} CLUMPS FOUND".format(nr_clumps) + Style.RESET_ALL)
+
+            # iterate over clumps of current lu 
+            # determine clump size
+            # determine flow per clump
+            # determine per-capita supply
+    
+
+
+
+
+
+
+
+
+
 
 
     #
