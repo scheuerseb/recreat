@@ -39,7 +39,7 @@ class LsmGridRecreationModeller:
     cost_thresholds = []
     clump_slices = []
 
-    
+    scenario_name = "default"
     verbose_reporting = False
 
     # progress reporting
@@ -47,19 +47,18 @@ class LsmGridRecreationModeller:
     
     task_overall = None
 
-    def __init__(self, dataPath, lsmFileName, populationFileName):
+    def __init__(self, dataPath):
         os.system('cls' if os.name == 'nt' else 'clear')
-        self.dataPath = dataPath
-        self.lsm_fileName = lsmFileName
-        self.pop_fileName = populationFileName        
-        self.make_environment()         
-        self.progress = self.getProgressBar()       
+        self.dataPath = dataPath        
+        self.progress = self.getProgressBar()   
+
+                
     
     def make_environment(self):
         # create directories, if needed
         dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'TMP', 'FLOWS']
         for d in dirs_required:
-            cpath = "{}/{}".format(self.dataPath, d)
+            cpath = "{}/{}/{}".format(self.dataPath, self.scenario_name, d)
             if not os.path.exists(cpath):
                 os.makedirs(cpath)
 
@@ -84,6 +83,13 @@ class LsmGridRecreationModeller:
             self.lu_classes_builtup = paramValue
         elif paramType == 'costs':
             self.cost_thresholds = paramValue
+        elif paramType == 'scenario.settings':
+            self.scenario_name = paramValue[0]
+            self.lsm_fileName = paramValue[1]
+            self.pop_fileName = paramValue[2]          
+            self.lsm_rst, self.lsm_mtx, self.lsm_nodataMask = self.read_dataset(self.lsm_fileName)
+            self.make_environment()         
+
 
     def assess_map_units(self):       
         
@@ -91,7 +97,6 @@ class LsmGridRecreationModeller:
             
             # import raster
             self.task_overall = self.progress.add_task('[red]Assessing recreational potential', total=6)
-            self.lsm_rst, self.lsm_mtx, self.lsm_nodataMask = self.read_dataset(self.lsm_fileName)
             
             # detecting clumps
             self.detect_clumps()
@@ -399,26 +404,26 @@ class LsmGridRecreationModeller:
         self.advanceStepTotal()
 
 
-    def read_dataset(self, fileName, band = 1, nodataValues = [0]):
-        rstPath = "{}/{}".format(self.dataPath, fileName)
+    def read_dataset(self, fileName, band = 1, nodataValues = [0], is_scenario_specific = True):
+        path = "{}/{}".format(self.dataPath, fileName) if not is_scenario_specific else "{}/{}/{}".format(self.dataPath, self.scenario_name, fileName)
         if self.verbose_reporting:
-            print(Fore.WHITE + Style.DIM + "READING {}".format(rstPath) + Style.RESET_ALL)
-        rst_ref = rasterio.open(rstPath)
+            print(Fore.WHITE + Style.DIM + "READING {}".format(path) + Style.RESET_ALL)
+        rst_ref = rasterio.open(path)
         band_data = rst_ref.read(band)
         nodata_mask = np.isin(band_data, nodataValues, invert=False)
         return rst_ref, band_data, nodata_mask
     
     
-    def read_band(self, fileName, band = 1):
-        rstPath = "{}/{}".format(self.dataPath, fileName)
+    def read_band(self, fileName, band = 1, is_scenario_specific = True):
+        path = "{}/{}".format(self.dataPath, fileName) if not is_scenario_specific else "{}/{}/{}".format(self.dataPath, self.scenario_name, fileName)
         if self.verbose_reporting:
-            print(Fore.WHITE + Style.DIM + "READING {}".format(rstPath) + Style.RESET_ALL)
-        rst_ref = rasterio.open(rstPath)
+            print(Fore.WHITE + Style.DIM + "READING {}".format(path) + Style.RESET_ALL)
+        rst_ref = rasterio.open(path)
         band_data = rst_ref.read(band)
         return band_data
     
-    def write_dataset(self, fileName, outdata, mask_nodata = True):        
-        path = "{}/{}".format(self.dataPath, fileName)
+    def write_dataset(self, fileName, outdata, mask_nodata = True, is_scenario_specific = True):        
+        path = "{}/{}".format(self.dataPath, fileName) if not is_scenario_specific else "{}/{}/{}".format(self.dataPath, self.scenario_name, fileName)
         if self.verbose_reporting:
             print(Fore.YELLOW + Style.DIM + "WRITING {}".format(path) + Style.RESET_ALL)
 
@@ -463,7 +468,7 @@ class LsmGridRecreationModeller:
         # make kernel
         kernel = self.get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
         # create result mtx as memmap
-        mtx_res = np.memmap("{}/TMP/{}".format(self.dataPath, uuid.uuid1()), dtype=data_mtx.dtype, mode='w+', shape=data_mtx.shape) 
+        mtx_res = np.memmap("{}/{}/TMP/{}".format(self.dataPath, self.scenario_name, uuid.uuid1()), dtype=data_mtx.dtype, mode='w+', shape=data_mtx.shape) 
         # apply moving window over input mtx
         ndimage.generic_filter(data_mtx, kernel_func, footprint=kernel, output=mtx_res, mode='constant', cval=0)
         mtx_res.flush()
