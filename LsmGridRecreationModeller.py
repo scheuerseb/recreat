@@ -702,67 +702,84 @@ class LsmGridRecreationModeller:
         step_count = len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)
         lu_progress = self.new_progress("[white]Per-capita assessment", step_count)
 
+        # get average flow for all lu patches as basis for average per-capita area
+        mtx_average_flows = self.read_band("FLOWS/integrated_avg_flow.tif")
+        # make clump raster
+        clump_connectivity = np.full((3,3), 1)
+
         with self.progress as p:
 
-            mtx_per_capita = self.get_value_matrix()
+            # particularly for debugging reasons, write out all grids
+            res_lu_patch_area_per_capita = self.get_value_matrix()
+            res_lu_clump_size = self.get_value_matrix()
+            res_lu_clump_average_flow = self.get_value_matrix()
 
+            # iterate over land-uses
             for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):
                 # determine lu type
                 lu_type = 'patch' if lu in self.lu_classes_recreation_patch else 'edge'
                 
                 # get lu mask as basis to determine clump total area
-                mtx_lu_mask = self.get_mask_for_lu(lu, lu_type)
-                # get average flow for current lu as basis for average per-capita area
-                mtx_average_flows = self.read_band("FLOWS/integrated_avg_flow.tif")
+                mtx_current_lu_mask = self.get_mask_for_lu(lu, lu_type)
 
-                # make clump raster
-                clump_connectivity = np.full((3,3), 1)
-                rst_clumps_lu = self.get_value_matrix()
-                nr_clumps = ndimage.label(mtx_lu_mask, structure=clump_connectivity, output=rst_clumps_lu)
-                lu_clump_slices = ndimage.find_objects(rst_clumps_lu.astype(np.int64)) 
+                mtx_current_lu_clumps = self.get_value_matrix()
+                mtx_current_lu_clump_size = self.get_value_matrix()
+                mtx_current_lu_clump_average_flow = self.get_value_matrix()
 
+                nr_clumps = ndimage.label(mtx_current_lu_mask, structure=clump_connectivity, output=mtx_current_lu_clumps)
                 print(Fore.YELLOW + Style.BRIGHT + "{} CLUMPS FOUND FOR CLASS {}".format(nr_clumps, lu) + Style.RESET_ALL)
-
-                rst_clump_pcap = self.get_value_matrix()
+                current_lu_clump_slices = ndimage.find_objects(mtx_current_lu_clumps.astype(np.int64)) 
 
                 # iterate over clumps of current lu 
-                clump_progress = p.add_task("[white]Iterate clumps on class {}".format(lu), total=len(lu_clump_slices))
+                clump_progress = p.add_task("[white]Iterate clumps on class {}".format(lu), total=len(current_lu_clump_slices))
 
-                for patch_idx in range(len(lu_clump_slices)):
-                    obj_slice = lu_clump_slices[patch_idx]
+                for patch_idx in range(len(current_lu_clump_slices)):
+                    obj_slice = current_lu_clump_slices[patch_idx]
                     obj_label = patch_idx + 1
 
                     # get slice from mask
-                    sliced_lu_clump = rst_clumps_lu[obj_slice]
-                    sliced_lu_mask = mtx_lu_mask[obj_slice].copy()
-                    sliced_flow = mtx_average_flows[obj_slice].copy()
-                    
                     # mask
-                    obj_mask = np.isin(sliced_lu_clump, [obj_label], invert=False)
-                    sliced_lu_mask[obj_mask] = 1
-                    sliced_lu_mask[~obj_mask] = 0        
-                    sliced_flow[~obj_mask] = 0
-
+                    clump_slice = mtx_current_lu_clumps[obj_slice]
+                    obj_mask = np.isin(clump_slice, [obj_label], invert=False)
+                    
+                    mask_slice = mtx_current_lu_mask[obj_slice].copy()
+                    mask_slice[obj_mask] = 1
+                    mask_slice[~obj_mask] = 0        
                     # now that we have zeroed all non-clump pixels, the area in sqkm of current clump should be equal to number of pixels of current clump
-                    clump_total_area_sqkm = np.sum(sliced_lu_mask)                    
-                    clump_total_average_flow = np.mean(sliced_flow, where=sliced_flow > 0) if np.sum(sliced_flow) > 0 else 0
+                    # convert from sqkm to sqm
+                    val_clump_size = np.sum(mask_slice) * 1000000                   
+                    
+                    flow_slice = mtx_average_flows[obj_slice].copy()                    
+                    flow_slice[~obj_mask] = 0
+                    val_clump_average_flow = np.mean(flow_slice, where=flow_slice > 0) if np.sum(flow_slice) > 0 else 1
 
-                    # write current clump total area to raster
-                    # sliced_lu_mask should be 1 or 0, thus, multiply with sum should yield desired output
-                    clump_averaged_total_flow = (sliced_lu_mask * clump_total_average_flow)         
-                    clump_total_area = (sliced_lu_mask * (clump_total_area_sqkm * 1000000)) # includes sqkm to sqm conversion
-                    rst_clump_pcap[obj_slice] += np.divide(clump_total_area, clump_averaged_total_flow, out=np.zeros_like(sliced_lu_mask), where=clump_averaged_total_flow > 0)
+                    clump_size_as_mtx = val_clump_size * mask_slice
+                    clump_flow_as_mtx = val_clump_average_flow * mask_slice
+                    
+                    mtx_current_lu_clump_size[obj_slice] += clump_size_as_mtx
+                    mtx_current_lu_clump_average_flow[obj_slice] += clump_flow_as_mtx
+
                     
                     p.update(clump_progress, advance=1)
+                
+                # determine per-capita area
+                mtx_current_lu_clump_area_per_capita = np.divide(mtx_current_lu_clump_size, mtx_current_lu_clump_average_flow, out=np.zeros_like(mtx_current_lu_clump_size), where=mtx_current_lu_clump_average_flow > 0)
 
                 # export result
-                self.write_dataset('CLUMPS_LU/clump_area_class_{}.tif'.format(lu), rst_clump_pcap)
-                
+                self.write_dataset('CLUMPS_LU/clump_size_class_{}.tif'.format(lu), mtx_current_lu_clump_size)
+                self.write_dataset('CLUMPS_LU/clump_flow_class_{}.tif'.format(lu), mtx_current_lu_clump_average_flow)
+                self.write_dataset('CLUMPS_LU/clump_pcap_class_{}.tif'.format(lu), mtx_current_lu_clump_area_per_capita)
+
                 # add to integrated grid
-                mtx_per_capita += rst_clump_pcap            
+                res_lu_clump_size += mtx_current_lu_clump_size
+                res_lu_clump_average_flow += mtx_current_lu_clump_average_flow                
+                res_lu_patch_area_per_capita += mtx_current_lu_clump_area_per_capita   
+
                 p.update(lu_progress, advance=1)
 
-        self.write_dataset('CLUMPS_LU/integrated_clump_pcap.tif', mtx_per_capita)
+        self.write_dataset('CLUMPS_LU/clumps_size.tif', res_lu_clump_size)
+        self.write_dataset('CLUMPS_LU/clumps_flow.tif', res_lu_clump_average_flow)
+        self.write_dataset('CLUMPS_LU/clumps_pcap.tif', res_lu_patch_area_per_capita)
 
         # done
         self.printStepCompleteInfo()
