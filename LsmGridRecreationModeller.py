@@ -21,6 +21,7 @@ import uuid
 from colorama import init as colorama_init
 from colorama import Fore, Back, Style
 from rich.progress import Progress, TaskProgressColumn, TimeElapsedColumn, MofNCompleteColumn, TextColumn, BarColumn
+import distancerasters as dr
 
 colorama_init()
 
@@ -62,7 +63,7 @@ class LsmGridRecreationModeller:
                     
     def make_environment(self):
         # create directories, if needed
-        dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'TMP', 'FLOWS', 'CLUMPS_LU']
+        dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'TMP', 'FLOWS', 'CLUMPS_LU', 'PROX']
         for d in dirs_required:
             cpath = "{}/{}/{}".format(self.dataPath, self.scenario_name, d)
             if not os.path.exists(cpath):
@@ -108,23 +109,28 @@ class LsmGridRecreationModeller:
         # import lsm
         self.lsm_rst, self.lsm_mtx, self.lsm_nodataMask = self.read_dataset(self.lsm_fileName)
 
-    def assess_map_units(self):       
+    def assess_map_units(self, compute_proximities = False):       
         
         self.progress = self.get_progress_bar()
-        self.task_assess_map_units = self.progress.add_task('[red]Assessing recreational potential', total=6)
+        step_count = 7 if compute_proximities else 6
+        self.task_assess_map_units = self.progress.add_task('[red]Assessing recreational potential', total=step_count)
         with self.progress as p:
             
             # detecting clumps
             self.detect_clumps()
                         
             # mask land-uses and detect edges on relevant classes
-            self.mask_landuses()            
+            self.mask_landuses()    
             self.detect_edges()
 
             # work on population disaggregation
             self.disaggregate_population()            
             self.beneficiaries_within_cost()
 
+            # determine raster-based proximities as cost-to-closest
+            if compute_proximities:
+                self.compute_distance_rasters(standalone = False)        
+            
             # determine supply per class
             self.class_total_supply()
 
@@ -193,6 +199,36 @@ class LsmGridRecreationModeller:
         
         # done
         self.advanceStepTotal()
+
+    def compute_distance_rasters(self, standalone = True):
+        self.printStepInfo("Computing distance rasters")
+        # determine proximity outward from relevant lu classes, including built-up
+        classes_for_proximity_calculation = self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
+        step_count = len(classes_for_proximity_calculation) # + 1
+
+        # if standalone, create new progress bar, otherwise use existing bar, and create task
+        if standalone:
+            self.progress = self.get_progress_bar()
+        current_task = self.progress.add_task("[white]Computing distance rasters", total=step_count)
+
+        # iterate over relevant classes
+        with self.progress as bar:
+            for lu in classes_for_proximity_calculation:
+                lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
+                src_mtx = self.read_band('MASKS/mask_{}.tif'.format(lu) if lu_type == "patch" else 'MASKS/edges_{}.tif'.format(lu))
+                my_dr = dr.DistanceRaster(src_mtx, progress_bar=False)
+                self.write_dataset("PROX/dr_{}.tif".format(lu), my_dr.dist_array)
+
+                if standalone:
+                    bar.update(current_task, advance=1)
+                else:
+                    self.progress.update(current_task, advance=1)
+        
+        # done
+        if not standalone:
+            self.advanceStepTotal()
+        else:
+            self.printStepCompleteInfo()
 
     def disaggregate_population(self):
         self.printStepInfo("Disaggregating population to built-up")
