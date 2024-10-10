@@ -200,11 +200,13 @@ class LsmGridRecreationModeller:
         # done
         self.advanceStepTotal()
 
-    def compute_distance_rasters(self, standalone = True):
+    def compute_distance_rasters(self, standalone = True, lu_classes = None, assess_builtup = False):
         self.printStepInfo("Computing distance rasters")
         # determine proximity outward from relevant lu classes, including built-up
-        classes_for_proximity_calculation = self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
-        step_count = len(classes_for_proximity_calculation) # + 1
+        classes_for_proximity_calculation = (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge) if lu_classes is None else lu_classes
+        step_count = len(classes_for_proximity_calculation)
+        if assess_builtup:
+            step_count += 1
 
         # if standalone, create new progress bar, otherwise use existing bar, and create task
         if standalone:
@@ -223,6 +225,17 @@ class LsmGridRecreationModeller:
                     bar.update(current_task, advance=1)
                 else:
                     self.progress.update(current_task, advance=1)
+
+            if assess_builtup:
+                src_mtx = self.read_band('MASKS/built-up.tif') 
+                my_dr = dr.DistanceRaster(src_mtx, progress_bar=False)
+                self.write_dataset("PROX/dr_built-up.tif".format(lu), my_dr.dist_array)
+
+                if standalone:
+                    bar.update(current_task, advance=1)
+                else:
+                    self.progress.update(current_task, advance=1)
+ 
         
         # done
         if standalone:
@@ -725,7 +738,6 @@ class LsmGridRecreationModeller:
         self.printStepCompleteInfo()
 
 
-
     # 
     # Clump detection in land-uses to determine size of patches and edges
     # To determine per-capita recreational area
@@ -823,8 +835,18 @@ class LsmGridRecreationModeller:
 
 
 
+    # 
+    # Approximation of distance-cost to closest entity per lu class 
+    #
+    #
+    def cost_to_closest(self):
+        self.printStepInfo("Assessing cost to closest")
+        
+        step_count = (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)) 
+        current_task = self.new_progress("[white]Averaging flow across costs", step_count)
 
-
+        with self.progress as p:
+            pass
 
 
 
