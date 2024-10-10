@@ -225,7 +225,7 @@ class LsmGridRecreationModeller:
                     self.progress.update(current_task, advance=1)
         
         # done
-        if not standalone:
+        if standalone:
             self.advanceStepTotal()
         else:
             self.printStepCompleteInfo()
