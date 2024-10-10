@@ -23,6 +23,7 @@ from colorama import Fore, Back, Style
 from rich.progress import Progress, TaskProgressColumn, TimeElapsedColumn, MofNCompleteColumn, TextColumn, BarColumn
 import distancerasters as dr
 from contextlib import nullcontext
+from typing import Tuple, List, Callable, Dict
 
 colorama_init()
 
@@ -33,7 +34,7 @@ class LsmGridRecreationModeller:
     scenario_intialized = False
 
     # working directory
-    dataPath = None
+    data_path = None
 
     # scenario name and corresponding population and lsm filenames
     scenario_name = "current"
@@ -58,15 +59,17 @@ class LsmGridRecreationModeller:
     progress = None     
     task_assess_map_units = None
 
-    def __init__(self, dataPath):
+    def __init__(self, data_path: str):
         os.system('cls' if os.name == 'nt' else 'clear')
-        self.dataPath = dataPath                
+        self.data_path = data_path                
                     
-    def make_environment(self):
+    def make_environment(self) -> None:
+        """Create required subfolders for raster files in the current scenario folder.
+        """
         # create directories, if needed
         dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'TMP', 'FLOWS', 'CLUMPS_LU', 'PROX', 'COSTS']
         for d in dirs_required:
-            cpath = "{}/{}/{}".format(self.dataPath, self.scenario_name, d)
+            cpath = "{}/{}/{}".format(self.data_path, self.scenario_name, d)
             if not os.path.exists(cpath):
                 os.makedirs(cpath)
 
@@ -99,10 +102,17 @@ class LsmGridRecreationModeller:
         elif paramType == 'costs':
             self.cost_thresholds = paramValue
       
-    def set_scenario(self, scenario_name, lsm_filename, population_filename):
+    def set_scenario(self, scenario_name: str, lu_file: str, population_file: str) -> None:
+        """Specify data sources for a given scenario, and import land-use raster file. Note that projection and resolution of raster files must match. 
+
+        Args:
+            scenario_name (str): Name of a scenario, i.e., subfolder within root of data path.
+            lu_file (str): Name of the land-use raster file for the given scenario.
+            population_file (str): Name of the population raster file for the given scenario.
+        """
         self.scenario_name = scenario_name
-        self.lsm_fileName = lsm_filename
-        self.pop_fileName = population_filename   
+        self.lsm_fileName = lu_file
+        self.pop_fileName = population_file   
         
         # check if folders are properly created in current scenario workspace
         self.make_environment()         
@@ -110,8 +120,12 @@ class LsmGridRecreationModeller:
         # import lsm
         self.lsm_rst, self.lsm_mtx, self.lsm_nodataMask = self.read_dataset(self.lsm_fileName)
 
-    def assess_map_units(self, compute_proximities = False):       
-        
+    def assess_map_units(self, compute_proximities: bool = False) -> None:
+        """Determine basic data and conduct basic operations on land-use classes, including occurence masking, edge detection, aggregation of built-up classes and population disaggregation, determination of beneficiaries within given cost thresholds, computation of proximities to land-uses (if requested), and land-use class-specific total supply.   
+
+        Args:
+            compute_proximities (bool, optional): Compute proximities to land-uses. This is very computationally heavy. Defaults to False.
+        """
         self.progress = self.get_progress_bar()
         step_count = 7 if compute_proximities else 6
         self.task_assess_map_units = self.progress.add_task('[red]Assessing recreational potential', total=step_count)
@@ -137,6 +151,11 @@ class LsmGridRecreationModeller:
 
         self.printStepCompleteInfo()
 
+    def assess_cost_windows(self) -> None:
+        """Determine basic indicators per cost threshold.
+        """
+        self.class_diversity()
+        self.class_flow()
 
     def advanceStepTotal(self):
         self.progress.update(self.task_assess_map_units, advance=1)
@@ -375,14 +394,22 @@ class LsmGridRecreationModeller:
     
 
 
-    #
-    # Aggregate lu-class-specific supply within a given cost to total supply within cost.
-    # It can be called following assessment of map units.
-    # A weighting schema for lu classes can be supplied.
-    #
     
-    def aggregate_class_total_supply(self, lu_weights = None, write_non_weighted_result = True):
 
+
+    #
+    # 
+    # 
+    # 
+    # The following functions are meant to be used / are public.
+    
+    def aggregate_class_total_supply(self, lu_weights: Dict[int,float] = None, write_non_weighted_result: bool = True) -> None:
+        """Aggregate total supply of land-use classes within each specified cost threshold. A weighting schema may be supplied, in which case a weighted average is determined as the sum of weighted class supply divided by the sum of all weights.
+
+        Args:
+            lu_weights (Dict[int,float], optional): Dictionary of land-use class weights, where keys refer to land-use classes, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
+            write_non_weighted_result (bool, optional): Indicates if non-weighted total supply be computed. Defaults to True.
+        """
         self.printStepInfo('Determining clumped total supply')
 
         # progress reporting        
@@ -838,16 +865,12 @@ class LsmGridRecreationModeller:
 
 
 
-    # 
-    # Approximation of distance-cost to closest entity per lu class 
-    #
-    #
-    def cost_to_closest(self, threshold_masking = True, distance_threshold = 25, builtup_masking=False):
+    def cost_to_closest(self, threshold_masking: bool = True, distance_threshold: float = 25, builtup_masking: bool = False) -> None:
         """Determines cost to closest entities of each land-use class, and determines averaged cost to closest.
 
         Args:
             threshold_masking (bool, optional): Should a maximum distance be considered for assessing costs to closest? Defaults to True.
-            distance_threshold (int, optional): Threshold for distance-cost-based masking. Defaults to 25.
+            distance_threshold (float, optional): Threshold for distance-cost-based masking. Defaults to 25.
             builtup_masking (bool, optional): Should result be restricted to built-up land-use pixels?. Defaults to False.
         """
         self.printStepInfo("Assessing cost to closest")
@@ -908,25 +931,55 @@ class LsmGridRecreationModeller:
     #
     #
 
-    def read_dataset(self, fileName, band = 1, nodataValues = [0], is_scenario_specific = True):
-        path = "{}/{}".format(self.dataPath, fileName) if not is_scenario_specific else "{}/{}/{}".format(self.dataPath, self.scenario_name, fileName)
+
+    def read_dataset(self, file_name: str, band: int = 1, nodata_values: List[float] = [0], is_scenario_specific:bool = True) -> Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]:
+        """Read a dataset and return reference to the dataset, values, and boolean mask of nodata values.
+
+        Args:
+            file_name (str): Filename of dataset to be read.
+            band (int, optional): Band to be read. Defaults to 1.
+            nodata_values (List[float], optional): List of values indicating nodata. Defaults to [0].
+            is_scenario_specific (bool, optional): Indicates if the specified datasource located in a scenario-specific subfolder (True) or at the data path root (False). Defaults to True.
+
+        Returns:
+            Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]: Dataset, data matrix, and mask of nodata values.
+        """
+        path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.scenario_name, file_name)
         if self.verbose_reporting:
             print(Fore.WHITE + Style.DIM + "READING {}".format(path) + Style.RESET_ALL)
         rst_ref = rasterio.open(path)
         band_data = rst_ref.read(band)
-        nodata_mask = np.isin(band_data, nodataValues, invert=False)
+        nodata_mask = np.isin(band_data, nodata_values, invert=False)
         return rst_ref, band_data, nodata_mask
         
-    def read_band(self, fileName, band = 1, is_scenario_specific = True):
-        path = "{}/{}".format(self.dataPath, fileName) if not is_scenario_specific else "{}/{}/{}".format(self.dataPath, self.scenario_name, fileName)
+    def read_band(self, file_name: str, band: int = 1, is_scenario_specific: bool = True) -> np.ndarray:
+        """Read a raster band. 
+
+        Args:
+            file_name (str): Filename of dataset to be read.
+            band (int, optional): Band to be read. Defaults to 1.
+            is_scenario_specific (bool, optional): Indicates if the specified datasource located in a scenario-specific subfolder (True) or at the data path root (False). Defaults to True.
+
+        Returns:
+            np.ndarray: _description_
+        """
+        path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.scenario_name, file_name)
         if self.verbose_reporting:
             print(Fore.WHITE + Style.DIM + "READING {}".format(path) + Style.RESET_ALL)
         rst_ref = rasterio.open(path)
         band_data = rst_ref.read(band)
         return band_data
     
-    def write_dataset(self, fileName, outdata, mask_nodata = True, is_scenario_specific = True):        
-        path = "{}/{}".format(self.dataPath, fileName) if not is_scenario_specific else "{}/{}/{}".format(self.dataPath, self.scenario_name, fileName)
+    def write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True) -> None:        
+        """Write a dataset to disk.
+
+        Args:
+            file_name (str): Name of file to be written.
+            outdata (np.ndarray): Values to be written.
+            mask_nodata (bool, optional): Indicates if nodata values should be masked using default nodata mask (True) or not (False). Defaults to True.
+            is_scenario_specific (bool, optional): Indicates whether file should be written in a scenario-specific subfolder (True) or in the data path root (False). Defaults to True.
+        """
+        path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.scenario_name, file_name)
         if self.verbose_reporting:
             print(Fore.YELLOW + Style.DIM + "WRITING {}".format(path) + Style.RESET_ALL)
 
@@ -946,11 +999,27 @@ class LsmGridRecreationModeller:
         ) as new_dataset:
             new_dataset.write(outdata, 1)
     
-    def get_value_matrix(self, fill_value = 0):
+    def get_value_matrix(self, fill_value: float = 0) -> np.ndarray:
+        """Return array with specified fill value. 
+
+        Args:
+            fill_value (float, optional): Fill value. Defaults to 0.
+
+        Returns:
+            np.ndarray: Filled array.
+        """
         rst_new = np.full(shape=self.lsm_mtx.shape, fill_value=fill_value, dtype=self.lsm_mtx.dtype)
         return rst_new        
 
-    def get_circular_kernel(self, kernel_size):
+    def get_circular_kernel(self, kernel_size: int) -> np.ndarray:
+        """Generate a kernel for floating-window operations with circular kernel mask.
+
+        Args:
+            kernel_size (int): Kernel diameter (in pixel). 
+
+        Returns:
+            np.ndarray: Circular kernel.
+        """
         kernel = np.zeros((kernel_size,kernel_size))
         radius = kernel_size/2
         # modern scikit uses a tuple for center
@@ -958,17 +1027,44 @@ class LsmGridRecreationModeller:
         kernel[rr,cc] = 1
         return kernel
 
-    def kernel_sum(self, subarr):
+    def kernel_sum(self, subarr: np.ndarray) -> float:
+        """Determine the sum of values in a kernel window.
+
+        Args:
+            subarr (np.ndarray): Kernel.
+
+        Returns:
+            float: Sum of kernel values.
+        """
         return(ndimage.sum(subarr))
     
-    def kernel_diversity(self, subarr):
+    def kernel_diversity(self, subarr: np.ndarray) -> float:
+        """Determine the number of unique elements in a kernel window.
+
+        Args:
+            subarr (np.ndarray): Kernel.
+
+        Returns:
+            int: Number of unique elements in kernel.
+        """
         return len(set(subarr))
 
-    def moving_window(self, data_mtx, kernel_func, kernel_size, kernel_shape = 'circular'):
+    def moving_window(self, data_mtx: np.ndarray, kernel_func: Callable[[np.ndarray], float], kernel_size: int, kernel_shape: str = 'circular') -> np.ndarray:
+        """Conduct a moving window operation with specified kernel shape and kernel size on an array.
+
+        Args:
+            data_mtx (np.ndarray): Input array
+            kernel_func (Callable[[np.ndarray], float]): Callable for aggregation/Summarization of values in kernel window.
+            kernel_size (int): Size of kernel (total with for squared kernel window, kernel diameter for circular kernel window).
+            kernel_shape (str, optional): Kernel shape: Circular kernel (circular) or squared/rectangular kernel (rect). Defaults to 'circular'.
+
+        Returns:
+            np.ndarray: Output array
+        """
         # make kernel
         kernel = self.get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
         # create result mtx as memmap
-        mtx_res = np.memmap("{}/{}/TMP/{}".format(self.dataPath, self.scenario_name, uuid.uuid1()), dtype=data_mtx.dtype, mode='w+', shape=data_mtx.shape) 
+        mtx_res = np.memmap("{}/{}/TMP/{}".format(self.data_path, self.scenario_name, uuid.uuid1()), dtype=data_mtx.dtype, mode='w+', shape=data_mtx.shape) 
         # apply moving window over input mtx
         ndimage.generic_filter(data_mtx, kernel_func, footprint=kernel, output=mtx_res, mode='constant', cval=0)
         mtx_res.flush()
