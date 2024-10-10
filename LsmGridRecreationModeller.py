@@ -842,26 +842,55 @@ class LsmGridRecreationModeller:
     # Approximation of distance-cost to closest entity per lu class 
     #
     #
-    def cost_to_closest(self, upper_threshold = 25):
+    def cost_to_closest(self, threshold_masking = False, distance_threshold = 25, out_of_reach_value = 0):
+        """Determines cost to closest entities of each land-use class, and determines averaged cost to closest.
+
+        Args:
+            threshold_masking (bool, optional): Should values above a distance threshold be masekd with a value indicating out-of-reach conditions. Defaults to False.
+            distance_threshold (int, optional): Threshold for distance-cost-based masking. Defaults to 25.
+            out_of_reach_value (int, optional): Value indicating out-of-reach conditions. Defaults to 0.
+        """
         self.printStepInfo("Assessing cost to closest")
 
-        included_lu_classes = self.lu_classes_recreation_patch + self.lu_classes_recreation_patch
+        included_lu_classes = self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
         step_count = len(included_lu_classes)         
         current_task = self.new_progress("[white]Assessing cost to closest", step_count)
 
         with self.progress as p:
+            # get built-up layer 
+            if threshold_masking:
+                print(Fore.YELLOW + Style.BRIGHT + "APPLYING THRESHOLD MASKING" + Style.RESET_ALL)
 
-            with lu in included_lu_classes:
+            mtx_builtup = self.read_band('MASKS/built-up.tif')
+
+            # raster for average result
+            mtx_average_cost = self.get_value_matrix()
+
+            for lu in included_lu_classes:
                 # import pre-computed proximity raster
-                proximity_mtx = self.read_band("PROX/dr_{}.tif".format(lu))
-                # mask out values that are greater than upper_threshold as they are considered irrelevant
-                # fill higher values with upper threshold
-                proximity_mtx[proximity_mtx > upper_threshold] = upper_threshold
+                mtx_proximity = self.read_band("PROX/dr_{}.tif".format(lu))
+                # mask out values that are greater than upper_threshold as they are considered irrelevant, if requested by user
+                if threshold_masking:
+                    # fill higher values with upper threshold
+                    mtx_proximity[mtx_proximity > distance_threshold] = out_of_reach_value
+                
                 # intersect with built-up to determine closest costs
-
+                # a simple multiplication should result in 
+                mtx_proximity = mtx_proximity * mtx_builtup
+                                
+                # write result to disk
+                self.write_dataset('COSTS/minimum_cost_{}.tif'.format(lu), mtx_proximity)
+                # add to result
+                mtx_average_cost += mtx_proximity
 
                 p.update(current_task, advance=1)
 
+        # export average cost grid
+        mtx_average_cost = mtx_average_cost / len(included_lu_classes)
+        self.write_dataset('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost)
+        
+        # done
+        self.printStepCompleteInfo()
 
 
 
