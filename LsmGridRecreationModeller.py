@@ -842,12 +842,13 @@ class LsmGridRecreationModeller:
     # Approximation of distance-cost to closest entity per lu class 
     #
     #
-    def cost_to_closest(self, threshold_masking = True, distance_threshold = 25):
+    def cost_to_closest(self, threshold_masking = True, distance_threshold = 25, builtup_masking=False):
         """Determines cost to closest entities of each land-use class, and determines averaged cost to closest.
 
         Args:
             threshold_masking (bool, optional): Should a maximum distance be considered for assessing costs to closest? Defaults to True.
             distance_threshold (int, optional): Threshold for distance-cost-based masking. Defaults to 25.
+            builtup_masking (bool, optional): Should result be restricted to built-up land-use pixels?. Defaults to False.
         """
         self.printStepInfo("Assessing cost to closest")
 
@@ -860,7 +861,8 @@ class LsmGridRecreationModeller:
             if threshold_masking:
                 print(Fore.YELLOW + Style.BRIGHT + "APPLYING THRESHOLD MASKING" + Style.RESET_ALL)
 
-            mtx_builtup = self.read_band('MASKS/built-up.tif')
+            if builtup_masking:
+                mtx_builtup = self.read_band('MASKS/built-up.tif')
 
             # raster for average result
             mtx_average_cost = self.get_value_matrix()
@@ -875,9 +877,10 @@ class LsmGridRecreationModeller:
                     # fill higher values with upper threshold
                     mtx_proximity[mtx_proximity > distance_threshold] = 0 # here, 0 is equal to the lsm nodata value
                 
-                # intersect with built-up to determine closest costs
-                # a simple multiplication should result in 
-                mtx_proximity = mtx_proximity * mtx_builtup
+                if builtup_masking:
+                    # intersect with built-up to determine closest costs
+                    # a simple multiplication should result in                     
+                    mtx_proximity = mtx_proximity * mtx_builtup
                                
                 # write result to disk
                 self.write_dataset('COSTS/minimum_cost_{}.tif'.format(lu), mtx_proximity)
