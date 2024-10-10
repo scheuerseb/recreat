@@ -64,7 +64,7 @@ class LsmGridRecreationModeller:
                     
     def make_environment(self):
         # create directories, if needed
-        dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'TMP', 'FLOWS', 'CLUMPS_LU', 'PROX']
+        dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'TMP', 'FLOWS', 'CLUMPS_LU', 'PROX', 'COSTS']
         for d in dirs_required:
             cpath = "{}/{}/{}".format(self.dataPath, self.scenario_name, d)
             if not os.path.exists(cpath):
@@ -205,14 +205,16 @@ class LsmGridRecreationModeller:
         self.printStepInfo("Computing distance rasters")
         # determine proximity outward from relevant lu classes, including built-up
         classes_for_proximity_calculation = (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge) if lu_classes is None else lu_classes
+        
         step_count = len(classes_for_proximity_calculation)
         if assess_builtup:
             step_count += 1
 
         # if standalone, create new progress bar, otherwise use existing bar, and create task
         if standalone:
-            self.progress = self.get_progress_bar()
-        current_task = self.progress.add_task("[white]Computing distance rasters", total=step_count)
+            current_task = self.new_progress("[white]Computing distance rasters", total=step_count)
+        else:
+            current_task = self.progress.add_task("[white]Computing distance rasters", total=step_count)
 
         # iterate over relevant classes
         with self.progress if standalone else nullcontext() as bar:
@@ -239,7 +241,7 @@ class LsmGridRecreationModeller:
  
         
         # done
-        if standalone:
+        if not standalone:
             self.advanceStepTotal()
         else:
             self.printStepCompleteInfo()
@@ -840,14 +842,25 @@ class LsmGridRecreationModeller:
     # Approximation of distance-cost to closest entity per lu class 
     #
     #
-    def cost_to_closest(self):
+    def cost_to_closest(self, upper_threshold = 25):
         self.printStepInfo("Assessing cost to closest")
-        
-        step_count = (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)) 
-        current_task = self.new_progress("[white]Averaging flow across costs", step_count)
+
+        included_lu_classes = self.lu_classes_recreation_patch + self.lu_classes_recreation_patch
+        step_count = len(included_lu_classes)         
+        current_task = self.new_progress("[white]Assessing cost to closest", step_count)
 
         with self.progress as p:
-            pass
+
+            with lu in included_lu_classes:
+                # import pre-computed proximity raster
+                proximity_mtx = self.read_band("PROX/dr_{}.tif".format(lu))
+                # mask out values that are greater than upper_threshold as they are considered irrelevant
+                # fill higher values with upper threshold
+                proximity_mtx[proximity_mtx > upper_threshold] = upper_threshold
+                # intersect with built-up to determine closest costs
+
+
+                p.update(current_task, advance=1)
 
 
 
