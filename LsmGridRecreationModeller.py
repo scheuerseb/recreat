@@ -22,6 +22,7 @@ from colorama import init as colorama_init
 from colorama import Fore, Back, Style
 from rich.progress import Progress, TaskProgressColumn, TimeElapsedColumn, MofNCompleteColumn, TextColumn, BarColumn
 import distancerasters as dr
+from contextlib import nullcontext
 
 colorama_init()
 
@@ -214,7 +215,7 @@ class LsmGridRecreationModeller:
         current_task = self.progress.add_task("[white]Computing distance rasters", total=step_count)
 
         # iterate over relevant classes
-        with self.progress as bar:
+        with self.progress if standalone else nullcontext() as bar:
             for lu in classes_for_proximity_calculation:
                 lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
                 src_mtx = self.read_band('MASKS/mask_{}.tif'.format(lu) if lu_type == "patch" else 'MASKS/edges_{}.tif'.format(lu))
