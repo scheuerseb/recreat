@@ -842,13 +842,12 @@ class LsmGridRecreationModeller:
     # Approximation of distance-cost to closest entity per lu class 
     #
     #
-    def cost_to_closest(self, threshold_masking = False, distance_threshold = 25, out_of_reach_value = 0):
+    def cost_to_closest(self, threshold_masking = True, distance_threshold = 25):
         """Determines cost to closest entities of each land-use class, and determines averaged cost to closest.
 
         Args:
-            threshold_masking (bool, optional): Should values above a distance threshold be masekd with a value indicating out-of-reach conditions. Defaults to False.
+            threshold_masking (bool, optional): Should a maximum distance be considered for assessing costs to closest? Defaults to True.
             distance_threshold (int, optional): Threshold for distance-cost-based masking. Defaults to 25.
-            out_of_reach_value (int, optional): Value indicating out-of-reach conditions. Defaults to 0.
         """
         self.printStepInfo("Assessing cost to closest")
 
@@ -865,6 +864,8 @@ class LsmGridRecreationModeller:
 
             # raster for average result
             mtx_average_cost = self.get_value_matrix()
+            mtx_lu_cost_count_considered = self.get_value_matrix()
+
 
             for lu in included_lu_classes:
                 # import pre-computed proximity raster
@@ -872,21 +873,26 @@ class LsmGridRecreationModeller:
                 # mask out values that are greater than upper_threshold as they are considered irrelevant, if requested by user
                 if threshold_masking:
                     # fill higher values with upper threshold
-                    mtx_proximity[mtx_proximity > distance_threshold] = out_of_reach_value
+                    mtx_proximity[mtx_proximity > distance_threshold] = 0 # here, 0 is equal to the lsm nodata value
                 
                 # intersect with built-up to determine closest costs
                 # a simple multiplication should result in 
                 mtx_proximity = mtx_proximity * mtx_builtup
-                                
+                               
                 # write result to disk
                 self.write_dataset('COSTS/minimum_cost_{}.tif'.format(lu), mtx_proximity)
                 # add to result
                 mtx_average_cost += mtx_proximity
 
+                # now mask values that are not 0 with 1, to determine for each pixel the number of costs considered
+                mtx_proximity[mtx_proximity != 0] = 1
+                mtx_lu_cost_count_considered += mtx_proximity
+                
                 p.update(current_task, advance=1)
 
         # export average cost grid
-        mtx_average_cost = mtx_average_cost / len(included_lu_classes)
+        # prior, determine actual average. here, consider per each pixel the number of grids added.
+        mtx_average_cost = np.divide(mtx_average_cost, mtx_lu_cost_count_considered, where=mtx_lu_cost_count_considered > 0)
         self.write_dataset('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost)
         
         # done
