@@ -223,7 +223,14 @@ class LsmGridRecreationModeller:
         # done
         self.advanceStepTotal()
 
-    def compute_distance_rasters(self, standalone = True, lu_classes = None, assess_builtup = False):
+    def compute_distance_rasters(self, standalone: bool = True, lu_classes: List[int] = None, assess_builtup: bool = False) -> None:
+        """Generate proximity rasters to land-use classes.
+
+        Args:
+            standalone (bool, optional): Set this option to true if this method is invoked manually. Defaults to True.
+            lu_classes (List[int], optional): List of integers, i.e., land-use classes to assess. Defaults to None.
+            assess_builtup (bool, optional): Assesses proximities to built-up, if true. Defaults to False.
+        """
         self.printStepInfo("Computing distance rasters")
         # determine proximity outward from relevant lu classes, including built-up
         classes_for_proximity_calculation = (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge) if lu_classes is None else lu_classes
@@ -268,7 +275,12 @@ class LsmGridRecreationModeller:
         else:
             self.printStepCompleteInfo()
 
-    def disaggregate_population(self):
+    def disaggregate_population(self, write_scaled_result: bool = True) -> None:
+        """Aggregates built-up land-use classes into a single raster of built-up areas, and intersects built-up with the scenario-specific population grid to provide disaggregated population.
+
+        Args:
+            write_scaled_result (bool, optional): Export min-max scaled result, if True. Defaults to True.
+        """
         self.printStepInfo("Disaggregating population to built-up")
         task_pop = self.progress.add_task("[white]Population disaggregation", total=len(self.lu_classes_builtup)+2)
         mtx_builtup = self._get_value_matrix()
@@ -284,6 +296,12 @@ class LsmGridRecreationModeller:
         mtx_builtup = mtx_builtup * mtx_pop
         # write pop raster to disk
         self._write_dataset("DEMAND/disaggregated_population.tif", mtx_builtup)
+        if write_scaled_result:
+            scaler = MinMaxScaler()
+            mtx_builtup = scaler.fit_transform(mtx_builtup.reshape([-1,1]))
+        self._write_dataset("DEMAND/scaled_disaggregated_population.tif", mtx_builtup.reshape(self.lsm_mtx.shape))
+
+
         self.progress.update(task_pop, advance=1) 
         
         # done   
