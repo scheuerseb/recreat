@@ -286,7 +286,7 @@ class LsmGridRecreationModeller:
         if not standalone:
             current_task = self.progress.add_task("[white]Population disaggregation", total=len(self.lu_classes_builtup))
         else:
-            current_task = self.new_progress("[white]Population disaggregation", total=len(self.lu_classes_builtup))
+            current_task = self.new_progress("[white]Population disaggregation", step_count=len(self.lu_classes_builtup))
 
         with self.progress if standalone else nullcontext() as bar:
 
