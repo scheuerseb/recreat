@@ -11,18 +11,21 @@
 #####################
 
 
-import numpy as np
-import rasterio
-from scipy import ndimage
-from skimage.draw import disk
-from alive_progress import alive_bar
 import os
 import uuid
+
 from colorama import init as colorama_init
 from colorama import Fore, Back, Style
 from rich.progress import Progress, TaskProgressColumn, TimeElapsedColumn, MofNCompleteColumn, TextColumn, BarColumn
-import distancerasters as dr
 from contextlib import nullcontext
+
+import rasterio
+from scipy import ndimage
+import numpy as np
+from skimage.draw import disk
+from sklearn.preprocessing import MinMaxScaler
+import distancerasters as dr
+
 from typing import Tuple, List, Callable, Dict
 
 colorama_init()
@@ -118,7 +121,7 @@ class LsmGridRecreationModeller:
         self.make_environment()         
         
         # import lsm
-        self.lsm_rst, self.lsm_mtx, self.lsm_nodataMask = self.read_dataset(self.lsm_fileName)
+        self.lsm_rst, self.lsm_mtx, self.lsm_nodataMask = self._read_dataset(self.lsm_fileName)
 
     def assess_map_units(self, compute_proximities: bool = False) -> None:
         """Determine basic data and conduct basic operations on land-use classes, including occurence masking, edge detection, aggregation of built-up classes and population disaggregation, determination of beneficiaries within given cost thresholds, computation of proximities to land-uses (if requested), and land-use class-specific total supply.   
@@ -172,10 +175,10 @@ class LsmGridRecreationModeller:
     def detect_clumps(self):
         self.printStepInfo("Detecting clumps")
         clump_connectivity = np.full((3,3), 1)
-        rst_clumps = self.get_value_matrix()
+        rst_clumps = self._get_value_matrix()
         nr_clumps = ndimage.label(self.lsm_mtx, structure=clump_connectivity, output=rst_clumps)
         print(Fore.YELLOW + Style.BRIGHT + "{} CLUMPS FOUND".format(nr_clumps) + Style.RESET_ALL)
-        self.write_dataset("MASKS/clumps.tif", rst_clumps)        
+        self._write_dataset("MASKS/clumps.tif", rst_clumps)        
         # make slices to speed-up window operations
         self.clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))        
         # done
@@ -195,7 +198,7 @@ class LsmGridRecreationModeller:
             # mask with binary values 
             current_lu_mask[mask] = 1
             current_lu_mask[~mask] = 0
-            self.write_dataset("MASKS/mask_{}.tif".format(lu), current_lu_mask)
+            self._write_dataset("MASKS/mask_{}.tif".format(lu), current_lu_mask)
             self.progress.update(task_masking, advance=1)
 
         # done    
@@ -208,12 +211,12 @@ class LsmGridRecreationModeller:
             task_edges = self.progress.add_task("[white]Detecting edges", total=len(self.lu_classes_recreation_edge))
             for lu in self.lu_classes_recreation_edge:            
                 inputMaskFileName = "MASKS/mask_{}.tif".format(lu)    
-                mtx_mask = self.read_band(inputMaskFileName)            
+                mtx_mask = self._read_band(inputMaskFileName)            
                 # apply a 3x3 rectangular sliding window to determine pixel value diversity in window
-                rst_edgePixelDiversity = self.moving_window(mtx_mask, self.kernel_diversity, 3, 'rect') 
+                rst_edgePixelDiversity = self._moving_window(mtx_mask, self._kernel_diversity, 3, 'rect') 
                 rst_edgePixelDiversity = rst_edgePixelDiversity - 1
                 mtx_mask = mtx_mask * rst_edgePixelDiversity
-                self.write_dataset("MASKS/edges_{}.tif".format(lu), mtx_mask)
+                self._write_dataset("MASKS/edges_{}.tif".format(lu), mtx_mask)
                 del rst_edgePixelDiversity
                 self.progress.update(task_edges, advance=1)
         
@@ -239,9 +242,9 @@ class LsmGridRecreationModeller:
         with self.progress if standalone else nullcontext() as bar:
             for lu in classes_for_proximity_calculation:
                 lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
-                src_mtx = self.read_band('MASKS/mask_{}.tif'.format(lu) if lu_type == "patch" else 'MASKS/edges_{}.tif'.format(lu))
+                src_mtx = self._read_band('MASKS/mask_{}.tif'.format(lu) if lu_type == "patch" else 'MASKS/edges_{}.tif'.format(lu))
                 my_dr = dr.DistanceRaster(src_mtx, progress_bar=False)
-                self.write_dataset("PROX/dr_{}.tif".format(lu), my_dr.dist_array)
+                self._write_dataset("PROX/dr_{}.tif".format(lu), my_dr.dist_array)
 
                 if standalone:
                     bar.update(current_task, advance=1)
@@ -249,9 +252,9 @@ class LsmGridRecreationModeller:
                     self.progress.update(current_task, advance=1)
 
             if assess_builtup:
-                src_mtx = self.read_band('MASKS/built-up.tif') 
+                src_mtx = self._read_band('MASKS/built-up.tif') 
                 my_dr = dr.DistanceRaster(src_mtx, progress_bar=False)
-                self.write_dataset("PROX/dr_built-up.tif".format(lu), my_dr.dist_array)
+                self._write_dataset("PROX/dr_built-up.tif".format(lu), my_dr.dist_array)
 
                 if standalone:
                     bar.update(current_task, advance=1)
@@ -268,19 +271,19 @@ class LsmGridRecreationModeller:
     def disaggregate_population(self):
         self.printStepInfo("Disaggregating population to built-up")
         task_pop = self.progress.add_task("[white]Population disaggregation", total=len(self.lu_classes_builtup)+2)
-        mtx_builtup = self.get_value_matrix()
-        mtx_pop = self.read_band(self.pop_fileName)
+        mtx_builtup = self._get_value_matrix()
+        mtx_pop = self._read_band(self.pop_fileName)
         for lu in self.lu_classes_builtup:
-            rst_mtx = self.read_band('MASKS/mask_{}.tif'.format(lu))
+            rst_mtx = self._read_band('MASKS/mask_{}.tif'.format(lu))
             mtx_builtup += rst_mtx   
             self.progress.update(task_pop, advance=1)                 
         # write built-up raster to disk
-        self.write_dataset("MASKS/built-up.tif", mtx_builtup)
+        self._write_dataset("MASKS/built-up.tif", mtx_builtup)
         self.progress.update(task_pop, advance=1)                 
         # multiply residential built-up pixels with pop raster        
         mtx_builtup = mtx_builtup * mtx_pop
         # write pop raster to disk
-        self.write_dataset("DEMAND/disaggregated_population.tif", mtx_builtup)
+        self._write_dataset("DEMAND/disaggregated_population.tif", mtx_builtup)
         self.progress.update(task_pop, advance=1) 
         
         # done   
@@ -292,14 +295,14 @@ class LsmGridRecreationModeller:
         step_count = len(self.cost_thresholds) * len(self.clump_slices)
         task_popcost = self.progress.add_task("[white]Determining beneficiaries", total=step_count)
 
-        mtx_disaggregated_population = self.read_band("DEMAND/disaggregated_population.tif")        
+        mtx_disaggregated_population = self._read_band("DEMAND/disaggregated_population.tif")        
         
         # also beneficiaries need to be clumped
-        rst_clumps = self.read_band("MASKS/clumps.tif")
+        rst_clumps = self._read_band("MASKS/clumps.tif")
         
         for c in self.cost_thresholds:
 
-            mtx_pop_within_cost = self.get_value_matrix()
+            mtx_pop_within_cost = self._get_value_matrix()
 
             # now operate over clumps, in order to safe some computational time
             for patch_idx in range(len(self.clump_slices)):
@@ -315,7 +318,7 @@ class LsmGridRecreationModeller:
                 sliced_pop_mtx[~obj_mask] = 0
 
                 # now all pixels outside of clump should be zeroed, and we can determine total supply within sliding window
-                sliding_pop = self.moving_window(sliced_pop_mtx, self.kernel_sum, c)
+                sliding_pop = self._moving_window(sliced_pop_mtx, self._kernel_sum, c)
                 sliding_pop[~obj_mask] = 0
                 mtx_pop_within_cost[obj_slice] += sliding_pop
                 
@@ -324,7 +327,7 @@ class LsmGridRecreationModeller:
                 # progress reporting
                 self.progress.update(task_popcost, advance=1)
 
-            self.write_dataset("DEMAND/beneficiaries_within_cost_{}.tif".format(c), mtx_pop_within_cost)
+            self._write_dataset("DEMAND/beneficiaries_within_cost_{}.tif".format(c), mtx_pop_within_cost)
 
         # done
         self.advanceStepTotal()
@@ -335,7 +338,7 @@ class LsmGridRecreationModeller:
         # do this for each clump, i.e., operate only on parts of masks corresponding to clumps, ignore patches/edges external to each clump
         self.printStepInfo("Determining clumped supply per class")
         # clumps are required to properly mask islands
-        rst_clumps = self.read_band("MASKS/clumps.tif")
+        rst_clumps = self._read_band("MASKS/clumps.tif")
 
         step_count = len(self.clump_slices) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
         task_supply = self.progress.add_task("[white]Determining clumped supply", total=step_count)
@@ -346,13 +349,13 @@ class LsmGridRecreationModeller:
                 # process supply of current class 
                 lu_supply_mtx = self.class_total_supply_for_lu_and_cost("MASKS/mask_{}.tif".format(lu), rst_clumps, c, task_supply)                            
                 # export current cost
-                self.write_dataset("SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, c), lu_supply_mtx)                
+                self._write_dataset("SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, c), lu_supply_mtx)                
                 
             for lu in self.lu_classes_recreation_edge:
                 # process supply of current class 
                 lu_supply_mtx = self.class_total_supply_for_lu_and_cost("MASKS/edges_{}.tif".format(lu), rst_clumps, c, task_supply)                            
                 # export current cost
-                self.write_dataset("SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, c), lu_supply_mtx)                
+                self._write_dataset("SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, c), lu_supply_mtx)                
 
         # done
         self.advanceStepTotal()
@@ -360,9 +363,9 @@ class LsmGridRecreationModeller:
     def class_total_supply_for_lu_and_cost(self, mask_path, rst_clumps, cost, progress_task = None):
         
         # grid to store lu supply 
-        lu_supply_mtx = self.get_value_matrix()
+        lu_supply_mtx = self._get_value_matrix()
         # get land-use current mask
-        full_lu_mtx = self.read_band(mask_path)
+        full_lu_mtx = self._read_band(mask_path)
 
         # now operate over clumps, in order to safe some computational time
         for patch_idx in range(len(self.clump_slices)):
@@ -378,7 +381,7 @@ class LsmGridRecreationModeller:
             sliced_lu_mtx[~obj_mask] = 0
 
             # now all pixels outside of clump should be zeroed, and we can determine total supply within sliding window
-            sliding_supply = self.moving_window(sliced_lu_mtx, self.kernel_sum, cost)
+            sliding_supply = self._moving_window(sliced_lu_mtx, self._kernel_sum, cost)
             sliding_supply[~obj_mask] = 0
             lu_supply_mtx[obj_slice] += sliding_supply
             
@@ -401,14 +404,15 @@ class LsmGridRecreationModeller:
     # 
     # 
     # 
-    # The following functions are meant to be used / are public.
+    # The following functions are meant to be used / would be considered public methods.
     
-    def aggregate_class_total_supply(self, lu_weights: Dict[int,float] = None, write_non_weighted_result: bool = True) -> None:
+    def aggregate_class_total_supply(self, lu_weights: Dict[int,float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
         """Aggregate total supply of land-use classes within each specified cost threshold. A weighting schema may be supplied, in which case a weighted average is determined as the sum of weighted class supply divided by the sum of all weights.
 
         Args:
             lu_weights (Dict[int,float], optional): Dictionary of land-use class weights, where keys refer to land-use classes, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
             write_non_weighted_result (bool, optional): Indicates if non-weighted total supply be computed. Defaults to True.
+            write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
         """
         self.printStepInfo('Determining clumped total supply')
 
@@ -420,64 +424,21 @@ class LsmGridRecreationModeller:
 
             for c in self.cost_thresholds:
                 # get aggregation for current cost threshold
-                current_total_supply_at_cost, current_weighted_total_supply_at_cost = self.get_aggregate_class_total_supply_for_cost(c, lu_weights, write_non_weighted_result, current_task)                                           
+                current_total_supply_at_cost, current_weighted_total_supply_at_cost = self._get_aggregate_class_total_supply_for_cost(c, lu_weights, write_non_weighted_result, current_task)                                           
                 
                 # export total for costs, if requested
                 if write_non_weighted_result:                
-                    self.write_dataset("INDICATORS/totalsupply_cost_{}.tif".format(c), current_total_supply_at_cost)                
+                    self._write_dataset("INDICATORS/totalsupply_cost_{}.tif".format(c), current_total_supply_at_cost)                
                 # export weighted total, if applicable
                 if lu_weights is not None:                    
-                    self.write_dataset("INDICATORS/weighted_totalsupply_cost_{}.tif".format(c), current_weighted_total_supply_at_cost)
+                    self._write_dataset("INDICATORS/weighted_totalsupply_cost_{}.tif".format(c), current_weighted_total_supply_at_cost)
                     
         # done
         self.printStepCompleteInfo()
 
-    def get_aggregate_class_total_supply_for_cost(self, cost, lu_weights = None, write_non_weighted_result = True, task_progress = None):                        
-        
-        current_total_supply_at_cost = None
-        current_weighted_total_supply_at_cost = None
-
-        # make grids for the results: zero-valued grids with full lsm extent
-        if write_non_weighted_result:
-            current_total_supply_at_cost = self.get_value_matrix() 
-        if lu_weights is not None:
-            current_weighted_total_supply_at_cost = self.get_value_matrix()
-        
-        for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
-            # determine source of list
-            lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"                    
-            lu_supply_mtx = self.get_supply_for_lu_and_cost(lu, lu_type, cost)
-
-            # add to aggregations
-            if write_non_weighted_result:
-                current_total_supply_at_cost += lu_supply_mtx
-            if lu_weights is not None:
-                current_weighted_total_supply_at_cost += (lu_supply_mtx * lu_weights[lu])
-
-            if task_progress is not None:
-                self.progress.update(task_progress, advance=1) 
-
-        if lu_weights is not None:
-            current_weighted_total_supply_at_cost = current_weighted_total_supply_at_cost / sum(lu_weights.values())
-
-        # return aggregated grids for given cost
-        return current_total_supply_at_cost, current_weighted_total_supply_at_cost
-
-    def get_supply_for_lu_and_cost(self, lu, lu_type, cost):        
-        # make filename
-        filename = "SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, cost) if lu_type == 'patch' else "SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, cost)
-        # get supply of current class 
-        lu_supply_mtx = self.read_band(filename) 
-        # return supply
-        return lu_supply_mtx
     
-    def get_mask_for_lu(self, lu, lu_type):        
-        # make filename
-        filename = "MASKS/mask_{}.tif".format(lu) if lu_type == 'patch' else "MASKS/edges_{}.tif".format(lu)
-        # get mask of current class 
-        lu_mask = self.read_band(filename) 
-        # return mask
-        return lu_mask
+
+
     
         
     #
@@ -494,18 +455,18 @@ class LsmGridRecreationModeller:
         with self.progress as p:
 
             for c in self.cost_thresholds:            
-                mtx_diversity_at_cost = self.get_value_matrix()
+                mtx_diversity_at_cost = self._get_value_matrix()
 
                 for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
                     # determine source of list
                     lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"                    
-                    mtx_supply = self.get_supply_for_lu_and_cost(lu, lu_type, c)
+                    mtx_supply = self._get_supply_for_lu_and_cost(lu, lu_type, c)
                     mtx_supply[mtx_supply > 0] = 1
                     mtx_diversity_at_cost += mtx_supply
                     p.update(current_task, advance=1)
                 
                 # export current cost diversity
-                self.write_dataset("INDICATORS/diversity_cost_{}.tif".format(c), mtx_diversity_at_cost) 
+                self._write_dataset("INDICATORS/diversity_cost_{}.tif".format(c), mtx_diversity_at_cost) 
 
         # done
         self.printStepCompleteInfo()
@@ -525,16 +486,16 @@ class LsmGridRecreationModeller:
         with self.progress as p:
             
             for c in self.cost_thresholds:
-                mtx_pop = self.read_band("DEMAND/beneficiaries_within_cost_{}.tif".format(c))
+                mtx_pop = self._read_band("DEMAND/beneficiaries_within_cost_{}.tif".format(c))
 
                 for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
                     # determine source of list
                     lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"   
-                    mtx_lu = self.get_mask_for_lu(lu, lu_type)
+                    mtx_lu = self._get_mask_for_lu(lu, lu_type)
                     mtx_res = mtx_lu * mtx_pop
                     # write result
                     outfile_name = "FLOWS/flow_class_{}_cost_{}.tif".format(lu, c) if lu_type == 'patch' else "FLOWS/flow_edge_class_{}_cost_{}.tif".format(lu, c)
-                    self.write_dataset(outfile_name, mtx_res)
+                    self._write_dataset(outfile_name, mtx_res)
                     p.update(current_task, advance=1)
 
         # done
@@ -567,23 +528,23 @@ class LsmGridRecreationModeller:
 
             # def. case
             if write_non_weighted_result:
-                non_weighted_average_total_supply = self.get_value_matrix()            
+                non_weighted_average_total_supply = self._get_value_matrix()            
             # def. case + cost weighting
             if cost_weights is not None:
-                cost_weighted_average_total_supply = self.get_value_matrix()                
+                cost_weighted_average_total_supply = self._get_value_matrix()                
 
             if lu_weights is not None:
                 # lu weights only
-                lu_weighted_average_total_supply = self.get_value_matrix()
+                lu_weighted_average_total_supply = self._get_value_matrix()
                 if cost_weights is not None:
                     # both weights
-                    bi_weighted_average_total_supply = self.get_value_matrix()
+                    bi_weighted_average_total_supply = self._get_value_matrix()
 
             # iterate over costs
             for c in self.cost_thresholds:
 
                 # re-aggregate lu supply within cost, using currently supplied weights
-                mtx_current_cost_total_supply, mtx_current_cost_weighted_total_supply = self.get_aggregate_class_total_supply_for_cost(c, lu_weights, write_non_weighted_result, current_task)                                           
+                mtx_current_cost_total_supply, mtx_current_cost_weighted_total_supply = self._get_aggregate_class_total_supply_for_cost(c, lu_weights, write_non_weighted_result, current_task)                                           
                 
                 if write_non_weighted_result:
                     non_weighted_average_total_supply += mtx_current_cost_total_supply
@@ -601,22 +562,22 @@ class LsmGridRecreationModeller:
             # def. case
             if write_non_weighted_result:
                 non_weighted_average_total_supply = non_weighted_average_total_supply / len(self.cost_thresholds)
-                self.write_dataset("INDICATORS/non_weighted_avg_totalsupply.tif", non_weighted_average_total_supply)
+                self._write_dataset("INDICATORS/non_weighted_avg_totalsupply.tif", non_weighted_average_total_supply)
 
             # def. case + cost weighting
             if cost_weights is not None:
                 cost_weighted_average_total_supply = cost_weighted_average_total_supply / sum(cost_weights.values())
-                self.write_dataset("INDICATORS/cost_weighted_avg_totalsupply.tif", cost_weighted_average_total_supply)
+                self._write_dataset("INDICATORS/cost_weighted_avg_totalsupply.tif", cost_weighted_average_total_supply)
             
             if lu_weights is not None:
                 # lu weights only
                 lu_weighted_average_total_supply = lu_weighted_average_total_supply / len(self.cost_thresholds)
-                self.write_dataset("INDICATORS/landuse_weighted_avg_totalsupply.tif", lu_weighted_average_total_supply)
+                self._write_dataset("INDICATORS/landuse_weighted_avg_totalsupply.tif", lu_weighted_average_total_supply)
 
                 if cost_weights is not None:
                     # both weights
                     bi_weighted_average_total_supply = bi_weighted_average_total_supply / sum(cost_weights.values())
-                    self.write_dataset("INDICATORS/bi_weighted_avg_totalsupply.tif", bi_weighted_average_total_supply)
+                    self._write_dataset("INDICATORS/bi_weighted_avg_totalsupply.tif", bi_weighted_average_total_supply)
             
         # done
         self.printStepCompleteInfo()
@@ -638,13 +599,13 @@ class LsmGridRecreationModeller:
 
             # result raster
             if write_non_weighted_result:
-                average_diversity = self.get_value_matrix()
+                average_diversity = self._get_value_matrix()
             if cost_weights is not None:
-                cost_weighted_average_diversity = self.get_value_matrix()
+                cost_weighted_average_diversity = self._get_value_matrix()
 
             # iterate over cost thresholds and aggregate cost-specific diversities into result
             for c in self.cost_thresholds:
-                mtx_current_diversity = self.read_band("INDICATORS/diversity_cost_{}.tif".format(c)) 
+                mtx_current_diversity = self._read_band("INDICATORS/diversity_cost_{}.tif".format(c)) 
                 if write_non_weighted_result:
                     average_diversity += mtx_current_diversity
                 if cost_weights is not None:
@@ -655,11 +616,11 @@ class LsmGridRecreationModeller:
             # export averaged diversity grids
             if write_non_weighted_result:
                 average_diversity = average_diversity / len(self.cost_thresholds)
-                self.write_dataset("INDICATORS/non_weighted_avg_diversity.tif", average_diversity)
+                self._write_dataset("INDICATORS/non_weighted_avg_diversity.tif", average_diversity)
                         
             if cost_weights is not None:
                 cost_weighted_average_diversity = cost_weighted_average_diversity / sum(cost_weights.values())
-                self.write_dataset("INDICATORS/cost_weighted_avg_diversity.tif", cost_weighted_average_diversity)
+                self._write_dataset("INDICATORS/cost_weighted_avg_diversity.tif", cost_weighted_average_diversity)
         
         # done
         self.printStepCompleteInfo()
@@ -679,13 +640,13 @@ class LsmGridRecreationModeller:
 
             # result raster
             if write_non_weighted_result:
-                average_pop = self.get_value_matrix()
+                average_pop = self._get_value_matrix()
             if cost_weights is not None:
-                cost_weighted_average_pop = self.get_value_matrix()
+                cost_weighted_average_pop = self._get_value_matrix()
 
             # iterate over cost thresholds and aggregate cost-specific beneficiaries into result
             for c in self.cost_thresholds:
-                mtx_current_pop = self.read_band("DEMAND/beneficiaries_within_cost_{}.tif".format(c)) 
+                mtx_current_pop = self._read_band("DEMAND/beneficiaries_within_cost_{}.tif".format(c)) 
                 if write_non_weighted_result:
                     average_pop += mtx_current_pop
                 if cost_weights is not None:
@@ -695,10 +656,10 @@ class LsmGridRecreationModeller:
             # export averaged diversity grids
             if write_non_weighted_result:
                 average_pop = average_pop / len(self.cost_thresholds)
-                self.write_dataset("INDICATORS/non_weighted_avg_population.tif", average_pop)
+                self._write_dataset("INDICATORS/non_weighted_avg_population.tif", average_pop)
             if cost_weights is not None:
                 cost_weighted_average_pop = cost_weighted_average_pop / sum(cost_weights.values())
-                self.write_dataset("INDICATORS/cost_weighted_avg_population.tif", cost_weighted_average_pop)
+                self._write_dataset("INDICATORS/cost_weighted_avg_population.tif", cost_weighted_average_pop)
 
         # done
         self.printStepCompleteInfo()
@@ -720,25 +681,25 @@ class LsmGridRecreationModeller:
 
             # result grids for integrating averaged flows
             if write_non_weighted_result:
-                integrated_average_flow = self.get_value_matrix()
+                integrated_average_flow = self._get_value_matrix()
             if cost_weights is not None:
-                integrated_cost_weighted_average_flow = self.get_value_matrix()
+                integrated_cost_weighted_average_flow = self._get_value_matrix()
 
             # iterate over cost thresholds and lu classes                
             for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):               
 
                 # result grids for average flow for current cost threshold
                 if write_non_weighted_result:
-                    class_average_flow = self.get_value_matrix()
+                    class_average_flow = self._get_value_matrix()
                 if cost_weights is not None:
-                    cost_weighted_class_average_flow = self.get_value_matrix()
+                    cost_weighted_class_average_flow = self._get_value_matrix()
 
                 for c in self.cost_thresholds:
                     # determine source of list
                     lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
                     filename = "FLOWS/flow_class_{}_cost_{}.tif".format(lu, c) if lu_type == 'patch' else "FLOWS/flow_edge_class_{}_cost_{}.tif".format(lu, c)
 
-                    mtx_current_flow = self.read_band(filename) 
+                    mtx_current_flow = self._read_band(filename) 
                     if write_non_weighted_result:
                         class_average_flow += mtx_current_flow
                     if cost_weights is not None:
@@ -749,21 +710,21 @@ class LsmGridRecreationModeller:
                 # export current class-averaged flow, and integrate with final product
                 if write_non_weighted_result:
                     class_average_flow = class_average_flow / len(self.cost_thresholds)
-                    self.write_dataset("FLOWS/average_flow_class_{}.tif".format(lu), class_average_flow)
+                    self._write_dataset("FLOWS/average_flow_class_{}.tif".format(lu), class_average_flow)
                     # add to integrated grid
                     integrated_average_flow += class_average_flow
 
                 if cost_weights is not None:
                     cost_weighted_class_average_flow = cost_weighted_class_average_flow / sum(cost_weights.values())
-                    self.write_dataset("FLOWS/cost_weighted_average_flow_class_{}.tif".format(lu), cost_weighted_class_average_flow)
+                    self._write_dataset("FLOWS/cost_weighted_average_flow_class_{}.tif".format(lu), cost_weighted_class_average_flow)
                     # add to integrated grid
                     integrated_cost_weighted_average_flow += cost_weighted_class_average_flow
 
             # export integrated grids
             if write_non_weighted_result:
-                self.write_dataset("FLOWS/integrated_avg_flow.tif", integrated_average_flow)
+                self._write_dataset("FLOWS/integrated_avg_flow.tif", integrated_average_flow)
             if cost_weights is not None:
-                self.write_dataset("FLOWS/integrated_cost_weighted_avg_flow.tif", integrated_cost_weighted_average_flow)
+                self._write_dataset("FLOWS/integrated_cost_weighted_avg_flow.tif", integrated_cost_weighted_average_flow)
 
         self.printStepCompleteInfo()
 
@@ -781,16 +742,16 @@ class LsmGridRecreationModeller:
         lu_progress = self.new_progress("[white]Per-capita assessment", step_count)
 
         # get average flow for all lu patches as basis for average per-capita area
-        mtx_average_flows = self.read_band("FLOWS/integrated_avg_flow.tif")
+        mtx_average_flows = self._read_band("FLOWS/integrated_avg_flow.tif")
         # make clump raster
         clump_connectivity = np.full((3,3), 1)
 
         with self.progress as p:
 
             # particularly for debugging reasons, write out all grids
-            res_lu_patch_area_per_capita = self.get_value_matrix()
-            res_lu_clump_size = self.get_value_matrix()
-            res_lu_clump_average_flow = self.get_value_matrix()
+            res_lu_patch_area_per_capita = self._get_value_matrix()
+            res_lu_clump_size = self._get_value_matrix()
+            res_lu_clump_average_flow = self._get_value_matrix()
 
             # iterate over land-uses
             for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):
@@ -798,11 +759,11 @@ class LsmGridRecreationModeller:
                 lu_type = 'patch' if lu in self.lu_classes_recreation_patch else 'edge'
                 
                 # get lu mask as basis to determine clump total area
-                mtx_current_lu_mask = self.get_mask_for_lu(lu, lu_type)
+                mtx_current_lu_mask = self._get_mask_for_lu(lu, lu_type)
 
-                mtx_current_lu_clumps = self.get_value_matrix()
-                mtx_current_lu_clump_size = self.get_value_matrix()
-                mtx_current_lu_clump_average_flow = self.get_value_matrix()
+                mtx_current_lu_clumps = self._get_value_matrix()
+                mtx_current_lu_clump_size = self._get_value_matrix()
+                mtx_current_lu_clump_average_flow = self._get_value_matrix()
 
                 nr_clumps = ndimage.label(mtx_current_lu_mask, structure=clump_connectivity, output=mtx_current_lu_clumps)
                 print(Fore.YELLOW + Style.BRIGHT + "{} CLUMPS FOUND FOR CLASS {}".format(nr_clumps, lu) + Style.RESET_ALL)
@@ -844,9 +805,9 @@ class LsmGridRecreationModeller:
                 mtx_current_lu_clump_area_per_capita = np.divide(mtx_current_lu_clump_size, mtx_current_lu_clump_average_flow, out=np.zeros_like(mtx_current_lu_clump_size), where=mtx_current_lu_clump_average_flow > 0)
 
                 # export result
-                self.write_dataset('CLUMPS_LU/clump_size_class_{}.tif'.format(lu), mtx_current_lu_clump_size)
-                self.write_dataset('CLUMPS_LU/clump_flow_class_{}.tif'.format(lu), mtx_current_lu_clump_average_flow)
-                self.write_dataset('CLUMPS_LU/clump_pcap_class_{}.tif'.format(lu), mtx_current_lu_clump_area_per_capita)
+                self._write_dataset('CLUMPS_LU/clump_size_class_{}.tif'.format(lu), mtx_current_lu_clump_size)
+                self._write_dataset('CLUMPS_LU/clump_flow_class_{}.tif'.format(lu), mtx_current_lu_clump_average_flow)
+                self._write_dataset('CLUMPS_LU/clump_pcap_class_{}.tif'.format(lu), mtx_current_lu_clump_area_per_capita)
 
                 # add to integrated grid
                 res_lu_clump_size += mtx_current_lu_clump_size
@@ -855,9 +816,9 @@ class LsmGridRecreationModeller:
 
                 p.update(lu_progress, advance=1)
 
-        self.write_dataset('CLUMPS_LU/clumps_size.tif', res_lu_clump_size)
-        self.write_dataset('CLUMPS_LU/clumps_flow.tif', res_lu_clump_average_flow)
-        self.write_dataset('CLUMPS_LU/clumps_pcap.tif', res_lu_patch_area_per_capita)
+        self._write_dataset('CLUMPS_LU/clumps_size.tif', res_lu_clump_size)
+        self._write_dataset('CLUMPS_LU/clumps_flow.tif', res_lu_clump_average_flow)
+        self._write_dataset('CLUMPS_LU/clumps_pcap.tif', res_lu_patch_area_per_capita)
 
         # done
         self.printStepCompleteInfo()
@@ -885,16 +846,16 @@ class LsmGridRecreationModeller:
                 print(Fore.YELLOW + Style.BRIGHT + "APPLYING THRESHOLD MASKING" + Style.RESET_ALL)
 
             if builtup_masking:
-                mtx_builtup = self.read_band('MASKS/built-up.tif')
+                mtx_builtup = self._read_band('MASKS/built-up.tif')
 
             # raster for average result
-            mtx_average_cost = self.get_value_matrix()
-            mtx_lu_cost_count_considered = self.get_value_matrix()
+            mtx_average_cost = self._get_value_matrix()
+            mtx_lu_cost_count_considered = self._get_value_matrix()
 
 
             for lu in included_lu_classes:
                 # import pre-computed proximity raster
-                mtx_proximity = self.read_band("PROX/dr_{}.tif".format(lu))
+                mtx_proximity = self._read_band("PROX/dr_{}.tif".format(lu))
                 # mask out values that are greater than upper_threshold as they are considered irrelevant, if requested by user
                 if threshold_masking:
                     # fill higher values with upper threshold
@@ -906,7 +867,7 @@ class LsmGridRecreationModeller:
                     mtx_proximity = mtx_proximity * mtx_builtup
                                
                 # write result to disk
-                self.write_dataset('COSTS/minimum_cost_{}.tif'.format(lu), mtx_proximity)
+                self._write_dataset('COSTS/minimum_cost_{}.tif'.format(lu), mtx_proximity)
                 # add to result
                 mtx_average_cost += mtx_proximity
 
@@ -919,7 +880,7 @@ class LsmGridRecreationModeller:
         # export average cost grid
         # prior, determine actual average. here, consider per each pixel the number of grids added.
         mtx_average_cost = np.divide(mtx_average_cost, mtx_lu_cost_count_considered, where=mtx_lu_cost_count_considered > 0)
-        self.write_dataset('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost)
+        self._write_dataset('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost)
         
         # done
         self.printStepCompleteInfo()
@@ -932,7 +893,7 @@ class LsmGridRecreationModeller:
     #
 
 
-    def read_dataset(self, file_name: str, band: int = 1, nodata_values: List[float] = [0], is_scenario_specific:bool = True) -> Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]:
+    def _read_dataset(self, file_name: str, band: int = 1, nodata_values: List[float] = [0], is_scenario_specific:bool = True) -> Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]:
         """Read a dataset and return reference to the dataset, values, and boolean mask of nodata values.
 
         Args:
@@ -952,7 +913,7 @@ class LsmGridRecreationModeller:
         nodata_mask = np.isin(band_data, nodata_values, invert=False)
         return rst_ref, band_data, nodata_mask
         
-    def read_band(self, file_name: str, band: int = 1, is_scenario_specific: bool = True) -> np.ndarray:
+    def _read_band(self, file_name: str, band: int = 1, is_scenario_specific: bool = True) -> np.ndarray:
         """Read a raster band. 
 
         Args:
@@ -970,7 +931,7 @@ class LsmGridRecreationModeller:
         band_data = rst_ref.read(band)
         return band_data
     
-    def write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True) -> None:        
+    def _write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True) -> None:        
         """Write a dataset to disk.
 
         Args:
@@ -999,7 +960,23 @@ class LsmGridRecreationModeller:
         ) as new_dataset:
             new_dataset.write(outdata, 1)
     
-    def get_value_matrix(self, fill_value: float = 0) -> np.ndarray:
+    def _get_supply_for_lu_and_cost(self, lu, lu_type, cost):        
+        # make filename
+        filename = "SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, cost) if lu_type == 'patch' else "SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, cost)
+        # get supply of current class 
+        lu_supply_mtx = self._read_band(filename) 
+        # return supply
+        return lu_supply_mtx
+    
+    def _get_mask_for_lu(self, lu, lu_type):        
+        # make filename
+        filename = "MASKS/mask_{}.tif".format(lu) if lu_type == 'patch' else "MASKS/edges_{}.tif".format(lu)
+        # get mask of current class 
+        lu_mask = self._read_band(filename) 
+        # return mask
+        return lu_mask
+
+    def _get_value_matrix(self, fill_value: float = 0) -> np.ndarray:
         """Return array with specified fill value. 
 
         Args:
@@ -1011,7 +988,7 @@ class LsmGridRecreationModeller:
         rst_new = np.full(shape=self.lsm_mtx.shape, fill_value=fill_value, dtype=self.lsm_mtx.dtype)
         return rst_new        
 
-    def get_circular_kernel(self, kernel_size: int) -> np.ndarray:
+    def _get_circular_kernel(self, kernel_size: int) -> np.ndarray:
         """Generate a kernel for floating-window operations with circular kernel mask.
 
         Args:
@@ -1027,7 +1004,7 @@ class LsmGridRecreationModeller:
         kernel[rr,cc] = 1
         return kernel
 
-    def kernel_sum(self, subarr: np.ndarray) -> float:
+    def _kernel_sum(self, subarr: np.ndarray) -> float:
         """Determine the sum of values in a kernel window.
 
         Args:
@@ -1038,7 +1015,7 @@ class LsmGridRecreationModeller:
         """
         return(ndimage.sum(subarr))
     
-    def kernel_diversity(self, subarr: np.ndarray) -> float:
+    def _kernel_diversity(self, subarr: np.ndarray) -> float:
         """Determine the number of unique elements in a kernel window.
 
         Args:
@@ -1049,7 +1026,7 @@ class LsmGridRecreationModeller:
         """
         return len(set(subarr))
 
-    def moving_window(self, data_mtx: np.ndarray, kernel_func: Callable[[np.ndarray], float], kernel_size: int, kernel_shape: str = 'circular') -> np.ndarray:
+    def _moving_window(self, data_mtx: np.ndarray, kernel_func: Callable[[np.ndarray], float], kernel_size: int, kernel_shape: str = 'circular') -> np.ndarray:
         """Conduct a moving window operation with specified kernel shape and kernel size on an array.
 
         Args:
@@ -1062,13 +1039,44 @@ class LsmGridRecreationModeller:
             np.ndarray: Output array
         """
         # make kernel
-        kernel = self.get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
+        kernel = self._get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
         # create result mtx as memmap
         mtx_res = np.memmap("{}/{}/TMP/{}".format(self.data_path, self.scenario_name, uuid.uuid1()), dtype=data_mtx.dtype, mode='w+', shape=data_mtx.shape) 
         # apply moving window over input mtx
         ndimage.generic_filter(data_mtx, kernel_func, footprint=kernel, output=mtx_res, mode='constant', cval=0)
         mtx_res.flush()
         return mtx_res
+    
+    def _get_aggregate_class_total_supply_for_cost(self, cost, lu_weights = None, write_non_weighted_result = True, write_scaled_result = True, task_progress = None):                        
+        
+        current_total_supply_at_cost = None
+        current_weighted_total_supply_at_cost = None
+
+        # make grids for the results: zero-valued grids with full lsm extent
+        if write_non_weighted_result:
+            current_total_supply_at_cost = self._get_value_matrix() 
+        if lu_weights is not None:
+            current_weighted_total_supply_at_cost = self._get_value_matrix()
+        
+        for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
+            # determine source of list
+            lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"                    
+            lu_supply_mtx = self._get_supply_for_lu_and_cost(lu, lu_type, cost)
+
+            # add to aggregations
+            if write_non_weighted_result:
+                current_total_supply_at_cost += lu_supply_mtx
+            if lu_weights is not None:
+                current_weighted_total_supply_at_cost += (lu_supply_mtx * lu_weights[lu])
+
+            if task_progress is not None:
+                self.progress.update(task_progress, advance=1) 
+
+        if lu_weights is not None:
+            current_weighted_total_supply_at_cost = current_weighted_total_supply_at_cost / sum(lu_weights.values())
+
+        # return aggregated grids for given cost
+        return current_total_supply_at_cost, current_weighted_total_supply_at_cost
     
     
 
