@@ -275,37 +275,51 @@ class LsmGridRecreationModeller:
         else:
             self.printStepCompleteInfo()
 
-    def disaggregate_population(self, write_scaled_result: bool = True) -> None:
+    def disaggregate_population(self, standalone: bool = False, write_scaled_result: bool = True) -> None:
         """Aggregates built-up land-use classes into a single raster of built-up areas, and intersects built-up with the scenario-specific population grid to provide disaggregated population.
 
         Args:
+            standalone (bool, optional): Set this option to true if this method is invoked manually. Defaults to False.
             write_scaled_result (bool, optional): Export min-max scaled result, if True. Defaults to True.
         """
         self.printStepInfo("Disaggregating population to built-up")
-        task_pop = self.progress.add_task("[white]Population disaggregation", total=len(self.lu_classes_builtup)+2)
-        mtx_builtup = self._get_value_matrix()
-        mtx_pop = self._read_band(self.pop_fileName)
-        for lu in self.lu_classes_builtup:
-            rst_mtx = self._read_band('MASKS/mask_{}.tif'.format(lu))
-            mtx_builtup += rst_mtx   
-            self.progress.update(task_pop, advance=1)                 
-        # write built-up raster to disk
-        self._write_dataset("MASKS/built-up.tif", mtx_builtup)
-        self.progress.update(task_pop, advance=1)                 
-        # multiply residential built-up pixels with pop raster        
-        mtx_builtup = mtx_builtup * mtx_pop
-        # write pop raster to disk
-        self._write_dataset("DEMAND/disaggregated_population.tif", mtx_builtup)
-        if write_scaled_result:
-            scaler = MinMaxScaler()
-            mtx_builtup = scaler.fit_transform(mtx_builtup.reshape([-1,1]))
-        self._write_dataset("DEMAND/scaled_disaggregated_population.tif", mtx_builtup.reshape(self.lsm_mtx.shape))
+        if not standalone:
+            current_task = self.progress.add_task("[white]Population disaggregation", total=len(self.lu_classes_builtup))
+        else:
+            current_task = self.new_progress("[white]Population disaggregation", total=len(self.lu_classes_builtup))
+
+        with self.progress if standalone else nullcontext() as bar:
+
+            mtx_builtup = self._get_value_matrix()
+            mtx_pop = self._read_band(self.pop_fileName)
+            for lu in self.lu_classes_builtup:
+                rst_mtx = self._read_band('MASKS/mask_{}.tif'.format(lu))
+                mtx_builtup += rst_mtx   
+                if not standalone:
+                    self.progress.update(current_task, advance=1)                 
+                else:
+                    bar.update(current_task, advance=1)
+
+            # write built-up raster to disk
+            self._write_dataset("MASKS/built-up.tif", mtx_builtup)
+
+            # now disaggregate poopulation by intersect                
+            # multiply residential built-up pixels with pop raster        
+            mtx_builtup = mtx_builtup * mtx_pop
+            # write pop raster to disk
+            self._write_dataset("DEMAND/disaggregated_population.tif", mtx_builtup)
+            if write_scaled_result:
+                scaler = MinMaxScaler()
+                mtx_builtup = scaler.fit_transform(mtx_builtup.reshape([-1,1]))
+                self._write_dataset("DEMAND/scaled_disaggregated_population.tif", mtx_builtup.reshape(self.lsm_mtx.shape))
 
 
-        self.progress.update(task_pop, advance=1) 
         
         # done   
-        self.advanceStepTotal()             
+        if not standalone:
+            self.advanceStepTotal()
+        else:
+            self.printStepCompleteInfo()       
 
     def beneficiaries_within_cost(self):        
         self.printStepInfo("Determining beneficiaries within costs")
