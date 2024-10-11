@@ -406,13 +406,12 @@ class LsmGridRecreationModeller:
     # 
     # The following functions are meant to be used / would be considered public methods.
     
-    def aggregate_class_total_supply(self, lu_weights: Dict[int,float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
+    def aggregate_class_total_supply(self, lu_weights: Dict[int,float] = None, write_non_weighted_result: bool = True) -> None:
         """Aggregate total supply of land-use classes within each specified cost threshold. A weighting schema may be supplied, in which case a weighted average is determined as the sum of weighted class supply divided by the sum of all weights.
 
         Args:
             lu_weights (Dict[int,float], optional): Dictionary of land-use class weights, where keys refer to land-use classes, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
             write_non_weighted_result (bool, optional): Indicates if non-weighted total supply be computed. Defaults to True.
-            write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
         """
         self.printStepInfo('Determining clumped total supply')
 
@@ -566,21 +565,43 @@ class LsmGridRecreationModeller:
             if write_non_weighted_result:
                 non_weighted_average_total_supply = non_weighted_average_total_supply / len(self.cost_thresholds)
                 self._write_dataset("INDICATORS/non_weighted_avg_totalsupply.tif", non_weighted_average_total_supply)
+                if write_scaled_result:
+                    # apply min-max scaling
+                    scaler = MinMaxScaler()
+                    non_weighted_average_total_supply = scaler.fit_transform(non_weighted_average_total_supply.reshape([-1,1]))
+                    self._write_dataset('INDICATORS/scaled_non_weighted_avg_totalsupply.tif', non_weighted_average_total_supply.reshape(self.lsm_mtx.shape))
+
 
             # def. case + cost weighting
             if cost_weights is not None:
                 cost_weighted_average_total_supply = cost_weighted_average_total_supply / sum(cost_weights.values())
                 self._write_dataset("INDICATORS/cost_weighted_avg_totalsupply.tif", cost_weighted_average_total_supply)
-            
+                if write_scaled_result:
+                    # apply min-max scaling
+                    scaler = MinMaxScaler()
+                    cost_weighted_average_total_supply = scaler.fit_transform(cost_weighted_average_total_supply.reshape([-1,1]))
+                    self._write_dataset('INDICATORS/scaled_cost_weighted_avg_totalsupply.tif', cost_weighted_average_total_supply.reshape(self.lsm_mtx.shape))
+
             if lu_weights is not None:
                 # lu weights only
                 lu_weighted_average_total_supply = lu_weighted_average_total_supply / len(self.cost_thresholds)
                 self._write_dataset("INDICATORS/landuse_weighted_avg_totalsupply.tif", lu_weighted_average_total_supply)
+                if write_scaled_result:
+                    # apply min-max scaling
+                    scaler = MinMaxScaler()
+                    lu_weighted_average_total_supply = scaler.fit_transform(lu_weighted_average_total_supply.reshape([-1,1]))
+                    self._write_dataset('INDICATORS/scaled_landuse_weighted_avg_totalsupply.tif', lu_weighted_average_total_supply.reshape(self.lsm_mtx.shape))
 
                 if cost_weights is not None:
                     # both weights
                     bi_weighted_average_total_supply = bi_weighted_average_total_supply / sum(cost_weights.values())
                     self._write_dataset("INDICATORS/bi_weighted_avg_totalsupply.tif", bi_weighted_average_total_supply)
+                    if write_scaled_result:
+                        # apply min-max scaling
+                        scaler = MinMaxScaler()
+                        bi_weighted_average_total_supply = scaler.fit_transform(bi_weighted_average_total_supply.reshape([-1,1]))
+                        self._write_dataset('INDICATORS/scaled_bi_weighted_avg_totalsupply.tif', bi_weighted_average_total_supply.reshape(self.lsm_mtx.shape))
+
             
         # done
         self.printStepCompleteInfo()
@@ -622,11 +643,21 @@ class LsmGridRecreationModeller:
             if write_non_weighted_result:
                 average_diversity = average_diversity / len(self.cost_thresholds)
                 self._write_dataset("INDICATORS/non_weighted_avg_diversity.tif", average_diversity)
+                if write_scaled_result:
+                    # apply min-max scaling
+                    scaler = MinMaxScaler()
+                    average_diversity = scaler.fit_transform(average_diversity.reshape([-1,1]))
+                    self._write_dataset('INDICATORS/scaled_non_weighted_avg_diversity.tif', average_diversity.reshape(self.lsm_mtx.shape))
                         
             if cost_weights is not None:
                 cost_weighted_average_diversity = cost_weighted_average_diversity / sum(cost_weights.values())
                 self._write_dataset("INDICATORS/cost_weighted_avg_diversity.tif", cost_weighted_average_diversity)
-        
+                if write_scaled_result:
+                    # apply min-max scaling
+                    scaler = MinMaxScaler()
+                    cost_weighted_average_diversity = scaler.fit_transform(cost_weighted_average_diversity.reshape([-1,1]))
+                    self._write_dataset('INDICATORS/scaled_cost_weighted_avg_diversity.tif', cost_weighted_average_diversity.reshape(self.lsm_mtx.shape))
+
         # done
         self.printStepCompleteInfo()
 
@@ -665,9 +696,20 @@ class LsmGridRecreationModeller:
             if write_non_weighted_result:
                 average_pop = average_pop / len(self.cost_thresholds)
                 self._write_dataset("INDICATORS/non_weighted_avg_population.tif", average_pop)
+                if write_scaled_result:
+                    # apply min-max scaling
+                    scaler = MinMaxScaler()
+                    average_pop = scaler.fit_transform(average_pop.reshape([-1,1]))
+                    self._write_dataset('INDICATORS/scaled_non_weighted_avg_population.tif', average_pop.reshape(self.lsm_mtx.shape))
+            
             if cost_weights is not None:
                 cost_weighted_average_pop = cost_weighted_average_pop / sum(cost_weights.values())
                 self._write_dataset("INDICATORS/cost_weighted_avg_population.tif", cost_weighted_average_pop)
+                if write_scaled_result:
+                    # apply min-max scaling
+                    scaler = MinMaxScaler()
+                    cost_weighted_average_pop = scaler.fit_transform(cost_weighted_average_pop.reshape([-1,1]))
+                    self._write_dataset('INDICATORS/scaled_cost_weighted_avg_population.tif', cost_weighted_average_pop.reshape(self.lsm_mtx.shape))
 
         # done
         self.printStepCompleteInfo()
@@ -734,8 +776,19 @@ class LsmGridRecreationModeller:
             # export integrated grids
             if write_non_weighted_result:
                 self._write_dataset("FLOWS/integrated_avg_flow.tif", integrated_average_flow)
+                if write_scaled_result:
+                    # apply min-max scaling
+                    scaler = MinMaxScaler()
+                    integrated_average_flow = scaler.fit_transform(integrated_average_flow.reshape([-1,1]))
+                    self._write_dataset('FLOWS/scaled_integrated_avg_flow.tif', integrated_average_flow.reshape(self.lsm_mtx.shape))
+            
             if cost_weights is not None:
                 self._write_dataset("FLOWS/integrated_cost_weighted_avg_flow.tif", integrated_cost_weighted_average_flow)
+                if write_scaled_result:
+                    # apply min-max scaling
+                    scaler = MinMaxScaler()
+                    integrated_cost_weighted_average_flow = scaler.fit_transform(integrated_cost_weighted_average_flow.reshape([-1,1]))
+                    self._write_dataset('FLOWS/scaled_integrated_cost_weighted_avg_flow.tif', integrated_cost_weighted_average_flow.reshape(self.lsm_mtx.shape))
 
         self.printStepCompleteInfo()
 
@@ -837,7 +890,7 @@ class LsmGridRecreationModeller:
 
 
 
-    def cost_to_closest(self, threshold_masking: bool = True, distance_threshold: float = 25, builtup_masking: bool = False, _write_dataset: bool = True) -> None:
+    def cost_to_closest(self, threshold_masking: bool = True, distance_threshold: float = 25, builtup_masking: bool = False, write_scaled_result: bool = True) -> None:
         """Determines cost to closest entities of each land-use class, and determines averaged cost to closest.
 
         Args:
@@ -893,6 +946,13 @@ class LsmGridRecreationModeller:
         # prior, determine actual average. here, consider per each pixel the number of grids added.
         mtx_average_cost = np.divide(mtx_average_cost, mtx_lu_cost_count_considered, where=mtx_lu_cost_count_considered > 0)
         self._write_dataset('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost)
+        if write_scaled_result:
+            # apply min-max scaling
+            scaler = MinMaxScaler()
+            mtx_average_cost = 1-scaler.fit_transform(mtx_average_cost.reshape([-1,1]))
+            self._write_dataset('INDICATORS/scaled_non_weighted_avg_cost.tif', mtx_average_cost.reshape(self.lsm_mtx.shape))
+
+
         
         # done
         self.printStepCompleteInfo()
