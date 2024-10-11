@@ -439,14 +439,9 @@ class LsmGridRecreationModeller:
     
 
 
-    
-        
-    #
-    # Determine diversity of recreational opportunities within cost based on class-specific supply.
-    # 
-
-    def class_diversity(self):
-
+    def class_diversity(self) -> None:
+        """Determine the diversity of land-use classes within cost thresholds. 
+        """
         self.printStepInfo("Determining class diversity within costs")        
         
         step_count = (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)        
@@ -476,8 +471,9 @@ class LsmGridRecreationModeller:
     # Determine flow of beneficiaries to recreational opportunities per cost
     #
 
-    def class_flow(self):
-        
+    def class_flow(self) -> None:
+        """Determine the total number of potential beneficiaries (flow to given land-use classes) as the sum of total population, within cost thresholds.
+        """
         self.printStepInfo("Determine class flow")
         
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch))
@@ -504,13 +500,20 @@ class LsmGridRecreationModeller:
 
     #
     #
-    # Compute averages in supply, diversity, etc., across cost thresholds.
-    # Allow weighting of costs.
     #
-    #
+    # The following functions provide averaged metrics as targeted main indicators 
 
-    def average_total_supply_across_cost(self, lu_weights = None, cost_weights = None, write_non_weighted_result = True):
+    def average_total_supply_across_cost(self, lu_weights: Dict[int, float] = None, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
+        """Determine the total (recreational) land-use supply averaged across cost thresholds. Weighting of importance of land-uses and weighting of cost may be applied. 
+           If either weighting schema (land-use classes or costs) is supplied, the total supply is determined as weighted average, i.e., the weighted sum of land-use class-specific supply, divided by the sum of weights.
+           Potential combinations, i.e., land-use and subsequently cost-based weighting, are considered if both weighting schemas are supplied.
 
+        Args:
+            lu_weights (Dict[int,float], optional): Dictionary of land-use class weights, where keys refer to land-use classes, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
+            cost_weights (Dict[float, float], optional): Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
+            write_non_weighted_result (bool, optional): Indicates if non-weighted total supply be computed. Defaults to True.
+            write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
+        """
         self.printStepInfo("Averaging supply across costs")
 
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))
@@ -584,12 +587,14 @@ class LsmGridRecreationModeller:
 
 
 
-    #
-    # Average diversity across cost thresholds.
-    #
+    def average_diversity_across_cost(self, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
+        """Determine diversity of (recreational) land-uses averaged across cost thresholds. 
 
-    def average_diversity_across_cost(self, cost_weights = None, write_non_weighted_result = True):
-
+        Args:
+            cost_weights (Dict[float, float], optional): Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
+            write_non_weighted_result (bool, optional): Indicates if non-weighted total supply be computed. Defaults to True.
+            write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
+        """
         self.printStepInfo("Averaging diversity across costs")
 
         step_count = len(self.cost_thresholds)
@@ -625,12 +630,15 @@ class LsmGridRecreationModeller:
         # done
         self.printStepCompleteInfo()
 
-    #
-    # Average beneficiaries across cost thresholds.
-    #
+    
+    def average_beneficiaries_across_cost(self, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
+        """Determine the number of potential beneficiaries, averaged across cost thresholds. 
 
-    def average_beneficiaries_across_cost(self, cost_weights = None, write_non_weighted_result = True):
-        
+        Args:
+            cost_weights (Dict[float, float], optional): Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
+            write_non_weighted_result (bool, optional): Indicates if non-weighted total supply be computed. Defaults to True.
+            write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
+        """
         self.printStepInfo("Averaging beneficiaries across costs")
 
         step_count = len(self.cost_thresholds)
@@ -666,12 +674,15 @@ class LsmGridRecreationModeller:
 
 
 
-    #
-    # Average class flow across cost thresholds
-    #
     
-    def average_flow_across_cost(self, cost_weights = None, write_non_weighted_result = True):
+    def average_flow_across_cost(self, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True):
+        """Determine the number of potential beneficiaries in terms of flow to (recreational) land-use classes, averaged across cost thresholds.
 
+        Args:
+            cost_weights (Dict[float, float], optional): Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
+            write_non_weighted_result (bool, optional): Indicates if non-weighted total supply be computed. Defaults to True.
+            write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
+        """
         self.printStepInfo("Averaging flow across costs")
         
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)) 
@@ -826,13 +837,14 @@ class LsmGridRecreationModeller:
 
 
 
-    def cost_to_closest(self, threshold_masking: bool = True, distance_threshold: float = 25, builtup_masking: bool = False) -> None:
+    def cost_to_closest(self, threshold_masking: bool = True, distance_threshold: float = 25, builtup_masking: bool = False, _write_dataset: bool = True) -> None:
         """Determines cost to closest entities of each land-use class, and determines averaged cost to closest.
 
         Args:
             threshold_masking (bool, optional): Should a maximum distance be considered for assessing costs to closest? Defaults to True.
             distance_threshold (float, optional): Threshold for distance-cost-based masking. Defaults to 25.
             builtup_masking (bool, optional): Should result be restricted to built-up land-use pixels?. Defaults to False.
+            write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
         """
         self.printStepInfo("Assessing cost to closest")
 
