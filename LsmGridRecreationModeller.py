@@ -104,15 +104,15 @@ class LsmGridRecreationModeller:
         elif paramType == 'costs':
             self.cost_thresholds = paramValue
       
-    def set_scenario(self, scenario_name: str, lu_file: str) -> None:
+    def set_land_use_map(self, root_path: str, land_use_file: str) -> None:
         """Specify data sources for a given scenario, and import land-use raster file. Note that projection and resolution of raster files must match. 
 
         Args:
             scenario_name (str): Name of a scenario, i.e., subfolder within root of data path.
             lu_file (str): Name of the land-use raster file for the given scenario.           
         """
-        self.scenario_name = scenario_name
-        self.lsm_fileName = lu_file
+        self.scenario_name = root_path
+        self.lsm_fileName = land_use_file
         
         # check if folders are properly created in current scenario workspace
         self.make_environment()         
@@ -275,8 +275,9 @@ class LsmGridRecreationModeller:
 
         with self.progress if self._runsAsStandalone() else nullcontext() as bar:
 
-            mtx_builtup = self._get_value_matrix()
+            mtx_builtup = self._get_value_matrix()            
             mtx_pop = self._read_band(population_grid)
+            
             for lu in self.lu_classes_builtup:
                 rst_mtx = self._read_band('MASKS/mask_{}.tif'.format(lu))
                 mtx_builtup += rst_mtx                   
@@ -879,9 +880,9 @@ class LsmGridRecreationModeller:
                 mtx_current_lu_clump_area_per_capita = np.divide(mtx_current_lu_clump_size, mtx_current_lu_clump_average_flow, out=np.zeros_like(mtx_current_lu_clump_size), where=mtx_current_lu_clump_average_flow > 0)
 
                 # export result
-                self._write_dataset('CLUMPS_LU/clump_size_class_{}.tif'.format(lu), mtx_current_lu_clump_size)
-                self._write_dataset('CLUMPS_LU/clump_flow_class_{}.tif'.format(lu), mtx_current_lu_clump_average_flow)
-                self._write_dataset('CLUMPS_LU/clump_pcap_class_{}.tif'.format(lu), mtx_current_lu_clump_area_per_capita)
+                #self._write_dataset('CLUMPS_LU/clump_size_class_{}.tif'.format(lu), mtx_current_lu_clump_size)
+                #self._write_dataset('CLUMPS_LU/clump_flow_class_{}.tif'.format(lu), mtx_current_lu_clump_average_flow)
+                #self._write_dataset('CLUMPS_LU/clump_pcap_class_{}.tif'.format(lu), mtx_current_lu_clump_area_per_capita)
 
                 # add to integrated grid
                 res_lu_clump_size += mtx_current_lu_clump_size
