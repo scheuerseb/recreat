@@ -41,7 +41,6 @@ class LsmGridRecreationModeller:
 
     # scenario name and corresponding population and lsm filenames
     scenario_name = "current"
-    pop_fileName = None
     lsm_fileName = None
 
     # this stores the lsm map as reference map
@@ -81,9 +80,9 @@ class LsmGridRecreationModeller:
     def printStepCompleteInfo(self):
         print(Fore.WHITE + Back.GREEN + "COMPLETED" + Style.RESET_ALL)
 
-    def new_progress(self, task_description, step_count):
+    def _new_progress(self, task_description, total):
         self.progress = self.get_progress_bar()
-        task_new = self.progress.add_task(task_description, total=step_count)
+        task_new = self.progress.add_task(task_description, total=total)
         return task_new
 
     def get_progress_bar(self):
@@ -105,17 +104,15 @@ class LsmGridRecreationModeller:
         elif paramType == 'costs':
             self.cost_thresholds = paramValue
       
-    def set_scenario(self, scenario_name: str, lu_file: str, population_file: str) -> None:
+    def set_scenario(self, scenario_name: str, lu_file: str) -> None:
         """Specify data sources for a given scenario, and import land-use raster file. Note that projection and resolution of raster files must match. 
 
         Args:
             scenario_name (str): Name of a scenario, i.e., subfolder within root of data path.
-            lu_file (str): Name of the land-use raster file for the given scenario.
-            population_file (str): Name of the population raster file for the given scenario.
+            lu_file (str): Name of the land-use raster file for the given scenario.           
         """
         self.scenario_name = scenario_name
         self.lsm_fileName = lu_file
-        self.pop_fileName = population_file   
         
         # check if folders are properly created in current scenario workspace
         self.make_environment()         
@@ -147,21 +144,23 @@ class LsmGridRecreationModeller:
 
             # determine raster-based proximities as cost-to-closest
             if compute_proximities:
-                self.compute_distance_rasters(standalone = False)        
+                self.compute_distance_rasters()        
             
             # determine supply per class
             self.class_total_supply()
 
         self.printStepCompleteInfo()
+        self.task_assess_map_units = None
 
-    def assess_cost_windows(self) -> None:
-        """Determine basic indicators per cost threshold.
-        """
-        self.class_diversity()
-        self.class_flow()
 
-    def advanceStepTotal(self):
-        self.progress.update(self.task_assess_map_units, advance=1)
+    def taskProgressReportStepCompleted(self):
+        if self.task_assess_map_units is not None:
+            self.progress.update(self.task_assess_map_units, advance=1)
+        else:
+            self.printStepCompleteInfo()
+
+    def _runsAsStandalone(self):
+        return True if self.task_assess_map_units is None else False
 
 
 
@@ -173,6 +172,7 @@ class LsmGridRecreationModeller:
     #
         
     def detect_clumps(self):
+
         self.printStepInfo("Detecting clumps")
         clump_connectivity = np.full((3,3), 1)
         rst_clumps = self._get_value_matrix()
@@ -181,16 +181,17 @@ class LsmGridRecreationModeller:
         self._write_dataset("MASKS/clumps.tif", rst_clumps)        
         # make slices to speed-up window operations
         self.clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))        
+        
         # done
-        self.advanceStepTotal()
+        self.taskProgressReportStepCompleted()
 
     def mask_landuses(self):
         # mask classes of interest into a binary raster to indicate presence/absence of recreational potential
         # we require this for all classes relevant to processing: patch and edge recreational classes, built-up classes
         self.printStepInfo("CREATING LAND-USE MASKS")
         classes_for_masking = self.lu_classes_recreation_edge + self.lu_classes_recreation_patch + self.lu_classes_builtup 
-        # step progress
-        task_masking = self.progress.add_task('[white]Masking land-uses', total=len(classes_for_masking))
+        current_task = self._get_task('[white]Masking land-uses', total=len(classes_for_masking))
+        
         for lu in classes_for_masking:
             current_lu_mask = self.lsm_mtx.copy()
             # make mask for relevant pixels
@@ -199,16 +200,18 @@ class LsmGridRecreationModeller:
             current_lu_mask[mask] = 1
             current_lu_mask[~mask] = 0
             self._write_dataset("MASKS/mask_{}.tif".format(lu), current_lu_mask)
-            self.progress.update(task_masking, advance=1)
+            self.progress.update(current_task, advance=1)
 
         # done    
-        self.advanceStepTotal()
+        self.taskProgressReportStepCompleted()
     
     def detect_edges(self):
         # determine edge pixels of edge-only classes such as water opportunities
         if(len(self.lu_classes_recreation_edge) > 0):
+            
             self.printStepInfo("Detecting edges")
-            task_edges = self.progress.add_task("[white]Detecting edges", total=len(self.lu_classes_recreation_edge))
+            current_task = self._get_task("[white]Detecting edges", total=len(self.lu_classes_recreation_edge))
+            
             for lu in self.lu_classes_recreation_edge:            
                 inputMaskFileName = "MASKS/mask_{}.tif".format(lu)    
                 mtx_mask = self._read_band(inputMaskFileName)            
@@ -218,16 +221,15 @@ class LsmGridRecreationModeller:
                 mtx_mask = mtx_mask * rst_edgePixelDiversity
                 self._write_dataset("MASKS/edges_{}.tif".format(lu), mtx_mask)
                 del rst_edgePixelDiversity
-                self.progress.update(task_edges, advance=1)
+                self.progress.update(current_task, advance=1)
         
-        # done
-        self.advanceStepTotal()
+            # done
+            self.taskProgressReportStepCompleted()
 
-    def compute_distance_rasters(self, standalone: bool = True, lu_classes: List[int] = None, assess_builtup: bool = False) -> None:
+    def compute_distance_rasters(self, lu_classes: List[int] = None, assess_builtup: bool = False) -> None:
         """Generate proximity rasters to land-use classes.
 
         Args:
-            standalone (bool, optional): Set this option to true if this method is invoked manually. Defaults to True.
             lu_classes (List[int], optional): List of integers, i.e., land-use classes to assess. Defaults to None.
             assess_builtup (bool, optional): Assesses proximities to built-up, if true. Defaults to False.
         """
@@ -240,66 +242,46 @@ class LsmGridRecreationModeller:
             step_count += 1
 
         # if standalone, create new progress bar, otherwise use existing bar, and create task
-        if standalone:
-            current_task = self.new_progress("[white]Computing distance rasters", total=step_count)
-        else:
-            current_task = self.progress.add_task("[white]Computing distance rasters", total=step_count)
+        current_task = self._get_task("[white]Computing distance rasters", total=step_count)
 
         # iterate over relevant classes
-        with self.progress if standalone else nullcontext() as bar:
+        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
             for lu in classes_for_proximity_calculation:
                 lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
                 src_mtx = self._read_band('MASKS/mask_{}.tif'.format(lu) if lu_type == "patch" else 'MASKS/edges_{}.tif'.format(lu))
                 my_dr = dr.DistanceRaster(src_mtx, progress_bar=False)
                 self._write_dataset("PROX/dr_{}.tif".format(lu), my_dr.dist_array)
-
-                if standalone:
-                    bar.update(current_task, advance=1)
-                else:
-                    self.progress.update(current_task, advance=1)
+                self.progress.update(current_task, advance=1)
 
             if assess_builtup:
                 src_mtx = self._read_band('MASKS/built-up.tif') 
                 my_dr = dr.DistanceRaster(src_mtx, progress_bar=False)
                 self._write_dataset("PROX/dr_built-up.tif".format(lu), my_dr.dist_array)
-
-                if standalone:
-                    bar.update(current_task, advance=1)
-                else:
-                    self.progress.update(current_task, advance=1)
- 
+                self.progress.update(current_task, advance=1)
         
         # done
-        if not standalone:
-            self.advanceStepTotal()
-        else:
-            self.printStepCompleteInfo()
+        self.taskProgressReportStepCompleted()
 
-    def disaggregate_population(self, standalone: bool = False, write_scaled_result: bool = True) -> None:
+    def disaggregate_population(self, population_grid: str, write_scaled_result: bool = True) -> None:
         """Aggregates built-up land-use classes into a single raster of built-up areas, and intersects built-up with the scenario-specific population grid to provide disaggregated population.
 
         Args:
-            standalone (bool, optional): Set this option to true if this method is invoked manually. Defaults to False.
+            population_grid (str): Name of the population raster file to be used for disaggregation.
             write_scaled_result (bool, optional): Export min-max scaled result, if True. Defaults to True.
         """
         self.printStepInfo("Disaggregating population to built-up")
-        if not standalone:
-            current_task = self.progress.add_task("[white]Population disaggregation", total=len(self.lu_classes_builtup))
-        else:
-            current_task = self.new_progress("[white]Population disaggregation", step_count=len(self.lu_classes_builtup))
 
-        with self.progress if standalone else nullcontext() as bar:
+        current_task = self._get_task("[white]Population disaggregation", total=len(self.lu_classes_builtup))
+
+        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
 
             mtx_builtup = self._get_value_matrix()
-            mtx_pop = self._read_band(self.pop_fileName)
+            mtx_pop = self._read_band(population_grid)
             for lu in self.lu_classes_builtup:
                 rst_mtx = self._read_band('MASKS/mask_{}.tif'.format(lu))
-                mtx_builtup += rst_mtx   
-                if not standalone:
-                    self.progress.update(current_task, advance=1)                 
-                else:
-                    bar.update(current_task, advance=1)
-
+                mtx_builtup += rst_mtx                   
+                self.progress.update(current_task, advance=1)                 
+                
             # write built-up raster to disk
             self._write_dataset("MASKS/built-up.tif", mtx_builtup)
 
@@ -312,23 +294,19 @@ class LsmGridRecreationModeller:
                 scaler = MinMaxScaler()
                 mtx_builtup = scaler.fit_transform(mtx_builtup.reshape([-1,1]))
                 self._write_dataset("DEMAND/scaled_disaggregated_population.tif", mtx_builtup.reshape(self.lsm_mtx.shape))
-
-
         
         # done   
-        if not standalone:
-            self.advanceStepTotal()
-        else:
-            self.printStepCompleteInfo()       
+        self.taskProgressReportStepCompleted()
 
+        
     def beneficiaries_within_cost(self):        
         self.printStepInfo("Determining beneficiaries within costs")
         
         step_count = len(self.cost_thresholds) * len(self.clump_slices)
-        task_popcost = self.progress.add_task("[white]Determining beneficiaries", total=step_count)
+        current_task = self._get_task("[white]Determining beneficiaries", total=step_count)
 
+        # get relevant input data
         mtx_disaggregated_population = self._read_band("DEMAND/disaggregated_population.tif")        
-        
         # also beneficiaries need to be clumped
         rst_clumps = self._read_band("MASKS/clumps.tif")
         
@@ -357,12 +335,12 @@ class LsmGridRecreationModeller:
                 del sliding_pop
                 del sliced_pop_mtx
                 # progress reporting
-                self.progress.update(task_popcost, advance=1)
+                self.progress.update(current_task, advance=1)
 
             self._write_dataset("DEMAND/beneficiaries_within_cost_{}.tif".format(c), mtx_pop_within_cost)
 
         # done
-        self.advanceStepTotal()
+        self.taskProgressReportStepCompleted()
 
     def class_total_supply(self):
         
@@ -373,26 +351,29 @@ class LsmGridRecreationModeller:
         rst_clumps = self._read_band("MASKS/clumps.tif")
 
         step_count = len(self.clump_slices) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
-        task_supply = self.progress.add_task("[white]Determining clumped supply", total=step_count)
+        current_task = self._get_task("[white]Determining clumped supply", total=step_count)
 
         for c in self.cost_thresholds:            
                         
             for lu in self.lu_classes_recreation_patch:
                 # process supply of current class 
-                lu_supply_mtx = self.class_total_supply_for_lu_and_cost("MASKS/mask_{}.tif".format(lu), rst_clumps, c, task_supply)                            
+                lu_supply_mtx = self._class_total_supply_for_lu_and_cost("MASKS/mask_{}.tif".format(lu), rst_clumps, c, current_task)                            
                 # export current cost
                 self._write_dataset("SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, c), lu_supply_mtx)                
                 
             for lu in self.lu_classes_recreation_edge:
                 # process supply of current class 
-                lu_supply_mtx = self.class_total_supply_for_lu_and_cost("MASKS/edges_{}.tif".format(lu), rst_clumps, c, task_supply)                            
+                lu_supply_mtx = self._class_total_supply_for_lu_and_cost("MASKS/edges_{}.tif".format(lu), rst_clumps, c, current_task)                            
                 # export current cost
                 self._write_dataset("SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, c), lu_supply_mtx)                
 
         # done
-        self.advanceStepTotal()
+        self.taskProgressReportStepCompleted()
 
-    def class_total_supply_for_lu_and_cost(self, mask_path, rst_clumps, cost, progress_task = None):
+
+
+
+    def _class_total_supply_for_lu_and_cost(self, mask_path, rst_clumps, cost, progress_task = None):
         
         # grid to store lu supply 
         lu_supply_mtx = self._get_value_matrix()
@@ -428,7 +409,12 @@ class LsmGridRecreationModeller:
         return lu_supply_mtx
     
 
-
+    def _get_task(self, task_description, total):
+        if self._runsAsStandalone():
+            current_task = self._new_progress(task_description, total=total)
+        else:
+            current_task = self.progress.add_task(task_description, total=total)
+        return current_task
     
 
 
@@ -448,8 +434,8 @@ class LsmGridRecreationModeller:
         self.printStepInfo('Determining clumped total supply')
 
         # progress reporting        
-        step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))        
-        current_task = self.new_progress("[white]Aggregating clumped supply", step_count)
+        step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))                
+        current_task = self._get_task("[white]Aggregating clumped supply", total=step_count)
 
         with self.progress as p:
 
@@ -465,7 +451,7 @@ class LsmGridRecreationModeller:
                     self._write_dataset("INDICATORS/weighted_totalsupply_cost_{}.tif".format(c), current_weighted_total_supply_at_cost)
                     
         # done
-        self.printStepCompleteInfo()
+        self.taskProgressReportStepCompleted()
 
     
 
@@ -476,7 +462,7 @@ class LsmGridRecreationModeller:
         self.printStepInfo("Determining class diversity within costs")        
         
         step_count = (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)        
-        current_task = self.new_progress("[white]Determining class diversity", step_count)
+        current_task = self._get_task("[white]Determining class diversity", total=step_count)
 
         with self.progress as p:
 
@@ -495,7 +481,7 @@ class LsmGridRecreationModeller:
                 self._write_dataset("INDICATORS/diversity_cost_{}.tif".format(c), mtx_diversity_at_cost) 
 
         # done
-        self.printStepCompleteInfo()
+        self.taskProgressReportStepCompleted()
 
 
     #
@@ -505,10 +491,9 @@ class LsmGridRecreationModeller:
     def class_flow(self) -> None:
         """Determine the total number of potential beneficiaries (flow to given land-use classes) as the sum of total population, within cost thresholds.
         """
-        self.printStepInfo("Determine class flow")
-        
+        self.printStepInfo("Determine class flow")        
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch))
-        current_task = self.new_progress("[white]Determine class-based flows within cost", step_count)
+        current_task = self._get_task("[white]Determine class-based flows within cost", step_count)
 
         with self.progress as p:
             
@@ -526,7 +511,7 @@ class LsmGridRecreationModeller:
                     p.update(current_task, advance=1)
 
         # done
-        self.printStepCompleteInfo()
+        self.taskProgressReportStepCompleted()
 
 
     #
@@ -546,9 +531,8 @@ class LsmGridRecreationModeller:
             write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
         """
         self.printStepInfo("Averaging supply across costs")
-
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))
-        current_task = self.new_progress("[white]Averaging supply", step_count)
+        current_task = self._get_task("[white]Averaging supply", total=step_count)
 
         # make result rasters
         # consider the following combinations
@@ -589,8 +573,6 @@ class LsmGridRecreationModeller:
                     lu_weighted_average_total_supply += mtx_current_cost_weighted_total_supply                    
                     if cost_weights is not None:                        
                         bi_weighted_average_total_supply += (mtx_current_cost_weighted_total_supply * cost_weights[c])
-
-
 
             # complete determining averages for the various combinations
             # def. case
@@ -636,7 +618,7 @@ class LsmGridRecreationModeller:
 
             
         # done
-        self.printStepCompleteInfo()
+        self.taskProgressReportStepCompleted()
 
 
 
@@ -649,9 +631,8 @@ class LsmGridRecreationModeller:
             write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
         """
         self.printStepInfo("Averaging diversity across costs")
-
         step_count = len(self.cost_thresholds)
-        current_task = self.new_progress("[white]Averaging diversity", step_count)
+        current_task = self._get_task("[white]Averaging diversity", total=step_count)
 
         with self.progress as p:
 
@@ -691,7 +672,7 @@ class LsmGridRecreationModeller:
                     self._write_dataset('INDICATORS/scaled_cost_weighted_avg_diversity.tif', cost_weighted_average_diversity.reshape(self.lsm_mtx.shape))
 
         # done
-        self.printStepCompleteInfo()
+        self.taskProgressReportStepCompleted()
 
     
     def average_beneficiaries_across_cost(self, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
@@ -703,9 +684,8 @@ class LsmGridRecreationModeller:
             write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
         """
         self.printStepInfo("Averaging beneficiaries across costs")
-
         step_count = len(self.cost_thresholds)
-        current_task = self.new_progress("[white]Averaging beneficiaries", step_count)
+        current_task = self._get_task("[white]Averaging beneficiaries", total=step_count)
 
         with self.progress as p:
 
@@ -744,7 +724,7 @@ class LsmGridRecreationModeller:
                     self._write_dataset('INDICATORS/scaled_cost_weighted_avg_population.tif', cost_weighted_average_pop.reshape(self.lsm_mtx.shape))
 
         # done
-        self.printStepCompleteInfo()
+        self.taskProgressReportStepCompleted()
 
 
 
@@ -757,10 +737,9 @@ class LsmGridRecreationModeller:
             write_non_weighted_result (bool, optional): Indicates if non-weighted total supply be computed. Defaults to True.
             write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
         """
-        self.printStepInfo("Averaging flow across costs")
-        
+        self.printStepInfo("Averaging flow across costs")        
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)) 
-        current_task = self.new_progress("[white]Averaging flow across costs", step_count)
+        current_task = self._get_task("[white]Averaging flow across costs", total=step_count)
 
         with self.progress as p:
 
@@ -822,7 +801,7 @@ class LsmGridRecreationModeller:
                     integrated_cost_weighted_average_flow = scaler.fit_transform(integrated_cost_weighted_average_flow.reshape([-1,1]))
                     self._write_dataset('FLOWS/scaled_integrated_cost_weighted_avg_flow.tif', integrated_cost_weighted_average_flow.reshape(self.lsm_mtx.shape))
 
-        self.printStepCompleteInfo()
+        self.taskProgressReportStepCompleted()
 
 
     # 
@@ -833,9 +812,8 @@ class LsmGridRecreationModeller:
     def per_capita_opportunity_area(self):
         
         self.printStepInfo("Determining per-capita opportunity area")
-
         step_count = len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)
-        lu_progress = self.new_progress("[white]Per-capita assessment", step_count)
+        lu_progress = self._get_task("[white]Per-capita assessment", total=step_count)
 
         # get average flow for all lu patches as basis for average per-capita area
         mtx_average_flows = self._read_band("FLOWS/integrated_avg_flow.tif")
@@ -917,7 +895,7 @@ class LsmGridRecreationModeller:
         self._write_dataset('CLUMPS_LU/clumps_pcap.tif', res_lu_patch_area_per_capita)
 
         # done
-        self.printStepCompleteInfo()
+        self.taskProgressReportStepCompleted()
 
 
 
@@ -932,10 +910,9 @@ class LsmGridRecreationModeller:
             write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
         """
         self.printStepInfo("Assessing cost to closest")
-
         included_lu_classes = self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
         step_count = len(included_lu_classes)         
-        current_task = self.new_progress("[white]Assessing cost to closest", step_count)
+        current_task = self._get_task("[white]Assessing cost to closest", total=step_count)
 
         with self.progress as p:
             # get built-up layer 
@@ -984,10 +961,9 @@ class LsmGridRecreationModeller:
             mtx_average_cost = 1-scaler.fit_transform(mtx_average_cost.reshape([-1,1]))
             self._write_dataset('INDICATORS/scaled_non_weighted_avg_cost.tif', mtx_average_cost.reshape(self.lsm_mtx.shape))
 
-
         
         # done
-        self.printStepCompleteInfo()
+        self.taskProgressReportStepCompleted()
 
 
 
