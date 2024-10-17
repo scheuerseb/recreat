@@ -48,6 +48,10 @@ class LsmGridRecreationModeller:
     lsm_mtx = None
     lsm_nodataMask = None
 
+    # distance units
+    lsm_pixel_area_unit_factor = 1  # factor value to convert pixel area to km² through multiplication (1 px * factor = pixel area in km²) note: for CLC, this would be 0.01
+    lsm_resolution = 1              # resolution of the land-use raster in km²
+
     # define relevant recreation patch and edge classes, cost thresholds, etc.
     lu_classes_recreation_edge = []
     lu_classes_recreation_patch = []
@@ -462,7 +466,7 @@ class LsmGridRecreationModeller:
             # now all pixels outside of clump should be zeroed, and we can determine total supply within sliding window
             sliding_supply = self._moving_window(sliced_lu_mtx, self._kernel_sum, cost)
             sliding_supply[~obj_mask] = 0
-            lu_supply_mtx[obj_slice] += sliding_supply
+            lu_supply_mtx[obj_slice] += sliding_supply # todo: add conversion to km²
             
             del sliding_supply
             del sliced_lu_mtx
