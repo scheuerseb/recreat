@@ -927,6 +927,8 @@ class LsmGridRecreationModeller:
             mtx_average_cost = self._get_value_matrix()
             mtx_lu_cost_count_considered = self._get_value_matrix()
 
+            # todo: check clump
+
 
             for lu in included_lu_classes:
                 # import pre-computed proximity raster
