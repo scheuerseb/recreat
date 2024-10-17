@@ -239,7 +239,6 @@ class LsmGridRecreationModeller:
         # import the clumps raster
         rst_clumps = self._read_band("MASKS/clumps.tif")
         # detect slices here, to avoid having to recall detect_clumps each time we want to do proximity computations
-        # note: todo: this should also be changed elsewhere where we rely on clumps in later evaluation steps.
         clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))        
         
         step_count = len(classes_for_proximity_calculation) * len(clump_slices)
@@ -993,7 +992,6 @@ class LsmGridRecreationModeller:
             mtx_average_cost = self._get_value_matrix()
             mtx_lu_cost_count_considered = self._get_value_matrix()
 
-            # todo: check clump
             for lu in included_lu_classes:
                 # import pre-computed proximity raster
                 mtx_proximity = self._read_band("PROX/dr_{}.tif".format(lu))
