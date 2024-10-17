@@ -58,9 +58,6 @@ class LsmGridRecreationModeller:
     lu_classes_builtup = []
     cost_thresholds = []
     
-    # the following items are computed 
-    clump_slices = []
-
     # progress reporting
     progress = None     
     task_assess_map_units = None
@@ -183,8 +180,6 @@ class LsmGridRecreationModeller:
         nr_clumps = ndimage.label(self.lsm_mtx, structure=clump_connectivity, output=rst_clumps)
         print(Fore.YELLOW + Style.BRIGHT + "{} CLUMPS FOUND".format(nr_clumps) + Style.RESET_ALL)
         self._write_dataset("MASKS/clumps.tif", rst_clumps)        
-        # make slices to speed-up window operations
-        self.clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))        
         
         # done
         self.taskProgressReportStepCompleted()
@@ -371,22 +366,23 @@ class LsmGridRecreationModeller:
         
     def beneficiaries_within_cost(self):        
         self.printStepInfo("Determining beneficiaries within costs")
-        
-        step_count = len(self.cost_thresholds) * len(self.clump_slices)
-        current_task = self._get_task("[white]Determining beneficiaries", total=step_count)
 
         # get relevant input data
         mtx_disaggregated_population = self._read_band("DEMAND/disaggregated_population.tif")        
         # also beneficiaries need to be clumped
         rst_clumps = self._read_band("MASKS/clumps.tif")
+        clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))        
+        
+        step_count = len(self.cost_thresholds) * len(clump_slices)
+        current_task = self._get_task("[white]Determining beneficiaries", total=step_count)
         
         for c in self.cost_thresholds:
 
             mtx_pop_within_cost = self._get_value_matrix()
 
             # now operate over clumps, in order to safe some computational time
-            for patch_idx in range(len(self.clump_slices)):
-                obj_slice = self.clump_slices[patch_idx]
+            for patch_idx in range(len(clump_slices)):
+                obj_slice = clump_slices[patch_idx]
                 obj_label = patch_idx + 1
 
                 # get slice from land-use mask
@@ -419,21 +415,22 @@ class LsmGridRecreationModeller:
         self.printStepInfo("Determining clumped supply per class")
         # clumps are required to properly mask islands
         rst_clumps = self._read_band("MASKS/clumps.tif")
+        clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))        
 
-        step_count = len(self.clump_slices) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
+        step_count = len(clump_slices) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
         current_task = self._get_task("[white]Determining clumped supply", total=step_count)
 
         for c in self.cost_thresholds:            
                         
             for lu in self.lu_classes_recreation_patch:
                 # process supply of current class 
-                lu_supply_mtx = self._class_total_supply_for_lu_and_cost("MASKS/mask_{}.tif".format(lu), rst_clumps, c, current_task)                            
+                lu_supply_mtx = self._class_total_supply_for_lu_and_cost("MASKS/mask_{}.tif".format(lu), rst_clumps, clump_slices, c, current_task)                            
                 # export current cost
                 self._write_dataset("SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, c), lu_supply_mtx)                
                 
             for lu in self.lu_classes_recreation_edge:
                 # process supply of current class 
-                lu_supply_mtx = self._class_total_supply_for_lu_and_cost("MASKS/edges_{}.tif".format(lu), rst_clumps, c, current_task)                            
+                lu_supply_mtx = self._class_total_supply_for_lu_and_cost("MASKS/edges_{}.tif".format(lu), rst_clumps, clump_slices, c, current_task)                            
                 # export current cost
                 self._write_dataset("SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, c), lu_supply_mtx)                
 
@@ -443,7 +440,7 @@ class LsmGridRecreationModeller:
 
 
 
-    def _class_total_supply_for_lu_and_cost(self, mask_path, rst_clumps, cost, progress_task = None):
+    def _class_total_supply_for_lu_and_cost(self, mask_path, rst_clumps, clump_slices, cost, progress_task = None):
         
         # grid to store lu supply 
         lu_supply_mtx = self._get_value_matrix()
@@ -451,8 +448,8 @@ class LsmGridRecreationModeller:
         full_lu_mtx = self._read_band(mask_path)
 
         # now operate over clumps, in order to safe some computational time
-        for patch_idx in range(len(self.clump_slices)):
-            obj_slice = self.clump_slices[patch_idx]
+        for patch_idx in range(len(clump_slices)):
+            obj_slice = clump_slices[patch_idx]
             obj_label = patch_idx + 1
 
             # get slice from land-use mask
