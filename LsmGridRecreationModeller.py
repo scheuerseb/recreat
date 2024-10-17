@@ -243,10 +243,7 @@ class LsmGridRecreationModeller:
         # note: todo: this should also be changed elsewhere where we rely on clumps in later evaluation steps.
         clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))        
         
-        step_count = len(classes_for_proximity_calculation)
-        if assess_builtup:
-            step_count += 1
-        step_count = step_count * len(clump_slices)
+        step_count = len(classes_for_proximity_calculation) * len(clump_slices)
 
         # if standalone, create new progress bar, otherwise use existing bar, and create task
         current_task = self._get_task("[white]Computing distance rasters", total=step_count)
@@ -290,11 +287,42 @@ class LsmGridRecreationModeller:
 
                 self._write_dataset("PROX/dr_{}.tif".format(lu), lu_dr)
 
-            if assess_builtup:
+        if assess_builtup:
+            
+            step_count = len(clump_slices)
+            current_task = self._get_task("[white]Computing distance rasters", total=step_count)
+            with self.progress if self._runsAsStandalone() else nullcontext() as bar:
+                
+                # target raster
+                lu_dr = self._get_value_matrix()
+                # built-up source mask
                 src_lu_mtx = self._read_band('MASKS/built-up.tif') 
-                my_dr = dr.DistanceRaster(src_lu_mtx, progress_bar=False)
-                self._write_dataset("PROX/dr_built-up.tif".format(lu), my_dr.dist_array)
-                self.progress.update(current_task, advance=1)
+                
+                for patch_idx in range(len(clump_slices)):
+                    obj_slice = clump_slices[patch_idx]
+                    obj_label = patch_idx + 1
+
+                    # get slice from land-use mask
+                    sliced_lu_mtx = src_lu_mtx[obj_slice].copy() 
+                    sliced_clump_mtx = rst_clumps[obj_slice]
+            
+                    # properly mask out current object
+                    obj_mask = np.isin(sliced_clump_mtx, [obj_label], invert=False)
+                    sliced_lu_mtx[~obj_mask] = 0
+
+                    # check if we actually have opportunity in reach in current clump slice:
+                    if np.sum(sliced_lu_mtx) > 0:
+
+                        # now all pixels outside of clump should be zeroed, and we can determine proximity on the subset of the full raster
+                        sliced_dr = dr.DistanceRaster(sliced_lu_mtx, progress_bar=False)
+                        sliced_dr = sliced_dr.dist_array
+                        # proximities should only be written to clump object
+                        sliced_dr[~obj_mask] = 0
+                        lu_dr[obj_slice] += sliced_dr
+                    
+                    self.progress.update(current_task, advance=1)
+
+                self._write_dataset("PROX/dr_built-up.tif".format(lu), lu_dr)
         
         # done
         self.taskProgressReportStepCompleted()
