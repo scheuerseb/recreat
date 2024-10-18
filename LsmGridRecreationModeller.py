@@ -52,6 +52,9 @@ class LsmGridRecreationModeller:
     lsm_pixel_area_unit_factor = 1  # factor value to convert pixel area to km² through multiplication (1 px * factor = pixel area in km²) note: for CLC, this would be 0.01
     lsm_resolution = 1              # resolution of the land-use raster in km²
 
+    # nodata value to use in replacements
+    nodata_value = 0
+
     # define relevant recreation patch and edge classes, cost thresholds, etc.
     lu_classes_recreation_edge = []
     lu_classes_recreation_patch = []
@@ -1055,9 +1058,21 @@ class LsmGridRecreationModeller:
         path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.scenario_name, file_name)
         if self.verbose_reporting:
             print(Fore.WHITE + Style.DIM + "READING {}".format(path) + Style.RESET_ALL)
+        
         rst_ref = rasterio.open(path)
         band_data = rst_ref.read(band)
-        nodata_mask = np.isin(band_data, nodata_values, invert=False)
+        
+        # user-specified nodata-values used only if no nodata value defined for raster
+        # otherwise, nodata value of raster is used, and replaced by 0
+        rst_nodatavals = list(rst_ref.nodatavals)
+        rst_lacks_nodata = all(x is None for x in k)
+        if rst_lacks_nodata:            
+            nodata_mask = np.isin(band_data, nodata_values, invert=False)
+            band_data[nodata_mask] = self.nodata_value
+        else:
+            nodata_mask = np.isin(band_data, rst_nodatavals, invert=False)
+            band_data[nodata_mask] = self.nodata_value
+
         return rst_ref, band_data, nodata_mask
         
     def _read_band(self, file_name: str, band: int = 1, is_scenario_specific: bool = True) -> np.ndarray:
@@ -1073,9 +1088,8 @@ class LsmGridRecreationModeller:
         """
         path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.scenario_name, file_name)
         if self.verbose_reporting:
-            print(Fore.WHITE + Style.DIM + "READING {}".format(path) + Style.RESET_ALL)
-        rst_ref = rasterio.open(path)
-        band_data = rst_ref.read(band)
+            print(Fore.WHITE + Style.DIM + "READING {}".format(path) + Style.RESET_ALL)    
+        rst_ref, band_data, nodata_mask = self._read_dataset(file_name, band, is_scenario_specific)
         return band_data
     
     def _write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True) -> None:        
@@ -1092,7 +1106,7 @@ class LsmGridRecreationModeller:
             print(Fore.YELLOW + Style.DIM + "WRITING {}".format(path) + Style.RESET_ALL)
 
         if mask_nodata is True:
-            outdata[self.lsm_nodataMask] = 0    
+            outdata[self.lsm_nodataMask] = self.nodata_value    
 
         with rasterio.open(
             path,
