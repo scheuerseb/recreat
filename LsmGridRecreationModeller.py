@@ -375,34 +375,36 @@ class LsmGridRecreationModeller:
         step_count = len(self.cost_thresholds) * len(clump_slices)
         current_task = self._get_task("[white]Determining beneficiaries", total=step_count)
         
-        for c in self.cost_thresholds:
+        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
 
-            mtx_pop_within_cost = self._get_value_matrix()
+            for c in self.cost_thresholds:
 
-            # now operate over clumps, in order to safe some computational time
-            for patch_idx in range(len(clump_slices)):
-                obj_slice = clump_slices[patch_idx]
-                obj_label = patch_idx + 1
+                mtx_pop_within_cost = self._get_value_matrix()
 
-                # get slice from land-use mask
-                sliced_pop_mtx = mtx_disaggregated_population[obj_slice].copy() 
-                sliced_clump_mtx = rst_clumps[obj_slice]
+                # now operate over clumps, in order to safe some computational time
+                for patch_idx in range(len(clump_slices)):
+                    obj_slice = clump_slices[patch_idx]
+                    obj_label = patch_idx + 1
 
-                # properly mask out current object
-                obj_mask = np.isin(sliced_clump_mtx, [obj_label], invert=False)
-                sliced_pop_mtx[~obj_mask] = 0
+                    # get slice from land-use mask
+                    sliced_pop_mtx = mtx_disaggregated_population[obj_slice].copy() 
+                    sliced_clump_mtx = rst_clumps[obj_slice]
 
-                # now all pixels outside of clump should be zeroed, and we can determine total supply within sliding window
-                sliding_pop = self._moving_window(sliced_pop_mtx, self._kernel_sum, c)
-                sliding_pop[~obj_mask] = 0
-                mtx_pop_within_cost[obj_slice] += sliding_pop
-                
-                del sliding_pop
-                del sliced_pop_mtx
-                # progress reporting
-                self.progress.update(current_task, advance=1)
+                    # properly mask out current object
+                    obj_mask = np.isin(sliced_clump_mtx, [obj_label], invert=False)
+                    sliced_pop_mtx[~obj_mask] = 0
 
-            self._write_dataset("DEMAND/beneficiaries_within_cost_{}.tif".format(c), mtx_pop_within_cost)
+                    # now all pixels outside of clump should be zeroed, and we can determine total supply within sliding window
+                    sliding_pop = self._moving_window(sliced_pop_mtx, self._kernel_sum, c)
+                    sliding_pop[~obj_mask] = 0
+                    mtx_pop_within_cost[obj_slice] += sliding_pop
+                    
+                    del sliding_pop
+                    del sliced_pop_mtx
+                    # progress reporting
+                    self.progress.update(current_task, advance=1)
+
+                self._write_dataset("DEMAND/beneficiaries_within_cost_{}.tif".format(c), mtx_pop_within_cost)
 
         # done
         self.taskProgressReportStepCompleted()
