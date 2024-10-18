@@ -1064,13 +1064,14 @@ class LsmGridRecreationModeller:
         
         # user-specified nodata-values used only if no nodata value defined for raster
         # otherwise, nodata value of raster is used, and replaced by 0
-        rst_nodatavals = list(rst_ref.nodatavals)
-        rst_lacks_nodata = all(x is None for x in rst_nodatavals)
+        rst_nodata_values = list(rst_ref.nodatavals)
+        rst_lacks_nodata = all(x is None for x in rst_nodata_values)
         if rst_lacks_nodata:            
             nodata_mask = np.isin(band_data, nodata_values, invert=False)
             band_data[nodata_mask] = self.nodata_value
         else:
-            nodata_mask = np.isin(band_data, rst_nodatavals, invert=False)
+            print(rst_nodata_values)
+            nodata_mask = np.isin(band_data, rst_nodata_values, invert=False)
             band_data[nodata_mask] = self.nodata_value
 
         return rst_ref, band_data, nodata_mask
