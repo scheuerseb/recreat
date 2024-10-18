@@ -1090,7 +1090,7 @@ class LsmGridRecreationModeller:
         path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.scenario_name, file_name)
         if self.verbose_reporting:
             print(Fore.WHITE + Style.DIM + "READING {}".format(path) + Style.RESET_ALL)    
-        rst_ref, band_data, nodata_mask = self._read_dataset(file_name, band, is_scenario_specific)
+        rst_ref, band_data, nodata_mask = self._read_dataset(file_name=file_name, band=band, is_scenario_specific=is_scenario_specific)
         return band_data
     
     def _write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True) -> None:        
