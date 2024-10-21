@@ -54,6 +54,7 @@ class LsmGridRecreationModeller:
 
     # nodata value to use in replacements
     nodata_value = 0
+    dtype = None
 
     # define relevant recreation patch and edge classes, cost thresholds, etc.
     lu_classes_recreation_edge = []
@@ -106,14 +107,17 @@ class LsmGridRecreationModeller:
         elif paramType == 'classes.builtup':
             self.lu_classes_builtup = paramValue
         elif paramType == 'costs':
-            self.cost_thresholds = paramValue
+            self.cost_thresholds = paramValue    
+        elif paramType == 'use-data-type':
+            self.dtype = paramValue 
       
-    def set_land_use_map(self, root_path: str, land_use_file: str) -> None:
-        """Specify data sources for a given scenario, and import land-use raster file. Note that projection and resolution of raster files must match. 
+    def set_land_use_map(self, root_path: str, land_use_file: str, nodata_fill_value: float = None) -> None:
+        """Specify data sources for a given scenrio, i.e., root path, and import land-use raster file.
 
         Args:
-            scenario_name (str): Name of a scenario, i.e., subfolder within root of data path.
-            lu_file (str): Name of the land-use raster file for the given scenario.           
+            root_path (str): Name of a scenario, i.e., subfolder within root of data path.
+            land_use_file (str): Name of the land-use raster file for the given scenario. 
+            nodata_fill_value (float): If set to a value, nodata values of the raster to be imported will be filled up with the specified value.           
         """
         self.scenario_name = root_path
         self.lsm_fileName = land_use_file
@@ -122,7 +126,7 @@ class LsmGridRecreationModeller:
         self.make_environment()         
         
         # import lsm
-        self.lsm_rst, self.lsm_mtx, self.lsm_nodataMask = self._read_dataset(self.lsm_fileName)
+        self.lsm_rst, self.lsm_mtx, self.lsm_nodataMask = self._read_dataset(self.lsm_fileName, nodata_fill_value=nodata_fill_value)
 
     def assess_map_units(self, compute_proximities: bool = False) -> None:
         """Determine basic data and conduct basic operations on land-use classes, including occurence masking, edge detection, aggregation of built-up classes and population disaggregation, determination of beneficiaries within given cost thresholds, computation of proximities to land-uses (if requested), and land-use class-specific total supply.   
@@ -175,12 +179,17 @@ class LsmGridRecreationModeller:
     # Layers written will be specific to given costs.
     #
         
-    def detect_clumps(self):
+    def detect_clumps(self, barrier_classes = [0]):
 
         self.printStepInfo("Detecting clumps")
         clump_connectivity = np.full((3,3), 1)
         rst_clumps = self._get_value_matrix()
-        nr_clumps = ndimage.label(self.lsm_mtx, structure=clump_connectivity, output=rst_clumps)
+
+        indata = self.lsm_mtx.copy()
+        barriers_mask = np.isin(indata, barrier_classes, invert=False)
+        indata[barriers_mask] = 0
+
+        nr_clumps = ndimage.label(indata, structure=clump_connectivity, output=rst_clumps)
         print(Fore.YELLOW + Style.BRIGHT + "{} CLUMPS FOUND".format(nr_clumps) + Style.RESET_ALL)
         self._write_dataset("MASKS/clumps.tif", rst_clumps)        
         
@@ -191,18 +200,20 @@ class LsmGridRecreationModeller:
         # mask classes of interest into a binary raster to indicate presence/absence of recreational potential
         # we require this for all classes relevant to processing: patch and edge recreational classes, built-up classes
         self.printStepInfo("CREATING LAND-USE MASKS")
+        
         classes_for_masking = self.lu_classes_recreation_edge + self.lu_classes_recreation_patch + self.lu_classes_builtup 
         current_task = self._get_task('[white]Masking land-uses', total=len(classes_for_masking))
         
-        for lu in classes_for_masking:
-            current_lu_mask = self.lsm_mtx.copy()
-            # make mask for relevant pixels
-            mask = np.isin(current_lu_mask, [lu], invert=False)
-            # mask with binary values 
-            current_lu_mask[mask] = 1
-            current_lu_mask[~mask] = 0
-            self._write_dataset("MASKS/mask_{}.tif".format(lu), current_lu_mask)
-            self.progress.update(current_task, advance=1)
+        with self.progress if self._runsAsStandalone() else nullcontext() as bar:        
+            for lu in classes_for_masking:
+                current_lu_mask = self.lsm_mtx.copy()
+                # make mask for relevant pixels
+                mask = np.isin(current_lu_mask, [lu], invert=False)
+                # mask with binary values 
+                current_lu_mask[mask] = 1
+                current_lu_mask[~mask] = 0
+                self._write_dataset("MASKS/mask_{}.tif".format(lu), current_lu_mask)
+                self.progress.update(current_task, advance=1)
 
         # done    
         self.taskProgressReportStepCompleted()
@@ -214,16 +225,17 @@ class LsmGridRecreationModeller:
             self.printStepInfo("Detecting edges")
             current_task = self._get_task("[white]Detecting edges", total=len(self.lu_classes_recreation_edge))
             
-            for lu in self.lu_classes_recreation_edge:            
-                inputMaskFileName = "MASKS/mask_{}.tif".format(lu)    
-                mtx_mask = self._read_band(inputMaskFileName)            
-                # apply a 3x3 rectangular sliding window to determine pixel value diversity in window
-                rst_edgePixelDiversity = self._moving_window(mtx_mask, self._kernel_diversity, 3, 'rect') 
-                rst_edgePixelDiversity = rst_edgePixelDiversity - 1
-                mtx_mask = mtx_mask * rst_edgePixelDiversity
-                self._write_dataset("MASKS/edges_{}.tif".format(lu), mtx_mask)
-                del rst_edgePixelDiversity
-                self.progress.update(current_task, advance=1)
+            with self.progress if self._runsAsStandalone() else nullcontext() as bar:
+                for lu in self.lu_classes_recreation_edge:            
+                    inputMaskFileName = "MASKS/mask_{}.tif".format(lu)    
+                    mtx_mask = self._read_band(inputMaskFileName)            
+                    # apply a 3x3 rectangular sliding window to determine pixel value diversity in window
+                    rst_edgePixelDiversity = self._moving_window(mtx_mask, self._kernel_diversity, 3, 'rect') 
+                    rst_edgePixelDiversity = rst_edgePixelDiversity - 1
+                    mtx_mask = mtx_mask * rst_edgePixelDiversity
+                    self._write_dataset("MASKS/edges_{}.tif".format(lu), mtx_mask)
+                    del rst_edgePixelDiversity
+                    self.progress.update(current_task, advance=1)
         
             # done
             self.taskProgressReportStepCompleted()
@@ -424,19 +436,19 @@ class LsmGridRecreationModeller:
         step_count = len(clump_slices) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
         current_task = self._get_task("[white]Determining clumped supply", total=step_count)
 
-        for c in self.cost_thresholds:            
-                        
-            for lu in self.lu_classes_recreation_patch:
-                # process supply of current class 
-                lu_supply_mtx = self._class_total_supply_for_lu_and_cost("MASKS/mask_{}.tif".format(lu), rst_clumps, clump_slices, c, current_task)                            
-                # export current cost
-                self._write_dataset("SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, c), lu_supply_mtx)                
-                
-            for lu in self.lu_classes_recreation_edge:
-                # process supply of current class 
-                lu_supply_mtx = self._class_total_supply_for_lu_and_cost("MASKS/edges_{}.tif".format(lu), rst_clumps, clump_slices, c, current_task)                            
-                # export current cost
-                self._write_dataset("SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, c), lu_supply_mtx)                
+        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
+            for c in self.cost_thresholds:                                        
+                for lu in self.lu_classes_recreation_patch:
+                    # process supply of current class 
+                    lu_supply_mtx = self._class_total_supply_for_lu_and_cost("MASKS/mask_{}.tif".format(lu), rst_clumps, clump_slices, c, current_task)                            
+                    # export current cost
+                    self._write_dataset("SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, c), lu_supply_mtx)                
+                    
+                for lu in self.lu_classes_recreation_edge:
+                    # process supply of current class 
+                    lu_supply_mtx = self._class_total_supply_for_lu_and_cost("MASKS/edges_{}.tif".format(lu), rst_clumps, clump_slices, c, current_task)                            
+                    # export current cost
+                    self._write_dataset("SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, c), lu_supply_mtx)                
 
         # done
         self.taskProgressReportStepCompleted()
@@ -1043,7 +1055,7 @@ class LsmGridRecreationModeller:
     #
 
 
-    def _read_dataset(self, file_name: str, band: int = 1, nodata_values: List[float] = [0], is_scenario_specific:bool = True) -> Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]:
+    def _read_dataset(self, file_name: str, band: int = 1, nodata_values: List[float] = [0], is_scenario_specific:bool = True, nodata_fill_value = None) -> Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]:
         """Read a dataset and return reference to the dataset, values, and boolean mask of nodata values.
 
         Args:
@@ -1068,11 +1080,11 @@ class LsmGridRecreationModeller:
         rst_lacks_nodata = all(x is None for x in rst_nodata_values)
         if rst_lacks_nodata:            
             nodata_mask = np.isin(band_data, nodata_values, invert=False)
-            band_data[nodata_mask] = self.nodata_value
+            band_data[nodata_mask] = self.nodata_value if nodata_fill_value is None else nodata_fill_value
         else:
             print(rst_nodata_values)
             nodata_mask = np.isin(band_data, rst_nodata_values, invert=False)
-            band_data[nodata_mask] = self.nodata_value
+            band_data[nodata_mask] = self.nodata_value if nodata_fill_value is None else nodata_fill_value
 
         return rst_ref, band_data, nodata_mask
         
@@ -1147,7 +1159,8 @@ class LsmGridRecreationModeller:
         Returns:
             np.ndarray: Filled array.
         """
-        rst_new = np.full(shape=self.lsm_mtx.shape, fill_value=fill_value, dtype=self.lsm_mtx.dtype)
+        rst_dtype = self.lsm_mtx.dtype if self.dtype is None else self.dtype
+        rst_new = np.full(shape=self.lsm_mtx.shape, fill_value=fill_value, dtype=rst_dtype)
         return rst_new        
 
     def _get_circular_kernel(self, kernel_size: int) -> np.ndarray:
