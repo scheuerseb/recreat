@@ -521,7 +521,6 @@ class LsmGridRecreationModeller:
         current_task = self._get_task("[white]Aggregating clumped supply", total=step_count)
 
         with self.progress as p:
-
             for c in self.cost_thresholds:
                 # get aggregation for current cost threshold
                 current_total_supply_at_cost, current_weighted_total_supply_at_cost = self._get_aggregate_class_total_supply_for_cost(c, lu_weights, write_non_weighted_result, current_task)                                           
@@ -548,7 +547,6 @@ class LsmGridRecreationModeller:
         current_task = self._get_task("[white]Determining class diversity", total=step_count)
 
         with self.progress as p:
-
             for c in self.cost_thresholds:            
                 mtx_diversity_at_cost = self._get_value_matrix()
 
@@ -578,8 +576,7 @@ class LsmGridRecreationModeller:
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch))
         current_task = self._get_task("[white]Determine class-based flows within cost", step_count)
 
-        with self.progress as p:
-            
+        with self.progress as p:            
             for c in self.cost_thresholds:
                 mtx_pop = self._read_band("DEMAND/beneficiaries_within_cost_{}.tif".format(c))
 
