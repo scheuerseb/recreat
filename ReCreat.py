@@ -30,7 +30,7 @@ from typing import Tuple, List, Callable, Dict
 
 colorama_init()
 
-class LsmGridRecreationModeller:
+class ReCreat:
 
     # some status variables
     verbose_reporting = False
