@@ -1,14 +1,6 @@
-#####################
-# Author: Sebastian Scheuer (sebastian.scheuer@geo.hu-berlin.de, seb.scheuer@outlook.de)
-# Humboldt-Universität zu Berlin
-#
-#
-# The indicators determined based on this script is really a simplification of a more-detailed approach
-# adapted to the LSM and WP7 requirements to obtain indicators in a scaled manner.
-#
-# 
-#
-#####################
+###############################################################################
+# (C) 2024 Sebastian Scheuer (seb.scheuer@outlook.de)                         #
+###############################################################################
 
 
 import os
@@ -34,15 +26,12 @@ class ReCreat:
 
     # some status variables
     verbose_reporting = False
-    scenario_intialized = False
 
-    # working directory
-    data_path = None
+    # environment variables
+    data_path = None            # path to datasets
+    root_path = "current"       # path to a specific "scenario" to be assessed, i.e., subfolder in data_path
 
-    # scenario name and corresponding population and lsm filenames
-    scenario_name = "current"
-    lsm_fileName = None
-
+    # references to input data
     # this stores the lsm map as reference map
     lsm_rst = None
     lsm_mtx = None
@@ -56,6 +45,7 @@ class ReCreat:
     nodata_value = 0
     dtype = None
 
+    # store params
     # define relevant recreation patch and edge classes, cost thresholds, etc.
     lu_classes_recreation_edge = []
     lu_classes_recreation_patch = []
@@ -76,7 +66,7 @@ class ReCreat:
         # create directories, if needed
         dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'TMP', 'FLOWS', 'CLUMPS_LU', 'PROX', 'COSTS']
         for d in dirs_required:
-            cpath = "{}/{}/{}".format(self.data_path, self.scenario_name, d)
+            cpath = "{}/{}/{}".format(self.data_path, self.root_path, d)
             if not os.path.exists(cpath):
                 os.makedirs(cpath)
 
@@ -110,23 +100,24 @@ class ReCreat:
             self.cost_thresholds = paramValue    
         elif paramType == 'use-data-type':
             self.dtype = paramValue 
+        elif paramType == 'verbose-reporting':
+            self.verbose_reporting = paramValue
       
-    def set_land_use_map(self, root_path: str, land_use_file: str, nodata_fill_value: float = None) -> None:
+    def set_land_use_map(self, root_path: str, land_use_file: str, nodata_values: list[float] = [0], nodata_fill_value: float = None) -> None:
         """Specify data sources for a given scenrio, i.e., root path, and import land-use raster file.
 
         Args:
             root_path (str): Name of a scenario, i.e., subfolder within root of data path.
             land_use_file (str): Name of the land-use raster file for the given scenario. 
-            nodata_fill_value (float): If set to a value, nodata values of the raster to be imported will be filled up with the specified value.           
+            nodata_fill_value (float): If set to a value, nodata values of the land-use raster will be filled with the specified value.           
         """
-        self.scenario_name = root_path
-        self.lsm_fileName = land_use_file
-        
+        self.root_path = root_path
+                
         # check if folders are properly created in current scenario workspace
         self.make_environment()         
         
         # import lsm
-        self.lsm_rst, self.lsm_mtx, self.lsm_nodataMask = self._read_dataset(self.lsm_fileName, nodata_fill_value=nodata_fill_value)
+        self.lsm_rst, self.lsm_mtx, self.lsm_nodataMask = self._read_dataset(land_use_file, nodata_values=nodata_values, nodata_fill_value = nodata_fill_value)
 
     def assess_map_units(self, compute_proximities: bool = False) -> None:
         """Determine basic data and conduct basic operations on land-use classes, including occurence masking, edge detection, aggregation of built-up classes and population disaggregation, determination of beneficiaries within given cost thresholds, computation of proximities to land-uses (if requested), and land-use class-specific total supply.   
@@ -1060,11 +1051,12 @@ class ReCreat:
             band (int, optional): Band to be read. Defaults to 1.
             nodata_values (List[float], optional): List of values indicating nodata. Defaults to [0].
             is_scenario_specific (bool, optional): Indicates if the specified datasource located in a scenario-specific subfolder (True) or at the data path root (False). Defaults to True.
+            nodata_fill_value (float, optional): If set to a value, nodata values of the raster to be imported will be filled up with the specified value.           
 
         Returns:
             Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]: Dataset, data matrix, and mask of nodata values.
         """
-        path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.scenario_name, file_name)
+        path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
         if self.verbose_reporting:
             print(Fore.WHITE + Style.DIM + "READING {}".format(path) + Style.RESET_ALL)
         
@@ -1072,16 +1064,10 @@ class ReCreat:
         band_data = rst_ref.read(band)
         
         # user-specified nodata-values used only if no nodata value defined for raster
-        # otherwise, nodata value of raster is used, and replaced by 0
-        rst_nodata_values = list(rst_ref.nodatavals)
-        rst_lacks_nodata = all(x is None for x in rst_nodata_values)
-        if rst_lacks_nodata:            
-            nodata_mask = np.isin(band_data, nodata_values, invert=False)
-            band_data[nodata_mask] = self.nodata_value if nodata_fill_value is None else nodata_fill_value
-        else:
-            print(rst_nodata_values)
-            nodata_mask = np.isin(band_data, rst_nodata_values, invert=False)
-            band_data[nodata_mask] = self.nodata_value if nodata_fill_value is None else nodata_fill_value
+        # otherwise, nodata value of raster is used, and replaced by 0        
+        print(nodata_values)
+        nodata_mask = np.isin(band_data, nodata_values, invert=False)
+        band_data[nodata_mask] = self.nodata_value if nodata_fill_value is None else nodata_fill_value
 
         return rst_ref, band_data, nodata_mask
         
@@ -1096,7 +1082,7 @@ class ReCreat:
         Returns:
             np.ndarray: _description_
         """
-        path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.scenario_name, file_name)
+        path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
         if self.verbose_reporting:
             print(Fore.WHITE + Style.DIM + "READING {}".format(path) + Style.RESET_ALL)    
         rst_ref, band_data, nodata_mask = self._read_dataset(file_name=file_name, band=band, is_scenario_specific=is_scenario_specific)
@@ -1111,7 +1097,7 @@ class ReCreat:
             mask_nodata (bool, optional): Indicates if nodata values should be masked using default nodata mask (True) or not (False). Defaults to True.
             is_scenario_specific (bool, optional): Indicates whether file should be written in a scenario-specific subfolder (True) or in the data path root (False). Defaults to True.
         """
-        path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.scenario_name, file_name)
+        path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
         if self.verbose_reporting:
             print(Fore.YELLOW + Style.DIM + "WRITING {}".format(path) + Style.RESET_ALL)
 
@@ -1213,7 +1199,7 @@ class ReCreat:
         # make kernel
         kernel = self._get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
         # create result mtx as memmap
-        mtx_res = np.memmap("{}/{}/TMP/{}".format(self.data_path, self.scenario_name, uuid.uuid1()), dtype=data_mtx.dtype, mode='w+', shape=data_mtx.shape) 
+        mtx_res = np.memmap("{}/{}/TMP/{}".format(self.data_path, self.root_path, uuid.uuid1()), dtype=data_mtx.dtype, mode='w+', shape=data_mtx.shape) 
         # apply moving window over input mtx
         ndimage.generic_filter(data_mtx, kernel_func, footprint=kernel, output=mtx_res, mode='constant', cval=0)
         mtx_res.flush()
