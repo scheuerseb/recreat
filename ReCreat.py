@@ -115,8 +115,8 @@ class ReCreat:
         Args:
             root_path (str): Name of a scenario, i.e., subfolder within root of data path.
             land_use_file (str): Name of the land-use raster file for the given scenario.
-            nodata_values (List[float], optional): Values in the land-use grid that should be treated as nodata values.  
-            nodata_fill_value (float, optional): If set, specified nodata values of the land-use grid will be filled with the specified value.           
+            nodata_values (List[float], optional): Values in the land-use raster that should be treated as nodata values.  
+            nodata_fill_value (float, optional): If set, specified nodata values in the land-use raster will be filled with the specified value.           
         """
         self.root_path = root_path
                 
@@ -134,7 +134,7 @@ class ReCreat:
     #
         
     def detect_clumps(self, barrier_classes: List[int] = [0]) -> None:
-        """ 
+        """ Detect clumps as contiguous areas in the land-use raster that are separated by the specified barrier land-uses. Connectivity is defined as queens contiguity. 
 
         Args:
             barrier_classes (List[int], optional): _description_. Defaults to [0].
@@ -154,7 +154,9 @@ class ReCreat:
         # done
         self.taskProgressReportStepCompleted()
 
-    def mask_landuses(self):
+    def mask_landuses(self) -> None:
+        """Generate land-use class masks (occurrence masks) for patch, edge, and built-up land-use classes.
+        """
         # mask classes of interest into a binary raster to indicate presence/absence of recreational potential
         # we require this for all classes relevant to processing: patch and edge recreational classes, built-up classes
         self.printStepInfo("CREATING LAND-USE MASKS")
@@ -176,7 +178,9 @@ class ReCreat:
         # done    
         self.taskProgressReportStepCompleted()
     
-    def detect_edges(self):
+    def detect_edges(self) -> None:
+        """ Detect edges (patch perimeters) of land-use classes that are defined as edge classes.
+        """
         # determine edge pixels of edge-only classes such as water opportunities
         if(len(self.lu_classes_recreation_edge) > 0):
             
@@ -199,7 +203,7 @@ class ReCreat:
             self.taskProgressReportStepCompleted()
 
     def compute_distance_rasters(self, lu_classes: List[int] = None, assess_builtup: bool = False) -> None:
-        """Generate proximity rasters to land-use classes.
+        """Generate proximity rasters to land-use classes based on identified clumps.
 
         Args:
             lu_classes (List[int], optional): List of integers, i.e., land-use classes to assess. Defaults to None.
@@ -298,6 +302,25 @@ class ReCreat:
         # done
         self.taskProgressReportStepCompleted()
 
+    def aggregate_builtup_classes(self) -> None:
+        """ Aggregates specified built-up (i.e., potentially residential) classes into a single built-up layer. 
+        """
+        self.printStepInfo("Aggregating built-up land-use classes")
+        current_task = self._get_task("[white]Aggregating built-up", total=len(self.lu_classes_builtup))
+        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
+
+            mtx_builtup = self._get_value_matrix()                        
+            for lu in self.lu_classes_builtup:
+                rst_mtx = self._read_band('MASKS/mask_{}.tif'.format(lu))
+                mtx_builtup += rst_mtx                   
+                self.progress.update(current_task, advance=1)                 
+                
+            # write built-up raster to disk
+            self._write_dataset("MASKS/built-up.tif", mtx_builtup)
+        
+        # done
+        self.printStepCompleteInfo()
+
     def disaggregate_population(self, population_grid: str, write_scaled_result: bool = True) -> None:
         """Aggregates built-up land-use classes into a single raster of built-up areas, and intersects built-up with the scenario-specific population grid to provide disaggregated population.
 
@@ -306,24 +329,18 @@ class ReCreat:
             write_scaled_result (bool, optional): Export min-max scaled result, if True. Defaults to True.
         """
         self.printStepInfo("Disaggregating population to built-up")
-
-        current_task = self._get_task("[white]Population disaggregation", total=len(self.lu_classes_builtup))
-
+        current_task = self._get_task("[white]Population disaggregation", total=1)
         with self.progress if self._runsAsStandalone() else nullcontext() as bar:
 
-            mtx_builtup = self._get_value_matrix()            
+            mtx_builtup = self._read_band("MASKS/built-up.tif")
             mtx_pop = self._read_band(population_grid)
             
-            for lu in self.lu_classes_builtup:
-                rst_mtx = self._read_band('MASKS/mask_{}.tif'.format(lu))
-                mtx_builtup += rst_mtx                   
-                self.progress.update(current_task, advance=1)                 
-                
-            # write built-up raster to disk
-            self._write_dataset("MASKS/built-up.tif", mtx_builtup)
-
             # now disaggregate poopulation by intersect                
-            # multiply residential built-up pixels with pop raster        
+            # multiply residential built-up pixels with pop raster  
+            
+            # TODO Determine spatial match of rasters
+            # TODO Improve disaggregation method to account for CLC case
+                  
             mtx_builtup = mtx_builtup * mtx_pop
             # write pop raster to disk
             self._write_dataset("DEMAND/disaggregated_population.tif", mtx_builtup)
