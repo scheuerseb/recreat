@@ -126,11 +126,6 @@ class ReCreat:
         # import lsm
         self.lsm_rst, self.lsm_mtx, self.lsm_nodata_mask = self._read_dataset(land_use_file, nodata_values=nodata_values, nodata_fill_value = nodata_fill_value)
 
-        #valid_data_mask = self.lsm_rst.dataset_mask()
-        self._write_dataset('validmask.tif', self.lsm_mtx)
-
-
-
 
     #
     # The following classes will be called from asses_map_units. 
