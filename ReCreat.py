@@ -35,7 +35,7 @@ class ReCreat:
     # this stores the lsm map as reference map
     lsm_rst = None
     lsm_mtx = None
-    lsm_nodataMask = None
+    lsm_nodata_mask = None
 
     # distance units
     lsm_pixel_area_unit_factor = 1  # factor value to convert pixel area to km² through multiplication (1 px * factor = pixel area in km²) note: for CLC, this would be 0.01
@@ -89,18 +89,24 @@ class ReCreat:
             MofNCompleteColumn()
         )
 
-    def set_params(self, paramType, paramValue):
-        if paramType == 'classes.edge':
+    def set_params(self, paramName: str, paramValue: any) -> None:
+        """ Set processing parameters.
+
+        Args:
+            paramType (str): Parameter, one of 'classes.edge', 'classes.patch', 'classes.builtup', 'costs', 'use-data-type', 'verbose-reporting'. 
+            paramValue (any): Parameter value, depending on parameter name.
+        """
+        if paramName == 'classes.edge':
             self.lu_classes_recreation_edge = paramValue
-        elif paramType == 'classes.patch':
+        elif paramName == 'classes.patch':
             self.lu_classes_recreation_patch = paramValue
-        elif paramType == 'classes.builtup':
+        elif paramName == 'classes.builtup':
             self.lu_classes_builtup = paramValue
-        elif paramType == 'costs':
+        elif paramName == 'costs':
             self.cost_thresholds = paramValue    
-        elif paramType == 'use-data-type':
+        elif paramName == 'use-data-type':
             self.dtype = paramValue 
-        elif paramType == 'verbose-reporting':
+        elif paramName == 'verbose-reporting':
             self.verbose_reporting = paramValue
       
     def set_land_use_map(self, root_path: str, land_use_file: str, nodata_values: list[float] = [0], nodata_fill_value: float = None) -> None:
@@ -108,8 +114,9 @@ class ReCreat:
 
         Args:
             root_path (str): Name of a scenario, i.e., subfolder within root of data path.
-            land_use_file (str): Name of the land-use raster file for the given scenario. 
-            nodata_fill_value (float): If set to a value, nodata values of the land-use raster will be filled with the specified value.           
+            land_use_file (str): Name of the land-use raster file for the given scenario.
+            nodata_values (List[float], optional): Values in the land-use grid that should be treated as nodata values.  
+            nodata_fill_value (float, optional): If set, specified nodata values of the land-use grid will be filled with the specified value.           
         """
         self.root_path = root_path
                 
@@ -117,49 +124,10 @@ class ReCreat:
         self.make_environment()         
         
         # import lsm
-        self.lsm_rst, self.lsm_mtx, self.lsm_nodataMask = self._read_dataset(land_use_file, nodata_values=nodata_values, nodata_fill_value = nodata_fill_value)
+        self.lsm_rst, self.lsm_mtx, self.lsm_nodata_mask = self._read_dataset(land_use_file, nodata_values=nodata_values, nodata_fill_value = nodata_fill_value)
 
-    def assess_map_units(self, compute_proximities: bool = False) -> None:
-        """Determine basic data and conduct basic operations on land-use classes, including occurence masking, edge detection, aggregation of built-up classes and population disaggregation, determination of beneficiaries within given cost thresholds, computation of proximities to land-uses (if requested), and land-use class-specific total supply.   
-
-        Args:
-            compute_proximities (bool, optional): Compute proximities to land-uses. This is very computationally heavy. Defaults to False.
-        """
-        self.progress = self.get_progress_bar()
-        step_count = 7 if compute_proximities else 6
-        self.task_assess_map_units = self.progress.add_task('[red]Assessing recreational potential', total=step_count)
-        with self.progress as p:
-            
-            # detecting clumps
-            self.detect_clumps()
-                        
-            # mask land-uses and detect edges on relevant classes
-            self.mask_landuses()    
-            self.detect_edges()
-
-            # work on population disaggregation
-            self.disaggregate_population()            
-            self.beneficiaries_within_cost()
-
-            # determine raster-based proximities as cost-to-closest
-            if compute_proximities:
-                self.compute_distance_rasters()        
-            
-            # determine supply per class
-            self.class_total_supply()
-
-        self.printStepCompleteInfo()
-        self.task_assess_map_units = None
-
-
-    def taskProgressReportStepCompleted(self):
-        if self.task_assess_map_units is not None:
-            self.progress.update(self.task_assess_map_units, advance=1)
-        else:
-            self.printStepCompleteInfo()
-
-    def _runsAsStandalone(self):
-        return True if self.task_assess_map_units is None else False
+        #valid_data_mask = self.lsm_rst.dataset_mask()
+        self._write_dataset('validmask.tif', self.lsm_mtx)
 
 
 
@@ -170,8 +138,12 @@ class ReCreat:
     # Layers written will be specific to given costs.
     #
         
-    def detect_clumps(self, barrier_classes = [0]):
+    def detect_clumps(self, barrier_classes: List[int] = [0]) -> None:
+        """ 
 
+        Args:
+            barrier_classes (List[int], optional): _description_. Defaults to [0].
+        """
         self.printStepInfo("Detecting clumps")
         clump_connectivity = np.full((3,3), 1)
         rst_clumps = self._get_value_matrix()
@@ -1062,13 +1034,17 @@ class ReCreat:
         
         rst_ref = rasterio.open(path)
         band_data = rst_ref.read(band)
-        
-        # user-specified nodata-values used only if no nodata value defined for raster
-        # otherwise, nodata value of raster is used, and replaced by 0        
-        print(nodata_values)
-        nodata_mask = np.isin(band_data, nodata_values, invert=False)
-        band_data[nodata_mask] = self.nodata_value if nodata_fill_value is None else nodata_fill_value
 
+        # attempt replacement of nodata with desired fill value
+        fill_value = self.nodata_value if nodata_fill_value is None else nodata_fill_value
+        for nodata_value in nodata_values:
+            if self.verbose_reporting:
+                print(Fore.RED + Style.DIM + "REPLACING NODATA VALUE={} WITH FILL VALUE={}".format(nodata_value, fill_value) + Style.RESET_ALL) 
+            band_data = np.where(band_data==nodata_value, fill_value, band_data)
+
+        # determine nodata mask AFTER potential filling of nodata values        
+        nodata_mask = np.isin(band_data, nodata_values, invert=False)
+                
         return rst_ref, band_data, nodata_mask
         
     def _read_band(self, file_name: str, band: int = 1, is_scenario_specific: bool = True) -> np.ndarray:
@@ -1102,7 +1078,7 @@ class ReCreat:
             print(Fore.YELLOW + Style.DIM + "WRITING {}".format(path) + Style.RESET_ALL)
 
         if mask_nodata is True:
-            outdata[self.lsm_nodataMask] = self.nodata_value    
+            outdata[self.lsm_nodata_mask] = self.nodata_value    
 
         with rasterio.open(
             path,
@@ -1239,6 +1215,48 @@ class ReCreat:
     
 
     
+    def assess_map_units(self, compute_proximities: bool = False) -> None:
+        """Determine basic data and conduct basic operations on land-use classes, including occurence masking, edge detection, aggregation of built-up classes and population disaggregation, determination of beneficiaries within given cost thresholds, computation of proximities to land-uses (if requested), and land-use class-specific total supply.   
+
+        Args:
+            compute_proximities (bool, optional): Compute proximities to land-uses. This is very computationally heavy. Defaults to False.
+        """
+        self.progress = self.get_progress_bar()
+        step_count = 7 if compute_proximities else 6
+        self.task_assess_map_units = self.progress.add_task('[red]Assessing recreational potential', total=step_count)
+        with self.progress as p:
+            
+            # detecting clumps
+            self.detect_clumps()
+                        
+            # mask land-uses and detect edges on relevant classes
+            self.mask_landuses()    
+            self.detect_edges()
+
+            # work on population disaggregation
+            self.disaggregate_population()            
+            self.beneficiaries_within_cost()
+
+            # determine raster-based proximities as cost-to-closest
+            if compute_proximities:
+                self.compute_distance_rasters()        
+            
+            # determine supply per class
+            self.class_total_supply()
+
+        self.printStepCompleteInfo()
+        self.task_assess_map_units = None
+
+
+    def taskProgressReportStepCompleted(self):
+        if self.task_assess_map_units is not None:
+            self.progress.update(self.task_assess_map_units, advance=1)
+        else:
+            self.printStepCompleteInfo()
+
+    def _runsAsStandalone(self):
+        return True if self.task_assess_map_units is None else False
+
         
     
     
