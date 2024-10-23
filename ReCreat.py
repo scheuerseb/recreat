@@ -1071,8 +1071,6 @@ class ReCreat:
             np.ndarray: _description_
         """
         path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
-        if self.verbose_reporting:
-            print(Fore.WHITE + Style.DIM + "READING {}".format(path) + Style.RESET_ALL)    
         rst_ref, band_data, nodata_mask = self._read_dataset(file_name=file_name, band=band, is_scenario_specific=is_scenario_specific)
         return band_data
     
