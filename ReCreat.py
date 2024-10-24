@@ -54,6 +54,7 @@ class ReCreat:
     lu_classes_recreation_patch = []
     lu_classes_builtup = []
     cost_thresholds = []
+    ignore_edges_to_classes = []
     
     # progress reporting
     progress = None     
@@ -181,8 +182,11 @@ class ReCreat:
         # done    
         self.taskProgressReportStepCompleted()
     
-    def detect_edges(self) -> None:
+    def detect_edges(self, ignore_edges_to_classes: List[float] = []) -> None:
         """ Detect edges (patch perimeters) of land-use classes that are defined as edge classes.
+
+        Args:
+            ignore_edges_to_classes (List[float], optional): Classes to which edges should be ignored. Defaults to [].
         """
         # determine edge pixels of edge-only classes such as water opportunities
         if(len(self.lu_classes_recreation_edge) > 0):
@@ -190,10 +194,13 @@ class ReCreat:
             self.printStepInfo("Detecting edges")
             current_task = self._get_task("[white]Detecting edges", total=len(self.lu_classes_recreation_edge))
             
+            # set ignore list at class-level, so that it can be accessed from the kernel function
+            self.ignore_edges_to_classes = ignore_edges_to_classes
+
             with self.progress if self._runsAsStandalone() else nullcontext() as bar:
                 for lu in self.lu_classes_recreation_edge:            
-                    inputMaskFileName = "MASKS/mask_{}.tif".format(lu)    
-                    mtx_mask = self._read_band(inputMaskFileName)            
+                    # read masking raster
+                    mtx_mask = self._read_band("MASKS/mask_{}.tif".format(lu)) 
                     # apply a 3x3 rectangular sliding window to determine pixel value diversity in window
                     rst_edgePixelDiversity = self._moving_window(mtx_mask, self._kernel_diversity, 3, 'rect') 
                     rst_edgePixelDiversity = rst_edgePixelDiversity - 1
@@ -1311,15 +1318,20 @@ class ReCreat:
         return(ndimage.sum(subarr))
     
     def _kernel_diversity(self, subarr: np.ndarray) -> float:
-        """Determine the number of unique elements in a kernel window.
+        """Determine the number of unique elements in a kernel window. Classes to which edges should be ignored are excluded from the return set.
 
         Args:
             subarr (np.ndarray): Kernel.
-
+            
         Returns:
             int: Number of unique elements in kernel.
+        
         """
-        return len(set(subarr))
+        # remove classes from subarr to which edges should be ignored.
+        tmp = subarr.tolist()
+        for x in self.ignore_edges_to_classes:
+            tmp.remove(x)            
+        return len(set(tmp))
 
     def _moving_window(self, data_mtx: np.ndarray, kernel_func: Callable[[np.ndarray], float], kernel_size: int, kernel_shape: str = 'circular') -> np.ndarray:
         """Conduct a moving window operation with specified kernel shape and kernel size on an array.
