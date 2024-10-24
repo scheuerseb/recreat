@@ -381,11 +381,10 @@ class ReCreat:
             # read the built-up patch count 
             mtx_patch_count = self._read_band('DEMAND/builtup_count.tif')
             ref_pop, mtx_pop, nodata_pop = self._read_dataset(population_grid)        
-            mtx_patch_population = self._get_value_matrix().astype(np.float32)
+            mtx_patch_population = self._get_value_matrix(shape=mtx_pop.shape).astype(np.float32)
             
             # make rasters the same data type
-            # make sure that a float dtype is set
-            # is 32bit enough?            
+            # make sure that a float dtype is set          
             np.divide(mtx_pop.astype(np.float32), mtx_patch_count.astype(np.float32), out=mtx_patch_population, where=mtx_patch_count > 0)
             
             self._write_dataset('DEMAND/patch_population.tif', mtx_patch_population, rst_ref=ref_pop)
@@ -1262,17 +1261,22 @@ class ReCreat:
         # return mask
         return lu_mask
 
-    def _get_value_matrix(self, fill_value: float = 0) -> np.ndarray:
+    def _get_value_matrix(self, fill_value: float = 0, shape: Tuple[int, int] = None) -> np.ndarray:
         """Return array with specified fill value. 
 
         Args:
             fill_value (float, optional): Fill value. Defaults to 0.
+            shape (Tuple[int, int], optional): Shape of the matrix to be returned.
 
         Returns:
             np.ndarray: Filled array.
         """
+        
+        # determine parameters based on specified method arguments
         rst_dtype = self.lsm_mtx.dtype if self.dtype is None else self.dtype
-        rst_new = np.full(shape=self.lsm_mtx.shape, fill_value=fill_value, dtype=rst_dtype)
+        rst_shape = self.lsm_mtx.shape if shape is None else shape
+
+        rst_new = np.full(shape=rst_shape, fill_value=fill_value, dtype=rst_dtype)
         return rst_new        
 
     def _get_circular_kernel(self, kernel_size: int) -> np.ndarray:
