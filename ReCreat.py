@@ -387,7 +387,7 @@ class ReCreat:
             # make sure that a float dtype is set          
             np.divide(mtx_pop.astype(np.float32), mtx_patch_count.astype(np.float32), out=mtx_patch_population, where=mtx_patch_count > 0)
             
-            self._write_dataset('DEMAND/patch_population.tif', mtx_patch_population, rst_ref=ref_pop)
+            self._write_dataset('DEMAND/patch_population.tif', mtx_patch_population, custom_grid_reference=ref_pop)
             self.progress.update(current_task, advance=1)     
             
             del(mtx_pop)
@@ -1213,24 +1213,27 @@ class ReCreat:
         rst_ref, band_data, nodata_mask = self._read_dataset(file_name=file_name, band=band, is_scenario_specific=is_scenario_specific)
         return band_data
     
-    def _write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True, rst_ref: any = None) -> None:        
+    def _write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True, custom_grid_reference: rasterio.DatasetReader = None, custom_nodata_mask: np.ndarray = None) -> None:        
         """Write a dataset to disk.
 
         Args:
             file_name (str): Name of file to be written.
             outdata (np.ndarray): Values to be written.
-            mask_nodata (bool, optional): Indicates if nodata values should be masked using default nodata mask (True) or not (False). Defaults to True.
+            mask_nodata (bool, optional): Indicates if nodata values should be masked using default or custom nodata mask (True) or not (False). Defaults to True. Uses custom nodata mask if specified.
             is_scenario_specific (bool, optional): Indicates whether file should be written in a scenario-specific subfolder (True) or in the data path root (False). Defaults to True.
+            custom_grid_reference (rasterio.DatasetReader, optional): Custom grid reference (i.e., crs, transform) to be used. If not specified, uses default land-use grid crs and transform.
+            custom_nodata_mask (np.ndarray, optional): Custom nodata mask to apply if mask_nodata is set to True.
         """
 
-        rst_ref = rst_ref if rst_ref is not None else self.lsm_rst
+        custom_grid_reference = custom_grid_reference if custom_grid_reference is not None else self.lsm_rst
 
         path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
         if self.verbose_reporting:
             print(Fore.YELLOW + Style.DIM + "WRITING {}".format(path) + Style.RESET_ALL)
 
         if mask_nodata is True:
-            outdata[self.lsm_nodata_mask] = self.nodata_value    
+            custom_nodata_mask = custom_nodata_mask if custom_nodata_mask is not None else self.lsm_nodata_mask
+            outdata[custom_nodata_mask] = self.nodata_value    
 
         with rasterio.open(
             path,
@@ -1240,8 +1243,8 @@ class ReCreat:
             width=outdata.shape[1],
             count=1,
             dtype=outdata.dtype,
-            crs=rst_ref.crs,
-            transform=rst_ref.transform
+            crs=custom_grid_reference.crs,
+            transform=custom_grid_reference.transform
         ) as new_dataset:
             new_dataset.write(outdata, 1)
     
