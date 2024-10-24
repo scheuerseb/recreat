@@ -381,8 +381,13 @@ class ReCreat:
             # read the built-up patch count 
             mtx_patch_count = self._read_band('DEMAND/builtup_count.tif')
             ref_pop, mtx_pop, nodata_pop = self._read_dataset(population_grid)        
-            mtx_patch_population = self._get_value_matrix()
-            np.divide(mtx_pop, mtx_patch_count, out=mtx_patch_population, where=mtx_patch_count > 0)
+            mtx_patch_population = self._get_value_matrix().astype(np.float32)
+            
+            # make rasters the same data type
+            # make sure that a float dtype is set
+            # is 32bit enough?            
+            np.divide(mtx_pop.astype(np.float32), mtx_patch_count.astype(np.float32), out=mtx_patch_population, where=mtx_patch_count > 0)
+            
             self._write_dataset('DEMAND/patch_population.tif', mtx_patch_population, rst_ref=ref_pop)
             self.progress.update(current_task, advance=1)     
             
@@ -436,6 +441,8 @@ class ReCreat:
 
     def disaggregate_population(self, population_grid: str, write_scaled_result: bool = True) -> None:
         """Aggregates built-up land-use classes into a single raster of built-up areas, and intersects built-up with the scenario-specific population grid to provide disaggregated population.
+           The method currently implements a simple area-weighted disaggregation method. This method can currently account for gridded land-use and population featuring the same extent and resolution,
+           and for the gridded population to have a lower resolution than gridded land-use 
 
         Args:
             population_grid (str): Name of the population raster file to be used for disaggregation.
@@ -443,6 +450,15 @@ class ReCreat:
         """
         self.printStepInfo("Disaggregating population to built-up")
         
+
+        # cases to consider:
+        # A -- pop and built-up (hence, land use) have the same resolution and extent
+        # B -- pop has a lower resolution (and differing extent?) than built-up
+        # TODO: C -- built-up has a lower resolution than pop 
+        # TODO: Test if resolutions actually differ!
+
+
+
         # disaggregation in multiple steps
         # first: Aggregate built-up pixels per population grid cell to determine patch count 
         if not os.path.isfile("{}/{}/DEMAND/builtup_count.tif".format(self.data_path, self.root_path)):
