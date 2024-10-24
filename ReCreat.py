@@ -12,6 +12,9 @@ from rich.progress import Progress, TaskProgressColumn, TimeElapsedColumn, MofNC
 from contextlib import nullcontext
 
 import rasterio
+from rasterio.warp import calculate_default_transform, reproject
+from rasterio.enums import Resampling
+
 from scipy import ndimage
 import numpy as np
 from skimage.draw import disk
@@ -321,6 +324,116 @@ class ReCreat:
         # done
         self.printStepCompleteInfo()
 
+
+    def _reproject_builtup_to_population(self, population_grid: str) -> None:
+        """ Matches population and built-up rasters and sums built-up pixels within each cell of the population raster. It will write a raster of built-up pixel count.
+
+        Args:
+            population_grid (str): Name of the population raster file to be used for disaggregation.
+        """
+        self.printStepInfo('Reprojecting built-up')
+        current_task = self._get_task("[white]Reprojection", total=1)
+        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
+            
+            # raster 1 = builtup
+            src1, mtx_builtup, nodata_builtup = self._read_dataset("MASKS/built-up.tif")
+            meta1 = src1.meta.copy()
+            # raster 2 = pop
+            src2, mtx_pop, nodata_pop = self._read_dataset(population_grid)
+            meta2 = src2.meta.copy()
+
+            transform, width, height = calculate_default_transform(src1.crs, meta2['crs'], meta2['width'], meta2['height'], *src2.bounds)                        
+            meta1.update({
+                'crs': meta2['crs'],
+                'transform': transform,
+                'width': width,
+                'height': height
+            })
+
+            mtx_sum_of_builtup = np.zeros((height, width), dtype=rasterio.float32)
+            
+            reproject(
+                source=mtx_builtup,
+                destination=mtx_sum_of_builtup,
+                src_transform=src1.transform,
+                src_crs=src1.crs,
+                dst_transform=transform,
+                dst_crs=meta2['crs'],
+                resampling=Resampling.sum
+            )
+
+            # export
+            # this is the number of builtup pixels per pop raster grid cell
+            self._write_dataset('DEMAND/builtup_count.tif', mtx_sum_of_builtup, src2)
+            self.progress.update(current_task, advance=1)
+        
+        # done
+        self.printStepCompleteInfo()
+
+    def _conduct_disaggregation(self, population_grid: str) -> None:
+        """ Applies disaggregation algorithm. At the moment, a simple area-weighted approach is implemented.
+
+        Args:
+            population_grid (str): Name of the population raster file to be used for disaggregation.
+        """
+        current_task = self._get_task("[white]Applying disaggregation algorithm", total=1)
+        with self.progress if self._runsAsStandalone() else nullcontext() as bar:            
+            # read the built-up patch count 
+            mtx_patch_count = self._read_band('DEMAND/builtup_count.tif')
+            ref_pop, mtx_pop, nodata_pop = self._read_dataset(population_grid)        
+            mtx_patch_population = self._get_value_matrix()
+            np.divide(mtx_pop, mtx_patch_count, out=mtx_patch_population, where=mtx_patch_count > 0)
+            self._write_dataset('DEMAND/patch_population.tif', mtx_patch_population, rst_ref=ref_pop)
+            self.progress.update(current_task, advance=1)     
+            
+            del(mtx_pop)
+            del(mtx_patch_count)
+            del(mtx_patch_population)
+
+    def _reproject_patch_population_to_builtup(self) -> None:
+        """ Matches patch population and built-up rasters. It will write the reprojected dataset to disk.
+        """
+        self.printStepInfo('Reprojecting built-up')
+        current_task = self._get_task("[white]Reprojection", total=1)
+        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
+            
+            # raster 1 = builtup
+            src1, mtx_patch_population, nodata_pop = self._read_dataset("DEMAND/patch_population.tif")
+            meta1 = src1.meta.copy()
+            
+            # raster 2 = pop
+            src2, mtx_builtup, nodata_builtup = self._read_dataset("MASKS/built-up.tif")
+            meta2 = src2.meta.copy()
+
+            transform, width, height = calculate_default_transform(src1.crs, meta2['crs'], meta2['width'], meta2['height'], *src2.bounds)                        
+            meta1.update({
+                'crs': meta2['crs'],
+                'transform': transform,
+                'width': width,
+                'height': height
+            })
+
+            mtx_reprojected_patch_population = np.zeros((height, width), dtype=rasterio.float32)
+            
+            reproject(
+                source=mtx_patch_population,
+                destination=mtx_reprojected_patch_population,
+                src_transform=src1.transform,
+                src_crs=src1.crs,
+                dst_transform=transform,
+                dst_crs=meta2['crs'],
+                resampling=Resampling.min
+            )
+
+            # export
+            # this is the number of builtup pixels per pop raster grid cell
+            self._write_dataset('DEMAND/reprojected_patch_population.tif', mtx_reprojected_patch_population, src2)
+            self.progress.update(current_task, advance=1)
+        
+        # done
+        self.printStepCompleteInfo()
+
+
     def disaggregate_population(self, population_grid: str, write_scaled_result: bool = True) -> None:
         """Aggregates built-up land-use classes into a single raster of built-up areas, and intersects built-up with the scenario-specific population grid to provide disaggregated population.
 
@@ -329,26 +442,37 @@ class ReCreat:
             write_scaled_result (bool, optional): Export min-max scaled result, if True. Defaults to True.
         """
         self.printStepInfo("Disaggregating population to built-up")
-        current_task = self._get_task("[white]Population disaggregation", total=1)
-        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
-
-            mtx_builtup = self._read_band("MASKS/built-up.tif")
-            mtx_pop = self._read_band(population_grid)
-            
-            # now disaggregate poopulation by intersect                
-            # multiply residential built-up pixels with pop raster  
-            
-            # TODO Determine spatial match of rasters
-            # TODO Improve disaggregation method to account for CLC case
-                  
-            mtx_builtup = mtx_builtup * mtx_pop
-            # write pop raster to disk
-            self._write_dataset("DEMAND/disaggregated_population.tif", mtx_builtup)
-            if write_scaled_result:
-                scaler = MinMaxScaler()
-                mtx_builtup = scaler.fit_transform(mtx_builtup.reshape([-1,1]))
-                self._write_dataset("DEMAND/scaled_disaggregated_population.tif", mtx_builtup.reshape(self.lsm_mtx.shape))
         
+        # disaggregation in multiple steps
+        # first: Aggregate built-up pixels per population grid cell to determine patch count 
+        if not os.path.isfile("{}/{}/DEMAND/builtup_count.tif".format(self.data_path, self.root_path)):
+            self._reproject_builtup_to_population(population_grid=population_grid)
+        else:
+            print("Skip reprojection of built-up")
+
+        # second: Determine patch population
+        if not os.path.isfile("{}/{}/DEMAND/patch_population.tif".format(self.data_path, self.root_path)):            
+            self._conduct_disaggregation(population_grid=population_grid)
+        else:
+            print("Skip determining patch population")           
+
+        # third: Reproject patch population to match built-up grid
+        if not os.path.isfile("{}/{}/DEMAND/reprojected_patch_population.tif".format(self.data_path, self.root_path)):
+            self._reproject_patch_population_to_builtup()
+        else:
+            print("Skip reprojection of patch population")
+                                               
+        # fourth: intersect patch population with built-up patches
+        mtx_pop = self._read_band('DEMAND/reprojected_patch_population.tif')                             
+        mtx_builtup = self._read_band('MASKS/built-up.tif')
+        # intersect 
+        mtx_builtup = mtx_builtup * mtx_pop        
+        self._write_dataset("DEMAND/disaggregated_population.tif", mtx_builtup)
+        if write_scaled_result:
+            scaler = MinMaxScaler()
+            mtx_builtup = scaler.fit_transform(mtx_builtup.reshape([-1,1]))
+            self._write_dataset("DEMAND/scaled_disaggregated_population.tif", mtx_builtup.reshape(self.lsm_mtx.shape))
+    
         # done   
         self.taskProgressReportStepCompleted()
 
@@ -1074,7 +1198,7 @@ class ReCreat:
         rst_ref, band_data, nodata_mask = self._read_dataset(file_name=file_name, band=band, is_scenario_specific=is_scenario_specific)
         return band_data
     
-    def _write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True) -> None:        
+    def _write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True, rst_ref: any = None) -> None:        
         """Write a dataset to disk.
 
         Args:
@@ -1083,6 +1207,9 @@ class ReCreat:
             mask_nodata (bool, optional): Indicates if nodata values should be masked using default nodata mask (True) or not (False). Defaults to True.
             is_scenario_specific (bool, optional): Indicates whether file should be written in a scenario-specific subfolder (True) or in the data path root (False). Defaults to True.
         """
+
+        rst_ref = rst_ref if rst_ref is not None else self.lsm_rst
+
         path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
         if self.verbose_reporting:
             print(Fore.YELLOW + Style.DIM + "WRITING {}".format(path) + Style.RESET_ALL)
@@ -1094,12 +1221,12 @@ class ReCreat:
             path,
             mode="w",
             driver="GTiff",
-            height=self.lsm_mtx.shape[0],
-            width=self.lsm_mtx.shape[1],
+            height=outdata.shape[0],
+            width=outdata.shape[1],
             count=1,
-            dtype=self.lsm_mtx.dtype,
-            crs=self.lsm_rst.crs,
-            transform=self.lsm_rst.transform
+            dtype=outdata.dtype,
+            crs=rst_ref.crs,
+            transform=rst_ref.transform
         ) as new_dataset:
             new_dataset.write(outdata, 1)
     
