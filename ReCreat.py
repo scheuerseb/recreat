@@ -379,15 +379,16 @@ class ReCreat:
         current_task = self._get_task("[white]Applying disaggregation algorithm", total=1)
         with self.progress if self._runsAsStandalone() else nullcontext() as bar:            
             # read the built-up patch count 
-            mtx_patch_count = self._read_band('DEMAND/builtup_count.tif')
             ref_pop, mtx_pop, nodata_pop = self._read_dataset(population_grid)        
+            ref_patch_count, mtx_patch_count, nodata_patch_count = self._read_dataset('DEMAND/builtup_count.tif')
+            
             mtx_patch_population = self._get_value_matrix(shape=mtx_pop.shape).astype(np.float32)
             
             # make rasters the same data type
             # make sure that a float dtype is set          
             np.divide(mtx_pop.astype(np.float32), mtx_patch_count.astype(np.float32), out=mtx_patch_population, where=mtx_patch_count > 0)
             
-            self._write_dataset('DEMAND/patch_population.tif', mtx_patch_population, custom_grid_reference=ref_pop)
+            self._write_dataset('DEMAND/patch_population.tif', mtx_patch_population, custom_grid_reference=ref_pop, custom_nodata_mask=nodata_patch_count)
             self.progress.update(current_task, advance=1)     
             
             del(mtx_pop)
