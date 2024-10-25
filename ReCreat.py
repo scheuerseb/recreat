@@ -23,6 +23,10 @@ import distancerasters as dr
 
 from typing import Tuple, List, Callable, Dict
 
+import ctypes
+from scipy import LowLevelCallable
+
+
 colorama_init()
 
 class ReCreat:
@@ -62,8 +66,8 @@ class ReCreat:
 
     def __init__(self, data_path: str):
         os.system('cls' if os.name == 'nt' else 'clear')
-        self.data_path = data_path                
-                    
+        self.data_path = data_path  
+       
     def make_environment(self) -> None:
         """Create required subfolders for raster files in the current scenario folder.
         """
@@ -182,31 +186,69 @@ class ReCreat:
         # done    
         self.taskProgressReportStepCompleted()
     
-    def detect_edges(self, ignore_edges_to_classes: List[float] = []) -> None:
+    def detect_edges(self, lu_classes: List[float] = None, ignore_edges_to_class: float = None) -> None:
         """ Detect edges (patch perimeters) of land-use classes that are defined as edge classes.
 
         Args:
-            ignore_edges_to_classes (List[float], optional): Classes to which edges should be ignored. Defaults to [].
+            lu_classes (List[float], optional): List of classes for which edges should be assessed. If None, classes specified as classes.edge will be used. Defaults to None. 
+            ignore_edges_to_classes (float, optional): Class to which edges should be ignored. Defaults to None.
         """
         # determine edge pixels of edge-only classes such as water opportunities
-        if(len(self.lu_classes_recreation_edge) > 0):
+        
+        classes_to_assess = lu_classes if lu_classes is not None else self.lu_classes_recreation_edge
+        if(len(classes_to_assess) > 0):
             
-            self.printStepInfo("Detecting edges")
-            current_task = self._get_task("[white]Detecting edges", total=len(self.lu_classes_recreation_edge))
             
-            # set ignore list at class-level, so that it can be accessed from the kernel function
-            self.ignore_edges_to_classes = ignore_edges_to_classes
+            clib = ctypes.cdll.LoadLibrary('./lowLevelDiversityFilter.dll')
+            
+            if ignore_edges_to_class is None:
+                clib.div_filter.restype = ctypes.c_int
+                clib.div_filter.argtypes = (
+                    ctypes.POINTER(ctypes.c_double),
+                    ctypes.POINTER(ctypes.c_int),
+                    ctypes.POINTER(ctypes.c_double),
+                    ctypes.c_void_p,
+                )
+            else:
+                clib.div_filter_ignore_class.restype = ctypes.c_int
+                clib.div_filter_ignore_class.argtypes = (
+                    ctypes.POINTER(ctypes.c_double),
+                    ctypes.POINTER(ctypes.c_int),
+                    ctypes.POINTER(ctypes.c_double),
+                    ctypes.c_void_p,
+                )
 
+            self.printStepInfo("Detecting edges")
+            current_task = self._get_task("[white]Detecting edges", total=len(classes_to_assess))
+            
             with self.progress if self._runsAsStandalone() else nullcontext() as bar:
-                for lu in self.lu_classes_recreation_edge:            
+                for lu in classes_to_assess:            
+                    
+                    if ignore_edges_to_class is None:                    
+                        user_data = ctypes.c_double(lu)
+                        ptr = ctypes.cast(ctypes.pointer(user_data), ctypes.c_void_p)
+                        div_filter = LowLevelCallable(clib.div_filter, user_data=ptr, signature="int (double *, intptr_t, double *, void *)")              
+                    else:
+                        user_values = [lu, 0]
+                        user_data = (ctypes.c_int * 10)(*user_values)
+                        ptr = ctypes.cast(ctypes.pointer(user_data), ctypes.c_void_p)
+                        div_filter = LowLevelCallable(clib.div_filter_ignore_class, user_data=ptr, signature="int (double *, intptr_t, double *, void *)")              
+
+
                     # read masking raster
                     mtx_mask = self._read_band("MASKS/mask_{}.tif".format(lu)) 
+                    
                     # apply a 3x3 rectangular sliding window to determine pixel value diversity in window
-                    rst_edgePixelDiversity = self._moving_window(mtx_mask, self._kernel_diversity, 3, 'rect') 
+                    #rst_edgePixelDiversity = self._moving_window(mtx_mask, self._kernel_diversity, 3, 'rect') 
+                    rst_edgePixelDiversity = self._moving_window(self.lsm_mtx, div_filter, 3, 'rect') 
                     rst_edgePixelDiversity = rst_edgePixelDiversity - 1
+
+                    rst_edgePixelDiversity[rst_edgePixelDiversity > 1] = 1
+
+                    self._write_dataset('test.tif', rst_edgePixelDiversity)
+                    
                     mtx_mask = mtx_mask * rst_edgePixelDiversity
                     self._write_dataset("MASKS/edges_{}.tif".format(lu), mtx_mask)
-                    del rst_edgePixelDiversity
                     self.progress.update(current_task, advance=1)
         
             # done
@@ -1326,12 +1368,8 @@ class ReCreat:
         Returns:
             int: Number of unique elements in kernel.
         
-        """
-        # remove classes from subarr to which edges should be ignored.
-        tmp = subarr.tolist()
-        for x in self.ignore_edges_to_classes:
-            tmp.remove(x)            
-        return len(set(tmp))
+        """        
+        return len(set(subarr))
 
     def _moving_window(self, data_mtx: np.ndarray, kernel_func: Callable[[np.ndarray], float], kernel_size: int, kernel_shape: str = 'circular') -> np.ndarray:
         """Conduct a moving window operation with specified kernel shape and kernel size on an array.
