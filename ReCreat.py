@@ -627,6 +627,18 @@ class ReCreat:
         # get land-use current mask
         full_lu_mtx = self._read_band(mask_path)
 
+        # use lowlevelcallable to speed up moving window operation
+        clib = ctypes.cdll.LoadLibrary('./lowLevelDiversityFilter.dll')        
+        clib.sum_filter.restype = ctypes.c_int
+        clib.sum_filter.argtypes = (
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.c_void_p,
+        )
+
+        sum_filter = LowLevelCallable(clib.sum_filter, signature="int (double *, intptr_t, double *, void *)")  
+
         # now operate over clumps, in order to safe some computational time
         for patch_idx in range(len(clump_slices)):
             obj_slice = clump_slices[patch_idx]
@@ -641,7 +653,9 @@ class ReCreat:
             sliced_lu_mtx[~obj_mask] = 0
 
             # now all pixels outside of clump should be zeroed, and we can determine total supply within sliding window
-            sliding_supply = self._moving_window(sliced_lu_mtx, self._kernel_sum, cost)
+            #sliding_supply = self._moving_window(sliced_lu_mtx, self._kernel_sum, cost)
+            sliding_supply = self._moving_window(sliced_lu_mtx, sum_filter, cost)
+            
             sliding_supply[~obj_mask] = 0
             lu_supply_mtx[obj_slice] += sliding_supply # todo: add conversion to km²
             
