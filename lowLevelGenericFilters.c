@@ -19,7 +19,7 @@ int sum_filter(
         sum = sum + buffer[i];
     }
 
-    *return_value = (double)sum;
+    *return_value = sum;
     // return 1 to indicate success (CPython convention)
     return 1;
     
