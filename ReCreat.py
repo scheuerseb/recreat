@@ -64,9 +64,18 @@ class ReCreat:
     progress = None     
     task_assess_map_units = None
 
+    # shared library
+    clib = None 
+
     def __init__(self, data_path: str):
         os.system('cls' if os.name == 'nt' else 'clear')
         self.data_path = data_path  
+
+        self.py_path = os.path.dirname(__file__)
+
+        clib_path = '{}/LowLevelGenericFilters.dll'.format(self.py_path)
+        print("Using shared libary {}".format(clib_path))
+        self.clib = ctypes.cdll.LoadLibrary(clib_path)
        
     def make_environment(self) -> None:
         """Create required subfolders for raster files in the current scenario folder.
@@ -199,19 +208,17 @@ class ReCreat:
         if(len(classes_to_assess) > 0):
             
             
-            clib = ctypes.cdll.LoadLibrary('./lowLevelDiversityFilter.dll')
-            
             if ignore_edges_to_class is None:
-                clib.div_filter.restype = ctypes.c_int
-                clib.div_filter.argtypes = (
+                self.clib.div_filter.restype = ctypes.c_int
+                self.clib.div_filter.argtypes = (
                     ctypes.POINTER(ctypes.c_double),
                     ctypes.POINTER(ctypes.c_int),
                     ctypes.POINTER(ctypes.c_double),
                     ctypes.c_void_p,
                 )
             else:
-                clib.div_filter_ignore_class.restype = ctypes.c_int
-                clib.div_filter_ignore_class.argtypes = (
+                self.clib.div_filter_ignore_class.restype = ctypes.c_int
+                self.clib.div_filter_ignore_class.argtypes = (
                     ctypes.POINTER(ctypes.c_double),
                     ctypes.POINTER(ctypes.c_int),
                     ctypes.POINTER(ctypes.c_double),
@@ -227,12 +234,12 @@ class ReCreat:
                     if ignore_edges_to_class is None:                    
                         user_data = ctypes.c_double(lu)
                         ptr = ctypes.cast(ctypes.pointer(user_data), ctypes.c_void_p)
-                        div_filter = LowLevelCallable(clib.div_filter, user_data=ptr, signature="int (double *, intptr_t, double *, void *)")              
+                        div_filter = LowLevelCallable(self.clib.div_filter, user_data=ptr, signature="int (double *, intptr_t, double *, void *)")              
                     else:
                         user_values = [lu, 0]
                         user_data = (ctypes.c_int * 10)(*user_values)
                         ptr = ctypes.cast(ctypes.pointer(user_data), ctypes.c_void_p)
-                        div_filter = LowLevelCallable(clib.div_filter_ignore_class, user_data=ptr, signature="int (double *, intptr_t, double *, void *)")              
+                        div_filter = LowLevelCallable(self.clib.div_filter_ignore_class, user_data=ptr, signature="int (double *, intptr_t, double *, void *)")              
 
 
                     # read masking raster
@@ -627,17 +634,16 @@ class ReCreat:
         # get land-use current mask
         full_lu_mtx = self._read_band(mask_path)
 
-        # use lowlevelcallable to speed up moving window operation
-        clib = ctypes.cdll.LoadLibrary('./lowLevelDiversityFilter.dll')        
-        clib.sum_filter.restype = ctypes.c_int
-        clib.sum_filter.argtypes = (
+        # use lowlevelcallable to speed up moving window operation               
+        self.clib.sum_filter.restype = ctypes.c_int
+        self.clib.sum_filter.argtypes = (
             ctypes.POINTER(ctypes.c_double),
             ctypes.POINTER(ctypes.c_int),
             ctypes.POINTER(ctypes.c_double),
             ctypes.c_void_p,
         )
 
-        sum_filter = LowLevelCallable(clib.sum_filter, signature="int (double *, intptr_t, double *, void *)")  
+        sum_filter = LowLevelCallable(self.clib.sum_filter, signature="int (double *, intptr_t, double *, void *)")  
 
         # now operate over clumps, in order to safe some computational time
         for patch_idx in range(len(clump_slices)):
