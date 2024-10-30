@@ -250,9 +250,7 @@ class ReCreat:
                     rst_edgePixelDiversity = self._moving_window(self.lsm_mtx, div_filter, 3, 'rect') 
                     rst_edgePixelDiversity = rst_edgePixelDiversity - 1
 
-                    rst_edgePixelDiversity[rst_edgePixelDiversity > 1] = 1
-
-                    self._write_dataset('test.tif', rst_edgePixelDiversity)
+                    rst_edgePixelDiversity[rst_edgePixelDiversity > 1] = 1                
                     
                     mtx_mask = mtx_mask * rst_edgePixelDiversity
                     self._write_dataset("MASKS/edges_{}.tif".format(lu), mtx_mask)
@@ -1259,9 +1257,12 @@ class ReCreat:
         # attempt replacement of nodata with desired fill value
         fill_value = self.nodata_value if nodata_fill_value is None else nodata_fill_value
         for nodata_value in nodata_values:
-            if self.verbose_reporting:
-                print(Fore.RED + Style.DIM + "REPLACING NODATA VALUE={} WITH FILL VALUE={}".format(nodata_value, fill_value) + Style.RESET_ALL) 
-            band_data = np.where(band_data==nodata_value, fill_value, band_data)
+
+            # replace only if not the same values!
+            if fill_value != nodata_value:
+                if self.verbose_reporting:                
+                    print(Fore.RED + Style.DIM + "REPLACING NODATA VALUE={} WITH FILL VALUE={}".format(nodata_value, fill_value) + Style.RESET_ALL) 
+                band_data = np.where(band_data==nodata_value, fill_value, band_data)
 
         # determine nodata mask AFTER potential filling of nodata values        
         nodata_mask = np.isin(band_data, nodata_values, invert=False)
@@ -1403,10 +1404,14 @@ class ReCreat:
         Returns:
             np.ndarray: Output array
         """
+        # define properties of result matrix
+        # for the moment, use the dtype set by user
+        target_dtype = self.lsm_mtx.dtype if self.dtype is None else self.dtype
+
         # make kernel
         kernel = self._get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
         # create result mtx as memmap
-        mtx_res = np.memmap("{}/{}/TMP/{}".format(self.data_path, self.root_path, uuid.uuid1()), dtype=data_mtx.dtype, mode='w+', shape=data_mtx.shape) 
+        mtx_res = np.memmap("{}/{}/TMP/{}".format(self.data_path, self.root_path, uuid.uuid1()), dtype=target_dtype, mode='w+', shape=data_mtx.shape) 
         # apply moving window over input mtx
         ndimage.generic_filter(data_mtx, kernel_func, footprint=kernel, output=mtx_res, mode='constant', cval=0)
         mtx_res.flush()
