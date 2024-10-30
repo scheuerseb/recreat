@@ -73,7 +73,7 @@ class ReCreat:
 
         self.py_path = os.path.dirname(__file__)
 
-        clib_path = '{}/LowLevelGenericFilters.dll'.format(self.py_path)
+        clib_path = os.path.join(self.py_path, 'LowLevelGenericFilters.dll')
         print("Using shared libary {}".format(clib_path))
         self.clib = ctypes.cdll.LoadLibrary(clib_path)
        
