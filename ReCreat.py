@@ -623,7 +623,7 @@ class ReCreat:
                     outfile_name = "SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, c) if lu_type == "patch" else "SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, c)
 
                     # get result of windowed operation
-                    lu_supply_mtx = self._class_total_supply_for_lu_and_cost(infile_name, rst_clumps, clump_slices, c, current_task, windowed=windowed)                            
+                    lu_supply_mtx = self._class_total_supply_for_lu_and_cost(infile_name, rst_clumps, clump_slices, c, mode, current_task)                            
                     # export current cost
                     self._write_dataset(outfile_name, lu_supply_mtx)                
                     
