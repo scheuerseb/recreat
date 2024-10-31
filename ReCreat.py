@@ -26,6 +26,9 @@ from typing import Tuple, List, Callable, Dict
 import ctypes
 from scipy import LowLevelCallable
 
+from os import listdir
+from os.path import isfile, join
+
 
 colorama_init()
 
@@ -593,8 +596,13 @@ class ReCreat:
         # done
         self.taskProgressReportStepCompleted()
 
-    def class_total_supply(self):
-        
+
+    def class_total_supply(self, mode = 'generic_filter'):
+        """Determine class total supply.
+
+        Args:
+            mode (str, optional): Method to perform sliding window operation. One of 'generic_filter', 'convolve'. Defaults to 'generic_filter'.
+        """
         # for each recreation patch class and edge class, determine total supply within cost windows
         # do this for each clump, i.e., operate only on parts of masks corresponding to clumps, ignore patches/edges external to each clump
         self.printStepInfo("Determining clumped supply per class")
@@ -606,27 +614,26 @@ class ReCreat:
         current_task = self._get_task("[white]Determining clumped supply", total=step_count)
 
         with self.progress if self._runsAsStandalone() else nullcontext() as bar:
-            for c in self.cost_thresholds:                                        
-                for lu in self.lu_classes_recreation_patch:
-                    # process supply of current class 
-                    lu_supply_mtx = self._class_total_supply_for_lu_and_cost("MASKS/mask_{}.tif".format(lu), rst_clumps, clump_slices, c, current_task)                            
+            for c in self.cost_thresholds:                 
+                for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
+                    # determine source of list
+                    lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
+
+                    infile_name = "MASKS/mask_{}.tif".format(lu) if lu_type == "patch" else "MASKS/edges_{}.tif".format(lu)
+                    outfile_name = "SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, c) if lu_type == "patch" else "SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, c)
+
+                    # get result of windowed operation
+                    lu_supply_mtx = self._class_total_supply_for_lu_and_cost(infile_name, rst_clumps, clump_slices, c, current_task, windowed=windowed)                            
                     # export current cost
-                    self._write_dataset("SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, c), lu_supply_mtx)                
+                    self._write_dataset(outfile_name, lu_supply_mtx)                
                     
-                for lu in self.lu_classes_recreation_edge:
-                    # process supply of current class 
-                    lu_supply_mtx = self._class_total_supply_for_lu_and_cost("MASKS/edges_{}.tif".format(lu), rst_clumps, clump_slices, c, current_task)                            
-                    # export current cost
-                    self._write_dataset("SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, c), lu_supply_mtx)                
 
         # done
         self.taskProgressReportStepCompleted()
 
 
+    def _class_total_supply_for_lu_and_cost(self, mask_path, rst_clumps, clump_slices, cost, mode, progress_task = None):
 
-
-    def _class_total_supply_for_lu_and_cost(self, mask_path, rst_clumps, clump_slices, cost, progress_task = None):
-        
         # grid to store lu supply 
         lu_supply_mtx = self._get_value_matrix()
         # get land-use current mask
@@ -658,10 +665,15 @@ class ReCreat:
 
             # now all pixels outside of clump should be zeroed, and we can determine total supply within sliding window
             #sliding_supply = self._moving_window(sliced_lu_mtx, self._kernel_sum, cost)
-            sliding_supply = self._moving_window(sliced_lu_mtx, sum_filter, cost)
+
+            if mode == 'convolve':            
+                sliding_supply = self._moving_window_convolution(sliced_lu_mtx, cost)
+            elif mode == 'generic_filter':
+                sliding_supply = self._moving_window(sliced_lu_mtx, sum_filter, cost)
             
+
             sliding_supply[~obj_mask] = 0
-            lu_supply_mtx[obj_slice] += sliding_supply # todo: add conversion to km²
+            lu_supply_mtx[obj_slice] += sliding_supply
             
             del sliding_supply
             del sliced_lu_mtx
@@ -1417,6 +1429,86 @@ class ReCreat:
         mtx_res.flush()
         return mtx_res
     
+    def _moving_window_convolution(self, data_mtx, kernel_size, kernel_shape: str = 'circular') -> np.ndarray: 
+
+        # define properties of result matrix
+        # for the moment, use the dtype set by user
+        target_dtype = self.lsm_mtx.dtype if self.dtype is None else self.dtype
+
+        # make kernel
+        kernel = self._get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
+        # create result mtx as memmap
+        mtx_res = np.memmap("{}/{}/TMP/{}".format(self.data_path, self.root_path, uuid.uuid1()), dtype=target_dtype, mode='w+', shape=data_mtx.shape) 
+        # apply moving window over input mtx
+        #ndimage.generic_filter(data_mtx, kernel_func, footprint=kernel, output=mtx_res, mode='constant', cval=0)
+        
+        ndimage.convolve(data_mtx, kernel, output=mtx_res, mode = 'constant', cval = 0)
+        
+        mtx_res.flush()
+        return mtx_res
+
+        # radius = int(kernel_size / 2)              
+        # rows, columns = data_mtx.shape
+
+        # current_task = self.progress.add_task('CLUMP OP', total=(rows*columns))
+        
+        # out_mtx = np.zeros(data_mtx.shape)
+        # padded_data_mtx = np.pad(data_mtx, radius, 'constant')
+
+
+        # adv = 0
+        # for x in range(rows):
+        #     for y in range(columns):               
+                
+        #         # x and y refer to the grid cell of the original raster
+        #         # the center pixel of interest in the padded matrix would be (x,y) coordinate shifted by the amount of padding in both x and y direction
+        #         tx = x + radius
+        #         ty = y + radius
+
+        #         # from this cell, we grab matrix
+        #         xdata = padded_data_mtx[ tx-radius:tx+radius+1, ty-radius:ty+radius+1 ]
+        #         out_mtx[x,y] = np.sum(xdata)
+        #         adv += 1
+
+        #         if adv == 10000:
+        #             self.progress.update(current_task, advance=10000)
+        #             adv = 0
+        
+        # return out_mtx
+
+
+        # unpadded and ignoring circular kernel
+        #for y in range(kernel_size):
+        #    # we need offsets from centre !
+        #    y_off = y - radius
+        #    for x in range(kernel_size):
+        #        x_off = x - radius
+        #        view_in, view_out = self._get_view(y_off, x_off, rows, columns)
+        #        temp_sum[view_out] += data_mtx[view_in]
+
+        
+    
+    
+    def _get_view(self, offset_y, offset_x, size_y, size_x, step=1):
+
+        x = abs(offset_x)
+        y = abs(offset_y)
+
+        x_in = slice(x, size_x, step)
+        x_out = slice(0, size_x - x, step)
+
+        y_in = slice(y, size_y, step)
+        y_out = slice(0, size_y - y, step)
+
+        # the swapping trick
+        if offset_x < 0: x_in, x_out = x_out, x_in
+        if offset_y < 0: y_in, y_out = y_out, y_in
+
+        # return window view (in) and main view (out)
+        return np.s_[y_in, x_in], np.s_[y_out, x_out]
+
+
+    
     def _get_aggregate_class_total_supply_for_cost(self, cost, lu_weights = None, write_non_weighted_result = True, write_scaled_result = True, task_progress = None):                        
         
         current_total_supply_at_cost = None
@@ -1493,6 +1585,21 @@ class ReCreat:
     def _runsAsStandalone(self):
         return True if self.task_assess_map_units is None else False
 
+    def clean(self):
+        """Clean TMP folder.
+        """
+        tmp_path = os.path.join(self.data_path, self.root_path, 'TMP')
+        tmp_files = [os.path.join(self.data_path, self.root_path, 'TMP', f) for f in listdir(tmp_path) if isfile(join(tmp_path, f))]
+        
+        step_count = len(tmp_files)
+        current_task = self._get_task('[red]Removing temporary files', total=step_count)
+        
+        for f in tmp_files:
+            os.remove(f)
+            self.progress.update(current_task, advance=1)
+        
+        self.printStepCompleteInfo()
+        
         
     
     
