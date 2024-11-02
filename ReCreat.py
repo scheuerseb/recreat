@@ -4,6 +4,9 @@
 
 
 import os
+from os import listdir
+from os.path import isfile, join
+
 import uuid
 
 from colorama import init as colorama_init
@@ -11,24 +14,25 @@ from colorama import Fore, Back, Style
 from rich.progress import Progress, TaskProgressColumn, TimeElapsedColumn, MofNCompleteColumn, TextColumn, BarColumn
 from contextlib import nullcontext
 
+from joblib import Parallel, delayed
+import multiprocessing
+
 import rasterio
 from rasterio.warp import calculate_default_transform, reproject
 from rasterio.enums import Resampling
+import distancerasters as dr
 
 from scipy import ndimage
+from scipy import LowLevelCallable
+
 import numpy as np
+
 from skimage.draw import disk
 from sklearn.preprocessing import MinMaxScaler
-import distancerasters as dr
 
 from typing import Tuple, List, Callable, Dict
 
 import ctypes
-from scipy import LowLevelCallable
-
-from os import listdir
-from os.path import isfile, join
-
 
 colorama_init()
 
@@ -670,8 +674,7 @@ class ReCreat:
                 sliding_supply = self._moving_window_convolution(sliced_lu_mtx, cost)
             elif mode == 'generic_filter':
                 sliding_supply = self._moving_window(sliced_lu_mtx, sum_filter, cost)
-            
-
+           
             sliding_supply[~obj_mask] = 0
             lu_supply_mtx[obj_slice] += sliding_supply
             
@@ -1429,86 +1432,20 @@ class ReCreat:
         mtx_res.flush()
         return mtx_res
     
-    def _moving_window_convolution(self, data_mtx, kernel_size, kernel_shape: str = 'circular') -> np.ndarray: 
+    def _moving_window_convolution(self, data_mtx: np.ndarray, kernel_size: int, kernel_shape: str = 'circular') -> np.ndarray: 
 
         # define properties of result matrix
         # for the moment, use the dtype set by user
         target_dtype = self.lsm_mtx.dtype if self.dtype is None else self.dtype
-
         # make kernel
         kernel = self._get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
         # create result mtx as memmap
         mtx_res = np.memmap("{}/{}/TMP/{}".format(self.data_path, self.root_path, uuid.uuid1()), dtype=target_dtype, mode='w+', shape=data_mtx.shape) 
-        # apply moving window over input mtx
-        #ndimage.generic_filter(data_mtx, kernel_func, footprint=kernel, output=mtx_res, mode='constant', cval=0)
-        
-        ndimage.convolve(data_mtx, kernel, output=mtx_res, mode = 'constant', cval = 0)
-        
+        # apply convolution filter from ndimage that sums as weights are 0 or 1.        
+        ndimage.convolve(data_mtx, kernel, output=mtx_res, mode = 'constant', cval = 0)        
         mtx_res.flush()
         return mtx_res
-
-        # radius = int(kernel_size / 2)              
-        # rows, columns = data_mtx.shape
-
-        # current_task = self.progress.add_task('CLUMP OP', total=(rows*columns))
         
-        # out_mtx = np.zeros(data_mtx.shape)
-        # padded_data_mtx = np.pad(data_mtx, radius, 'constant')
-
-
-        # adv = 0
-        # for x in range(rows):
-        #     for y in range(columns):               
-                
-        #         # x and y refer to the grid cell of the original raster
-        #         # the center pixel of interest in the padded matrix would be (x,y) coordinate shifted by the amount of padding in both x and y direction
-        #         tx = x + radius
-        #         ty = y + radius
-
-        #         # from this cell, we grab matrix
-        #         xdata = padded_data_mtx[ tx-radius:tx+radius+1, ty-radius:ty+radius+1 ]
-        #         out_mtx[x,y] = np.sum(xdata)
-        #         adv += 1
-
-        #         if adv == 10000:
-        #             self.progress.update(current_task, advance=10000)
-        #             adv = 0
-        
-        # return out_mtx
-
-
-        # unpadded and ignoring circular kernel
-        #for y in range(kernel_size):
-        #    # we need offsets from centre !
-        #    y_off = y - radius
-        #    for x in range(kernel_size):
-        #        x_off = x - radius
-        #        view_in, view_out = self._get_view(y_off, x_off, rows, columns)
-        #        temp_sum[view_out] += data_mtx[view_in]
-
-        
-    
-    
-    def _get_view(self, offset_y, offset_x, size_y, size_x, step=1):
-
-        x = abs(offset_x)
-        y = abs(offset_y)
-
-        x_in = slice(x, size_x, step)
-        x_out = slice(0, size_x - x, step)
-
-        y_in = slice(y, size_y, step)
-        y_out = slice(0, size_y - y, step)
-
-        # the swapping trick
-        if offset_x < 0: x_in, x_out = x_out, x_in
-        if offset_y < 0: y_in, y_out = y_out, y_in
-
-        # return window view (in) and main view (out)
-        return np.s_[y_in, x_in], np.s_[y_out, x_out]
-
-
-    
     def _get_aggregate_class_total_supply_for_cost(self, cost, lu_weights = None, write_non_weighted_result = True, write_scaled_result = True, task_progress = None):                        
         
         current_total_supply_at_cost = None
