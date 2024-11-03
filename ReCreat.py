@@ -7,15 +7,16 @@ import os
 from os import listdir
 from os.path import isfile, join
 
+os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = pow(2,40).__str__()
+import cv2 as cv
+
+
 import uuid
 
 from colorama import init as colorama_init
 from colorama import Fore, Back, Style
 from rich.progress import Progress, TaskProgressColumn, TimeElapsedColumn, MofNCompleteColumn, TextColumn, BarColumn
 from contextlib import nullcontext
-
-from joblib import Parallel, delayed
-import multiprocessing
 
 import rasterio
 from rasterio.warp import calculate_default_transform, reproject
@@ -254,7 +255,7 @@ class ReCreat:
                     
                     # apply a 3x3 rectangular sliding window to determine pixel value diversity in window
                     #rst_edgePixelDiversity = self._moving_window(mtx_mask, self._kernel_diversity, 3, 'rect') 
-                    rst_edgePixelDiversity = self._moving_window(self.lsm_mtx, div_filter, 3, 'rect') 
+                    rst_edgePixelDiversity = self._moving_window_generic(self.lsm_mtx, div_filter, 3, 'rect') 
                     rst_edgePixelDiversity = rst_edgePixelDiversity - 1
 
                     rst_edgePixelDiversity[rst_edgePixelDiversity > 1] = 1                
@@ -586,7 +587,7 @@ class ReCreat:
                     sliced_pop_mtx[~obj_mask] = 0
 
                     # now all pixels outside of clump should be zeroed, and we can determine total supply within sliding window
-                    sliding_pop = self._moving_window(sliced_pop_mtx, self._kernel_sum, c)
+                    sliding_pop = self._moving_window_generic(sliced_pop_mtx, self._kernel_sum, c)
                     sliding_pop[~obj_mask] = 0
                     mtx_pop_within_cost[obj_slice] += sliding_pop
                     
@@ -673,7 +674,10 @@ class ReCreat:
             if mode == 'convolve':            
                 sliding_supply = self._moving_window_convolution(sliced_lu_mtx, cost)
             elif mode == 'generic_filter':
-                sliding_supply = self._moving_window(sliced_lu_mtx, sum_filter, cost)
+                sliding_supply = self._moving_window_generic(sliced_lu_mtx, sum_filter, cost)
+            elif mode == 'ocv_filter2d':
+                sliding_supply = self._moving_window_filter2d(sliced_lu_mtx, cost)
+
            
             sliding_supply[~obj_mask] = 0
             lu_supply_mtx[obj_slice] += sliding_supply
@@ -1407,7 +1411,7 @@ class ReCreat:
         """        
         return len(set(subarr))
 
-    def _moving_window(self, data_mtx: np.ndarray, kernel_func: Callable[[np.ndarray], float], kernel_size: int, kernel_shape: str = 'circular') -> np.ndarray:
+    def _moving_window_generic(self, data_mtx: np.ndarray, kernel_func: Callable[[np.ndarray], float], kernel_size: int, kernel_shape: str = 'circular') -> np.ndarray:
         """Conduct a moving window operation with specified kernel shape and kernel size on an array.
 
         Args:
@@ -1445,7 +1449,21 @@ class ReCreat:
         ndimage.convolve(data_mtx, kernel, output=mtx_res, mode = 'constant', cval = 0)        
         mtx_res.flush()
         return mtx_res
-        
+    
+    def _moving_window_filter2d(self, data_mtx: np.ndarray, kernel_size: int, kernel_shape: str = 'circular') -> np.ndarray: 
+
+        # define properties of result matrix
+        # for the moment, use the dtype set by user
+        target_dtype = self.lsm_mtx.dtype if self.dtype is None else self.dtype
+        # make kernel
+        radius = int(kernel_size / 2)
+        kernel = self._get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
+        # make sure that input is padded, as this determines border values
+        data_mtx = np.pad(data_mtx, radius, mode='constant')
+        mtx_res = cv.filter2D(data_mtx.astype(np.uint8), cv.CV_32F, kernel)
+
+        return mtx_res[radius:-radius,radius:-radius]
+    
     def _get_aggregate_class_total_supply_for_cost(self, cost, lu_weights = None, write_non_weighted_result = True, write_scaled_result = True, task_progress = None):                        
         
         current_total_supply_at_cost = None
