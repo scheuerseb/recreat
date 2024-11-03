@@ -79,11 +79,16 @@ class ReCreat:
         os.system('cls' if os.name == 'nt' else 'clear')
         self.data_path = data_path  
 
+        print(Fore.WHITE + Style.BRIGHT + "ReCreat (C) 2024, Sebastian Scheuer\n\n" + Style.RESET_ALL)
+
         self.py_path = os.path.dirname(__file__)
 
         clib_path = os.path.join(self.py_path, 'LowLevelGenericFilters.dll')
-        print("Using shared libary {}".format(clib_path))
+        print(Fore.WHITE + Style.DIM + "Using low-level callable shared libary " + clib_path + Style.RESET_ALL)
         self.clib = ctypes.cdll.LoadLibrary(clib_path)
+
+    def __del__(self):
+        print(Fore.WHITE + Style.BRIGHT + "BYE BYE." + Style.RESET_ALL)
        
     def make_environment(self) -> None:
         """Create required subfolders for raster files in the current scenario folder.
@@ -97,8 +102,8 @@ class ReCreat:
 
     def printStepInfo(self, msg):
         print(Fore.CYAN + Style.DIM + msg.upper() + Style.RESET_ALL)
-    def printStepCompleteInfo(self):
-        print(Fore.WHITE + Back.GREEN + "COMPLETED" + Style.RESET_ALL)
+    def printStepCompleteInfo(self, msg = "COMPLETED"):
+        print(Fore.WHITE + Back.GREEN + msg + Style.RESET_ALL)
 
     def _new_progress(self, task_description, total):
         self.progress = self.get_progress_bar()
@@ -1540,8 +1545,8 @@ class ReCreat:
     def _runsAsStandalone(self):
         return True if self.task_assess_map_units is None else False
 
-    def clean(self):
-        """Clean TMP folder.
+    def clean_temporary_files(self):
+        """Clean temporary files from the TMP folder.
         """
         tmp_path = os.path.join(self.data_path, self.root_path, 'TMP')
         tmp_files = [os.path.join(self.data_path, self.root_path, 'TMP', f) for f in listdir(tmp_path) if isfile(join(tmp_path, f))]
@@ -1553,7 +1558,7 @@ class ReCreat:
             os.remove(f)
             self.progress.update(current_task, advance=1)
         
-        self.printStepCompleteInfo()
+        self.printStepCompleteInfo(msg = "TEMPORARY FILES CLEANED")
         
         
     
