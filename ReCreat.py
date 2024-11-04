@@ -82,11 +82,8 @@ class ReCreat:
     def __init__(self, data_path: str):
         os.system('cls' if os.name == 'nt' else 'clear')
         self.data_path = data_path  
-
         print(Fore.WHITE + Style.BRIGHT + "ReCreat (C) 2024, Sebastian Scheuer" + Style.RESET_ALL)
-
         self.py_path = os.path.dirname(__file__)
-
         clib_path = os.path.join(self.py_path, 'LowLevelGenericFilters.dll')
         print(Fore.WHITE + Style.DIM + "Using low-level callable shared libary " + clib_path + Style.RESET_ALL)
         self.clib = ctypes.cdll.LoadLibrary(clib_path)
@@ -105,9 +102,10 @@ class ReCreat:
                 os.makedirs(cpath)
 
     def printStepInfo(self, msg):
-        print(Fore.CYAN + Style.DIM + msg.upper() + Style.RESET_ALL)
+        print(Fore.CYAN + Style.BRIGHT + msg.upper() + Style.RESET_ALL)
+    
     def printStepCompleteInfo(self, msg = "COMPLETED"):
-        print(Fore.WHITE + Back.GREEN + msg + Style.RESET_ALL)
+        print(Fore.GREEN + Style.BRIGHT + msg + Style.RESET_ALL)
 
     def _new_progress(self, task_description, total):
         self.progress = self.get_progress_bar()
@@ -655,8 +653,20 @@ class ReCreat:
         self.taskProgressReportStepCompleted()
 
 
-    def _class_total_supply_for_lu_and_cost(self, mask_path, rst_clumps, clump_slices, cost, mode, progress_task = None):
+    def _class_total_supply_for_lu_and_cost(self, mask_path: str, rst_clumps: np.ndarray, clump_slices: List[any], cost: float, mode: str, progress_task: any = None) -> np.ndarray:
+        """Compute supply of land-use within a given cost.
 
+        Args:
+            mask_path (str): Path to land-use mask.
+            rst_clumps (np.ndarray): Array of clumps.
+            clump_slices (List[any]): List of clump slices.
+            cost (float): Cost threshold.
+            mode (str): Method to use to determine supply within cost. One of 'convolve', 'generic_filter', or 'ocv_filter2d'.
+            progress_task (any, optional): _description_. Defaults to None.
+
+        Returns:
+            np.ndarray: _description_
+        """
         # grid to store lu supply 
         lu_supply_mtx = self._get_value_matrix()
         # get land-use current mask
@@ -1296,12 +1306,11 @@ class ReCreat:
             # replace only if not the same values!
             if fill_value != nodata_value:
                 if self.verbose_reporting:                
-                    print(Fore.RED + Style.DIM + "REPLACING NODATA VALUE={} WITH FILL VALUE={}".format(nodata_value, fill_value) + Style.RESET_ALL) 
+                    print(Fore.YELLOW + Style.DIM + "REPLACING NODATA VALUE={} WITH FILL VALUE={}".format(nodata_value, fill_value) + Style.RESET_ALL) 
                 band_data = np.where(band_data==nodata_value, fill_value, band_data)
 
         # determine nodata mask AFTER potential filling of nodata values        
-        nodata_mask = np.isin(band_data, nodata_values, invert=False)
-                
+        nodata_mask = np.isin(band_data, nodata_values, invert=False)                
         return rst_ref, band_data, nodata_mask
         
     def _read_band(self, file_name: str, band: int = 1, is_scenario_specific: bool = True) -> np.ndarray:
@@ -1335,7 +1344,7 @@ class ReCreat:
 
         path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
         if self.verbose_reporting:
-            print(Fore.YELLOW + Style.DIM + "WRITING {}".format(path) + Style.RESET_ALL)
+            print(Fore.WHITE + Style.DIM + "WRITING {}".format(path) + Style.RESET_ALL)
 
         if mask_nodata is True:
             custom_nodata_mask = custom_nodata_mask if custom_nodata_mask is not None else self.lsm_nodata_mask
