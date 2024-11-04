@@ -663,15 +663,15 @@ class ReCreat:
         full_lu_mtx = self._read_band(mask_path)
 
         # use lowlevelcallable to speed up moving window operation               
-        self.clib.sum_filter.restype = ctypes.c_int
-        self.clib.sum_filter.argtypes = (
-            ctypes.POINTER(ctypes.c_double),
-            ctypes.POINTER(ctypes.c_int),
-            ctypes.POINTER(ctypes.c_double),
-            ctypes.c_void_p,
-        )
-
-        sum_filter = LowLevelCallable(self.clib.sum_filter, signature="int (double *, intptr_t, double *, void *)")  
+        if mode == 'generic_filter':
+            self.clib.sum_filter.restype = ctypes.c_int
+            self.clib.sum_filter.argtypes = (
+                ctypes.POINTER(ctypes.c_double),
+                ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_double),
+                ctypes.c_void_p,
+            )
+            sum_filter = LowLevelCallable(self.clib.sum_filter, signature="int (double *, intptr_t, double *, void *)") 
 
         # now operate over clumps, in order to safe some computational time
         for patch_idx in range(len(clump_slices)):
@@ -687,11 +687,9 @@ class ReCreat:
             sliced_lu_mtx[~obj_mask] = 0
 
             # now all pixels outside of clump should be zeroed, and we can determine total supply within sliding window
-            #sliding_supply = self._moving_window(sliced_lu_mtx, self._kernel_sum, cost)
-
             if mode == 'convolve':            
                 sliding_supply = self._moving_window_convolution(sliced_lu_mtx, cost)
-            elif mode == 'generic_filter':
+            elif mode == 'generic_filter':                 
                 sliding_supply = self._moving_window_generic(sliced_lu_mtx, sum_filter, cost)
             elif mode == 'ocv_filter2d':
                 sliding_supply = self._moving_window_filter2d(sliced_lu_mtx, cost)
