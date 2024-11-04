@@ -23,6 +23,10 @@ from rasterio.warp import calculate_default_transform, reproject
 from rasterio.enums import Resampling
 import distancerasters as dr
 
+import xarray as xr 
+from xrspatial import proximity
+
+
 from scipy import ndimage
 from scipy import LowLevelCallable
 
@@ -79,7 +83,7 @@ class ReCreat:
         os.system('cls' if os.name == 'nt' else 'clear')
         self.data_path = data_path  
 
-        print(Fore.WHITE + Style.BRIGHT + "ReCreat (C) 2024, Sebastian Scheuer\n\n" + Style.RESET_ALL)
+        print(Fore.WHITE + Style.BRIGHT + "ReCreat (C) 2024, Sebastian Scheuer" + Style.RESET_ALL)
 
         self.py_path = os.path.dirname(__file__)
 
@@ -272,10 +276,11 @@ class ReCreat:
             # done
             self.taskProgressReportStepCompleted()
 
-    def compute_distance_rasters(self, lu_classes: List[int] = None, assess_builtup: bool = False) -> None:
+    def compute_distance_rasters(self, mode: str = 'dr', lu_classes: List[int] = None, assess_builtup: bool = False) -> None:
         """Generate proximity rasters to land-use classes based on identified clumps.
 
         Args:
+            mode (str, optional): Method used to compute proximity matrix. Either 'dr' or 'xr'. Defaults to 'dr'.
             lu_classes (List[int], optional): List of integers, i.e., land-use classes to assess. Defaults to None.
             assess_builtup (bool, optional): Assesses proximities to built-up, if true. Defaults to False.
         """
@@ -320,14 +325,22 @@ class ReCreat:
 
                     # check if we actually have opportunity in reach in current clump slice:
                     if np.sum(sliced_lu_mtx) > 0:
-
-                        # now all pixels outside of clump should be zeroed, and we can determine proximity on the subset of the full raster
-                        sliced_dr = dr.DistanceRaster(sliced_lu_mtx, progress_bar=False)
-                        sliced_dr = sliced_dr.dist_array
+                        
+                        if mode == 'dr':
+                            # now all pixels outside of clump should be zeroed, and we can determine proximity on the subset of the full raster
+                            sliced_dr = dr.DistanceRaster(sliced_lu_mtx, progress_bar=False)
+                            sliced_dr = sliced_dr.dist_array
+                        elif mode == 'xr':
+                            n, m = sliced_lu_mtx.shape
+                            xr_rst = xr.DataArray(sliced_lu_mtx, dims=['y', 'x'], name='raster')
+                            xr_rst['y'] = np.arange(n)[::-1]
+                            xr_rst['x'] = np.arange(m)
+                            sliced_dr = proximity(xr_rst, target_values = [1]).to_numpy()
+                        
                         # proximities should only be written to clump object
                         sliced_dr[~obj_mask] = 0
                         lu_dr[obj_slice] += sliced_dr
-                    
+                                                
                     self.progress.update(current_task, advance=1)
 
                 self._write_dataset("PROX/dr_{}.tif".format(lu), lu_dr)
