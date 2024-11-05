@@ -21,7 +21,7 @@ As part of this, the working directory needs to be set.
     Each scenario comprises, at the least, a land-use raster, and may furthermore 
     include scenario-specific, gridded population.  
 
-.. code-block::
+.. codeblock::
     from ReCreat import ReCreat
     working_dir = "path/to/working/directory"
     my_model = ReCreat(working_dir)
