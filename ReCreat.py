@@ -222,7 +222,6 @@ class ReCreat:
         classes_to_assess = lu_classes if lu_classes is not None else self.lu_classes_recreation_edge
         if(len(classes_to_assess) > 0):
             
-            
             if ignore_edges_to_class is None:
                 self.clib.div_filter.restype = ctypes.c_int
                 self.clib.div_filter.argtypes = (
@@ -649,7 +648,7 @@ class ReCreat:
         """Determine class total supply.
 
         Args:
-            mode (str, optional): Method to perform sliding window operation. One of 'generic_filter', 'convolve'. Defaults to 'generic_filter'.
+            mode (str, optional): Method to perform sliding window operation. One of 'generic_filter', 'convolve', or 'ocv_filter2d'. Defaults to 'generic_filter'.
         """
         # for each recreation patch class and edge class, determine total supply within cost windows
         # do this for each clump, i.e., operate only on parts of masks corresponding to clumps, ignore patches/edges external to each clump
@@ -774,10 +773,10 @@ class ReCreat:
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))                
         current_task = self._get_task("[white]Aggregating clumped supply", total=step_count)
 
-        with self.progress as p:
+        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
             for c in self.cost_thresholds:
                 # get aggregation for current cost threshold
-                current_total_supply_at_cost, current_weighted_total_supply_at_cost = self._get_aggregate_class_total_supply_for_cost(c, lu_weights, write_non_weighted_result, current_task)                                           
+                current_total_supply_at_cost, current_weighted_total_supply_at_cost = self._get_aggregate_class_total_supply_for_cost(cost=c, lu_weights=lu_weights, write_non_weighted_result=write_non_weighted_result, task_progress=current_task)                                           
                 
                 # export total for costs, if requested
                 if write_non_weighted_result:                
@@ -1516,7 +1515,7 @@ class ReCreat:
 
         return mtx_res[radius:-radius,radius:-radius]
     
-    def _get_aggregate_class_total_supply_for_cost(self, cost, lu_weights = None, write_non_weighted_result = True, write_scaled_result = True, task_progress = None):                        
+    def _get_aggregate_class_total_supply_for_cost(self, cost, lu_weights = None, write_non_weighted_result = True, task_progress = None):                        
         
         current_total_supply_at_cost = None
         current_weighted_total_supply_at_cost = None
@@ -1528,6 +1527,7 @@ class ReCreat:
             current_weighted_total_supply_at_cost = self._get_value_matrix()
         
         for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
+            
             # determine source of list
             lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"                    
             lu_supply_mtx = self._get_supply_for_lu_and_cost(lu, lu_type, cost)
@@ -1539,7 +1539,7 @@ class ReCreat:
                 current_weighted_total_supply_at_cost += (lu_supply_mtx * lu_weights[lu])
 
             if task_progress is not None:
-                self.progress.update(task_progress, advance=1) 
+                self.progress.update(task_progress, advance=1)
 
         if lu_weights is not None:
             current_weighted_total_supply_at_cost = current_weighted_total_supply_at_cost / sum(lu_weights.values())
