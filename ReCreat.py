@@ -41,7 +41,7 @@ import ctypes
 
 colorama_init()
 
-class ReCreat:
+class recreat:
 
     # some status variables
     verbose_reporting = False
