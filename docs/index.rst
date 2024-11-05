@@ -16,3 +16,4 @@ Contents
 .. toctree::
 
    Home <self>
+   Usage <usage>
