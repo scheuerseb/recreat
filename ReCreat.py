@@ -192,8 +192,8 @@ class ReCreat:
         # mask classes of interest into a binary raster to indicate presence/absence of recreational potential
         # we require this for all classes relevant to processing: patch and edge recreational classes, built-up classes
         self.printStepInfo("CREATING LAND-USE MASKS")
+        classes_for_masking = self.lu_classes_recreation_edge + self.lu_classes_recreation_patch
         
-        classes_for_masking = self.lu_classes_recreation_edge + self.lu_classes_recreation_patch + self.lu_classes_builtup 
         current_task = self._get_task('[white]Masking land-uses', total=len(classes_for_masking))
         
         with self.progress if self._runsAsStandalone() else nullcontext() as bar:        
@@ -383,20 +383,49 @@ class ReCreat:
         # done
         self.taskProgressReportStepCompleted()
 
+    def aggregate_classes(self, aggregations: Dict[int, List[int]]) -> None:
+        """Replaces values of classes to aggregate with a new class value in the land-use dataset.
+
+        Args:
+            aggregations (Dict[int, List[int]]): Dictionary of intended classes (keys), and corresponding list of classes to aggregate (values). 
+        """
+        self.printStepInfo("Aggregating classes")
+        if self.lsm_mtx is not None:
+            
+            current_task = self._get_task("[white]Aggregating classes", total=len(aggregations.keys()))
+
+            # iterate over key-value combinations
+            with self.progress if self._runsAsStandalone() else nullcontext() as bar:
+                
+                for (new_class_value, classes_to_aggregate) in aggregations.items():
+                    replacement_mask = np.isin(self.lsm_mtx, classes_to_aggregate, invert=False)
+                    self.lsm_mtx[replacement_mask] = new_class_value
+                    del replacement_mask
+
+                    self.progress.update(current_task, advance=1)                 
+
+            # done
+            self.printStepCompleteInfo()
+
+        else:
+            print(Fore.WHITE + Back.RED + "ERR: Import Land-Use first" + Style.RESET_ALL)
+
+
     def aggregate_builtup_classes(self) -> None:
         """ Aggregates specified built-up (i.e., potentially residential) classes into a single built-up layer. 
         """
         self.printStepInfo("Aggregating built-up land-use classes")
-        current_task = self._get_task("[white]Aggregating built-up", total=len(self.lu_classes_builtup))
+        current_task = self._get_task("[white]Aggregating built-up", total=1)
         with self.progress if self._runsAsStandalone() else nullcontext() as bar:
-
-            mtx_builtup = self._get_value_matrix()                        
-            for lu in self.lu_classes_builtup:
-                rst_mtx = self._read_band('MASKS/mask_{}.tif'.format(lu))
-                mtx_builtup += rst_mtx                   
-                self.progress.update(current_task, advance=1)                 
-                
+            
+            # we don't add up independent classes anymore, but just grab all builtup classes, and make value replacements on the original input matrix 
+            mtx_builtup = self.lsm_mtx.copy()                        
+            builtup_mask = np.isin(mtx_builtup, self.lu_classes_builtup, invert=False)
+            mtx_builtup[builtup_mask] = 1
+            mtx_builtup[~builtup_mask] = 0         
+                            
             # write built-up raster to disk
+            self.progress.update(current_task, advance=1)                 
             self._write_dataset("MASKS/built-up.tif", mtx_builtup)
         
         # done
@@ -534,8 +563,6 @@ class ReCreat:
         # B -- pop has a lower resolution (and differing extent?) than built-up
         # TODO: C -- built-up has a lower resolution than pop 
         # TODO: Test if resolutions actually differ!
-
-
 
         # disaggregation in multiple steps
         # first: Aggregate built-up pixels per population grid cell to determine patch count 
@@ -734,11 +761,11 @@ class ReCreat:
     # 
     # The following functions are meant to be used / would be considered public methods.
     
-    def aggregate_class_total_supply(self, lu_weights: Dict[int,float] = None, write_non_weighted_result: bool = True) -> None:
+    def aggregate_class_total_supply(self, lu_weights: Dict[any,float] = None, write_non_weighted_result: bool = True) -> None:
         """Aggregate total supply of land-use classes within each specified cost threshold. A weighting schema may be supplied, in which case a weighted average is determined as the sum of weighted class supply divided by the sum of all weights.
 
         Args:
-            lu_weights (Dict[int,float], optional): Dictionary of land-use class weights, where keys refer to land-use classes, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
+            lu_weights (Dict[any,float], optional): Dictionary of land-use class weights, where keys refer to land-use classes, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
             write_non_weighted_result (bool, optional): Indicates if non-weighted total supply be computed. Defaults to True.
         """
         self.printStepInfo('Determining clumped total supply')
@@ -826,13 +853,13 @@ class ReCreat:
     #
     # The following functions provide averaged metrics as targeted main indicators 
 
-    def average_total_supply_across_cost(self, lu_weights: Dict[int, float] = None, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
+    def average_total_supply_across_cost(self, lu_weights: Dict[any, float] = None, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
         """Determine the total (recreational) land-use supply averaged across cost thresholds. Weighting of importance of land-uses and weighting of cost may be applied. 
            If either weighting schema (land-use classes or costs) is supplied, the total supply is determined as weighted average, i.e., the weighted sum of land-use class-specific supply, divided by the sum of weights.
            Potential combinations, i.e., land-use and subsequently cost-based weighting, are considered if both weighting schemas are supplied.
 
         Args:
-            lu_weights (Dict[int,float], optional): Dictionary of land-use class weights, where keys refer to land-use classes, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
+            lu_weights (Dict[any,float], optional): Dictionary of land-use class weights, where keys refer to land-use classes, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
             cost_weights (Dict[float, float], optional): Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
             write_non_weighted_result (bool, optional): Indicates if non-weighted total supply be computed. Defaults to True.
             write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
