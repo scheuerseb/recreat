@@ -1,0 +1,18 @@
+[project]
+name = "recreat"
+version = "0.0.1"
+authors = [
+  { name="Sebastian Scheuer", email="seb.scheuer@outlook.de" },
+]
+description = "Package for the assessment of multidimensional recreational land use-based opportunities"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Windows",
+]
+
+[project.urls]
+Homepage = "https://github.com/pypa/sampleproject"
+Issues = "https://github.com/pypa/sampleproject/issues"

@@ -644,11 +644,11 @@ class recreat:
         self.taskProgressReportStepCompleted()
 
 
-    def class_total_supply(self, mode = 'generic_filter'):
+    def class_total_supply(self, mode = 'ocv_filter2d'):
         """Determine class total supply.
 
         Args:
-            mode (str, optional): Method to perform sliding window operation. One of 'generic_filter', 'convolve', or 'ocv_filter2d'. Defaults to 'generic_filter'.
+            mode (str, optional): Method to perform sliding window operation. One of 'generic_filter', 'convolve', or 'ocv_filter2d'. Defaults to 'ocv_filter2d'.
         """
         # for each recreation patch class and edge class, determine total supply within cost windows
         # do this for each clump, i.e., operate only on parts of masks corresponding to clumps, ignore patches/edges external to each clump
@@ -670,7 +670,7 @@ class recreat:
                     outfile_name = "SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, c) if lu_type == "patch" else "SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, c)
 
                     # get result of windowed operation
-                    lu_supply_mtx = self._class_total_supply_for_lu_and_cost(infile_name, rst_clumps, clump_slices, c, mode, current_task)                            
+                    lu_supply_mtx = self._class_total_supply_for_lu_and_cost(mask_path=infile_name, rst_clumps=rst_clumps, clump_slices=clump_slices, cost=c, mode=mode, progress_task=current_task)                            
                     # export current cost
                     self._write_dataset(outfile_name, lu_supply_mtx)                
                     
@@ -806,7 +806,7 @@ class recreat:
                 for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
                     # determine source of list
                     lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"                    
-                    mtx_supply = self._get_supply_for_lu_and_cost(lu, lu_type, c)
+                    mtx_supply = self._get_supply_for_lu_and_cost(lu, lu_type, c).astype(np.int32)                    
                     mtx_supply[mtx_supply > 0] = 1
                     mtx_diversity_at_cost += mtx_supply
                     p.update(current_task, advance=1)
@@ -1550,37 +1550,6 @@ class recreat:
     
 
     
-    def assess_map_units(self, compute_proximities: bool = False) -> None:
-        """Determine basic data and conduct basic operations on land-use classes, including occurence masking, edge detection, aggregation of built-up classes and population disaggregation, determination of beneficiaries within given cost thresholds, computation of proximities to land-uses (if requested), and land-use class-specific total supply.   
-
-        Args:
-            compute_proximities (bool, optional): Compute proximities to land-uses. This is very computationally heavy. Defaults to False.
-        """
-        self.progress = self.get_progress_bar()
-        step_count = 7 if compute_proximities else 6
-        self.task_assess_map_units = self.progress.add_task('[red]Assessing recreational potential', total=step_count)
-        with self.progress as p:
-            
-            # detecting clumps
-            self.detect_clumps()
-                        
-            # mask land-uses and detect edges on relevant classes
-            self.mask_landuses()    
-            self.detect_edges()
-
-            # work on population disaggregation
-            self.disaggregate_population()            
-            self.beneficiaries_within_cost()
-
-            # determine raster-based proximities as cost-to-closest
-            if compute_proximities:
-                self.compute_distance_rasters()        
-            
-            # determine supply per class
-            self.class_total_supply()
-
-        self.printStepCompleteInfo()
-        self.task_assess_map_units = None
 
 
     def taskProgressReportStepCompleted(self):
