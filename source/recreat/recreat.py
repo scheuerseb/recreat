@@ -7,39 +7,45 @@ import os
 from os import listdir
 from os.path import isfile, join
 
+import platform
+
 os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = pow(2,40).__str__()
+# opencv-python
 import cv2 as cv
 
-
 import uuid
-
+# colorama
 from colorama import init as colorama_init
-from colorama import Fore, Back, Style
+from colorama import Fore, Back, Style, just_fix_windows_console
+just_fix_windows_console()
+# rich
 from rich.progress import Progress, TaskProgressColumn, TimeElapsedColumn, MofNCompleteColumn, TextColumn, BarColumn
+# contextlib
 from contextlib import nullcontext
-
+# rasterio
 import rasterio
 from rasterio.warp import calculate_default_transform, reproject
 from rasterio.enums import Resampling
+# distancerasters
 import distancerasters as dr
-
+# xarray-spatial
 import xarray as xr 
 from xrspatial import proximity
-
-
+#scipy
 from scipy import ndimage
 from scipy import LowLevelCallable
-
+# numpy
 import numpy as np
-
+# scikit-image
 from skimage.draw import disk
+# scikit-learn
 from sklearn.preprocessing import MinMaxScaler
-
+# typing
 from typing import Tuple, List, Callable, Dict
 
 import ctypes
 
-colorama_init()
+
 
 class recreat:
 
@@ -84,13 +90,20 @@ class recreat:
         self.data_path = data_path  
         print(Fore.WHITE + Style.BRIGHT + "ReCreat (C) 2024, Sebastian Scheuer" + Style.RESET_ALL)
         self.py_path = os.path.dirname(__file__)
-        clib_path = os.path.join(self.py_path, 'LowLevelGenericFilters.dll')
+
+        # determine extension module to be used depending on platform
+        if platform.system() == "Windows":
+            extension_filename = 'LowLevelGenericFilters.dll'
+        else:
+            extension_filename = 'LowLevelGenericFilters.so'
+
+        clib_path = os.path.join(self.py_path, extension_filename)
         print(Fore.WHITE + Style.DIM + "Using low-level callable shared libary " + clib_path + Style.RESET_ALL)
         self.clib = ctypes.cdll.LoadLibrary(clib_path)
 
-    def __del__(self):
-        print(Fore.WHITE + Style.BRIGHT + "BYE BYE." + Style.RESET_ALL)
-       
+    def __del__(self):        
+        print("BYE BYE.")
+        
     def make_environment(self) -> None:
         """Create required subfolders for raster files in the current scenario folder.
         """
