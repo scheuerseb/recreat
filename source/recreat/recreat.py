@@ -1511,7 +1511,7 @@ class recreat:
         kernel = self._get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
         # make sure that input is padded, as this determines border values
         data_mtx = np.pad(data_mtx, radius, mode='constant')
-        mtx_res = cv.filter2D(data_mtx.astype(np.uint8), cv.CV_32F, kernel)
+        mtx_res = cv.filter2D(data_mtx.astype(np.uint8), cv.CV_32S, kernel)
 
         return mtx_res[radius:-radius,radius:-radius]
     
