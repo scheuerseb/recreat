@@ -694,7 +694,7 @@ class recreat:
             np.ndarray: _description_
         """
         # grid to store lu supply 
-        lu_supply_mtx = self._get_value_matrix()
+        lu_supply_mtx = self._get_value_matrix().astype(np.int32)
         # get land-use current mask
         full_lu_mtx = self._read_band(mask_path)
 
@@ -732,7 +732,7 @@ class recreat:
 
            
             sliding_supply[~obj_mask] = 0
-            lu_supply_mtx[obj_slice] += sliding_supply
+            lu_supply_mtx[obj_slice] += sliding_supply.astype(np.int32)
             
             del sliding_supply
             del sliced_lu_mtx
@@ -806,7 +806,7 @@ class recreat:
                 for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
                     # determine source of list
                     lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"                    
-                    mtx_supply = self._get_supply_for_lu_and_cost(lu, lu_type, c).astype(np.int32)                    
+                    mtx_supply = self._get_supply_for_lu_and_cost(lu, lu_type, c)                   
                     mtx_supply[mtx_supply > 0] = 1
                     mtx_diversity_at_cost += mtx_supply
                     p.update(current_task, advance=1)
