@@ -6,7 +6,8 @@ authors = [
   { name="Sebastian Scheuer", email="seb.scheuer@outlook.de" },
 ]
 
-description = "Package for the assessment of multidimensional recreational land use-based opportunities"
+description = "Indicators on Landscape Recreational Potential: Land use-based assessment of recreational opportunities under a multi-dimensional analytical lens"
+
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
@@ -51,4 +52,3 @@ build-backend = "setuptools.build_meta"
 
 [project.urls]
 Homepage = "https://github.com/scheuerseb/recreat"
-Issues = "https://github.com/scheuerseb/recreat/issues"
