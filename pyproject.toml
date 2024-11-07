@@ -28,11 +28,16 @@ dependencies = [
 
 classifiers = [
     "Development Status :: 3 - Alpha",
-    "Intended Audience :: Experts",
-    "Topic :: Green-Blue Infrastructure :: Assessment Tools",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Topic :: Utilities",
     "Programming Language :: Python :: 3",
+    "Programming Language :: C",
     "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux"
+
 ]
 
 [project.scripts]
