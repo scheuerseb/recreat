@@ -223,12 +223,12 @@ class recreat:
         # done    
         self.taskProgressReportStepCompleted()
     
-    def detect_edges(self, lu_classes: List[float] = None, ignore_edges_to_class: float = None) -> None:
+    def detect_edges(self, lu_classes: List[int] = None, ignore_edges_to_class: int = None) -> None:
         """ Detect edges (patch perimeters) of land-use classes that are defined as edge classes.
 
         Args:
-            lu_classes (List[float], optional): List of classes for which edges should be assessed. If None, classes specified as classes.edge will be used. Defaults to None. 
-            ignore_edges_to_classes (float, optional): Class to which edges should be ignored. Defaults to None.
+            lu_classes (List[int], optional): List of classes for which edges should be assessed. If None, classes specified as classes.edge will be used. Defaults to None. 
+            ignore_edges_to_classes (int, optional): Class to which edges should be ignored. Defaults to None.
         """
         # determine edge pixels of edge-only classes such as water opportunities
         
@@ -286,11 +286,11 @@ class recreat:
             # done
             self.taskProgressReportStepCompleted()
 
-    def compute_distance_rasters(self, mode: str = 'dr', lu_classes: List[int] = None, assess_builtup: bool = False) -> None:
+    def compute_distance_rasters(self, mode: str = 'xr', lu_classes: List[int] = None, assess_builtup: bool = False) -> None:
         """Generate proximity rasters to land-use classes based on identified clumps.
 
         Args:
-            mode (str, optional): Method used to compute proximity matrix. Either 'dr' or 'xr'. Defaults to 'dr'.
+            mode (str, optional): Method used to compute proximity matrix. Either 'dr' or 'xr'. Defaults to 'xr'.
             lu_classes (List[int], optional): List of integers, i.e., land-use classes to assess. Defaults to None.
             assess_builtup (bool, optional): Assesses proximities to built-up, if true. Defaults to False.
         """
