@@ -6,7 +6,7 @@
 import os
 from os import listdir
 from os.path import isfile, join
-
+import ctypes
 import platform
 
 os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = pow(2,40).__str__()
@@ -43,7 +43,7 @@ from sklearn.preprocessing import MinMaxScaler
 # typing
 from typing import Tuple, List, Callable, Dict
 
-import ctypes
+
 
 
 

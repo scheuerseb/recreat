@@ -1,17 +1,42 @@
 [project]
 name = "recreat"
-version = "0.0.1"
+version = "0.0.2"
+
 authors = [
   { name="Sebastian Scheuer", email="seb.scheuer@outlook.de" },
 ]
+
 description = "Package for the assessment of multidimensional recreational land use-based opportunities"
 readme = "README.md"
 requires-python = ">=3.10"
+license = {file = "LICENSE"}
+dependencies = [
+  "opencv-python", 
+  "colorama", 
+  "rich", 
+  "rasterio", 
+  "distancerasters", 
+  "xarray-spatial", 
+  "scipy", 
+  "numpy", 
+  "scikit-image", 
+  "scikit-learn", 
+  "typing", 
+  "uuid", 
+  "argparse"
+]
+
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Experts",
+    "Topic :: Green-Blue Infrastructure :: Assessment Tools",
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
-    "Operating System :: Windows",
+    "Operating System :: OS Independent",
 ]
+
+[project.scripts]
+recreat-util = "recreat.recreat_util:recreat_util"
 
 [build-system]
 requires = [
@@ -20,5 +45,5 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project.urls]
-Homepage = "https://github.com/pypa/sampleproject"
-Issues = "https://github.com/pypa/sampleproject/issues"
+Homepage = "https://github.com/scheuerseb/recreat"
+Issues = "https://github.com/scheuerseb/recreat/issues"
