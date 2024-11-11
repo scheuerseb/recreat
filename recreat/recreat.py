@@ -577,6 +577,12 @@ class recreat:
         # TODO: Test if resolutions actually differ!
 
         # disaggregation in multiple steps
+        # we require built-up to be available
+        if not os.path.isfile("{}/{}/MASKS/builtup.tif".format(self.data_path, self.root_path)):
+            self.aggregate_builtup_classes()
+        else:
+            print("Skip reprojection of built-up")
+
         # first: Aggregate built-up pixels per population grid cell to determine patch count 
         if not os.path.isfile("{}/{}/DEMAND/builtup_count.tif".format(self.data_path, self.root_path)):
             self._reproject_builtup_to_population(population_grid=population_grid)
