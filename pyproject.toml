@@ -24,7 +24,8 @@ dependencies = [
   "scikit-learn", 
   "typing", 
   "uuid", 
-  "argparse"
+  "argparse",
+  "click"
 ]
 
 classifiers = [
