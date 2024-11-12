@@ -50,7 +50,7 @@ class recreat_process_parameters(Enum):
     export_scaled_results = 'export-scaled-results'
     include_special_class = 'include-special-class'
     population_raster = 'population-grid'
-
+    force = 'force'
 
 class recreat_model():
 
@@ -238,10 +238,11 @@ class recreat_model():
 
 
     # population disaggregation
-    def add_disaggregate_population(self, pop_raster: str, export_scaled: bool) -> None:
+    def add_disaggregate_population(self, pop_raster: str,  force: bool, export_scaled: bool) -> None:
         self._add_process(recreat_process.population_disaggregation)
         self.processes[recreat_process.population_disaggregation][recreat_process_parameters.population_raster] = pop_raster
         self.processes[recreat_process.population_disaggregation][recreat_process_parameters.export_scaled_results] = export_scaled
+        self.processes[recreat_process.population_disaggregation][recreat_process_parameters.force] = force
 
 
 
@@ -310,6 +311,8 @@ class recreat_model():
                     pars += ", assess proximities to built-up"
             if p is recreat_process.population_disaggregation and contains_process:
                 pars = "population={}".format(self.get_processing_parameter(p, recreat_process_parameters.population_raster))
+                if self.get_processing_parameter(p, recreat_process_parameters.force):
+                    pars += ", force"
                 if self.get_processing_parameter(p, recreat_process_parameters.export_scaled_results):
                     pars += ", export scaled results"
 

@@ -122,11 +122,12 @@ def class_flow():
 def proximities(mode, include_builtup):
     new_model.add_proximity(mode=mode, lu_classes=None, include_builtup=include_builtup)
 
-@recreat_util.command()
+@recreat_util.command(help="Disaggregate population to built-up.")
 @click.option('-s', '--exclude-scaled', is_flag=True, default=True, type=bool, help="Exclude export of scaled result(s).")
+@click.option('-f', '--force', is_flag=True, default=False, type=bool, help="Force recomputation of intermediate products.")
 @click.argument('pop')
-def disaggregate_population(pop, exclude_scaled):
-    new_model.add_disaggregate_population(pop_raster=pop, export_scaled=exclude_scaled)
+def disaggregate_population(pop, exclude_scaled, force):
+    new_model.add_disaggregate_population(pop_raster=pop, force=force, export_scaled=exclude_scaled)
 
 
 
@@ -199,7 +200,9 @@ def run_process(result, **kwargs):
                 pass
 
             if p is recreat_process.population_disaggregation:
-                rc.disaggregate_population(new_model.get_processing_parameter(p, recreat_process_parameters.population_raster))
+                rc.disaggregate_population(population_grid=new_model.get_processing_parameter(p, recreat_process_parameters.population_raster),
+                                           force_computing=new_model.get_processing_parameter(p, recreat_process_parameters.force),
+                                           write_scaled_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_scaled_results))
 
 
 

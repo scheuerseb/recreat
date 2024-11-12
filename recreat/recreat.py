@@ -558,13 +558,14 @@ class recreat:
         self.printStepCompleteInfo()
 
 
-    def disaggregate_population(self, population_grid: str, write_scaled_result: bool = True) -> None:
+    def disaggregate_population(self, population_grid: str, force_computing: bool = False, write_scaled_result: bool = True) -> None:
         """Aggregates built-up land-use classes into a single raster of built-up areas, and intersects built-up with the scenario-specific population grid to provide disaggregated population.
            The method currently implements a simple area-weighted disaggregation method. This method can currently account for gridded land-use and population featuring the same extent and resolution,
            and for the gridded population to have a lower resolution than gridded land-use 
 
         Args:
             population_grid (str): Name of the population raster file to be used for disaggregation.
+            force_computing (bool, optional): Force (re-)computation of intermediate products if they already exist. 
             write_scaled_result (bool, optional): Export min-max scaled result, if True. Defaults to True.
         """
         self.printStepInfo("Disaggregating population to built-up")
@@ -578,40 +579,46 @@ class recreat:
 
         # disaggregation in multiple steps
         # we require built-up to be available
-        if not os.path.isfile("{}/{}/MASKS/builtup.tif".format(self.data_path, self.root_path)):
+        if not os.path.isfile("{}/{}/MASKS/built-up.tif".format(self.data_path, self.root_path)) or force_computing:
             self.aggregate_builtup_classes()
         else:
-            print("Skip reprojection of built-up")
+            print(Style.DIM + "    Skip aggregation of built-up classes. File exists." + Style.RESET_ALL)
 
         # first: Aggregate built-up pixels per population grid cell to determine patch count 
-        if not os.path.isfile("{}/{}/DEMAND/builtup_count.tif".format(self.data_path, self.root_path)):
+        if not os.path.isfile("{}/{}/DEMAND/builtup_count.tif".format(self.data_path, self.root_path)) or force_computing:
             self._reproject_builtup_to_population(population_grid=population_grid)
         else:
-            print("Skip reprojection of built-up")
+            print(Style.DIM + "    Skip reprojection of built-up. File exists." + Style.RESET_ALL)
+
 
         # second: Determine patch population
-        if not os.path.isfile("{}/{}/DEMAND/patch_population.tif".format(self.data_path, self.root_path)):            
+        if not os.path.isfile("{}/{}/DEMAND/patch_population.tif".format(self.data_path, self.root_path)) or force_computing:            
             self._conduct_disaggregation(population_grid=population_grid)
         else:
-            print("Skip determining patch population")           
+            print(Style.DIM + "    Skip estimation of patch population. File exists." + Style.RESET_ALL)
 
         # third: Reproject patch population to match built-up grid
-        if not os.path.isfile("{}/{}/DEMAND/reprojected_patch_population.tif".format(self.data_path, self.root_path)):
+        if not os.path.isfile("{}/{}/DEMAND/reprojected_patch_population.tif".format(self.data_path, self.root_path)) or force_computing:
             self._reproject_patch_population_to_builtup()
         else:
-            print("Skip reprojection of patch population")
+            print(Style.DIM + "    Skip reprojection of patch population. File exists." + Style.RESET_ALL)
+
                                                
         # fourth: intersect patch population with built-up patches
-        mtx_pop = self._read_band('DEMAND/reprojected_patch_population.tif')                             
-        mtx_builtup = self._read_band('MASKS/built-up.tif')
-        # intersect 
-        mtx_builtup = mtx_builtup * mtx_pop        
-        self._write_dataset("DEMAND/disaggregated_population.tif", mtx_builtup)
-        if write_scaled_result:
-            scaler = MinMaxScaler()
-            mtx_builtup = scaler.fit_transform(mtx_builtup.reshape([-1,1]))
-            self._write_dataset("DEMAND/scaled_disaggregated_population.tif", mtx_builtup.reshape(self.lsm_mtx.shape))
-    
+        if not os.path.isfile("{}/{}/DEMAND/disaggregated_population.tif".format(self.data_path, self.root_path)) or force_computing:            
+            mtx_pop = self._read_band('DEMAND/reprojected_patch_population.tif')                             
+            mtx_builtup = self._read_band('MASKS/built-up.tif')
+            # intersect 
+            mtx_builtup = mtx_builtup * mtx_pop        
+            self._write_dataset("DEMAND/disaggregated_population.tif", mtx_builtup)
+        
+            if write_scaled_result:
+                scaler = MinMaxScaler()
+                mtx_builtup = scaler.fit_transform(mtx_builtup.reshape([-1,1]))
+                self._write_dataset("DEMAND/scaled_disaggregated_population.tif", mtx_builtup.reshape(self.lsm_mtx.shape))
+        else:
+            print(Style.DIM + "    Skip disaggregation of patch population. File exists." + Style.RESET_ALL)
+
         # done   
         self.taskProgressReportStepCompleted()
 
@@ -1339,7 +1346,7 @@ class recreat:
         """
         path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
         if self.verbose_reporting:
-            print(Fore.WHITE + Style.DIM + "READING {}".format(path) + Style.RESET_ALL)
+            print(Fore.WHITE + Style.DIM + "    READING {}".format(path) + Style.RESET_ALL)
         
         rst_ref = rasterio.open(path)
         band_data = rst_ref.read(band)
@@ -1351,7 +1358,7 @@ class recreat:
             # replace only if not the same values!
             if fill_value != nodata_value:
                 if self.verbose_reporting:                
-                    print(Fore.YELLOW + Style.DIM + "REPLACING NODATA VALUE={} WITH FILL VALUE={}".format(nodata_value, fill_value) + Style.RESET_ALL) 
+                    print(Fore.YELLOW + Style.DIM + "    REPLACING NODATA VALUE={} WITH FILL VALUE={}".format(nodata_value, fill_value) + Style.RESET_ALL) 
                 band_data = np.where(band_data==nodata_value, fill_value, band_data)
 
         # determine nodata mask AFTER potential filling of nodata values        
@@ -1389,7 +1396,7 @@ class recreat:
 
         path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
         if self.verbose_reporting:
-            print(Fore.WHITE + Style.DIM + "WRITING {}".format(path) + Style.RESET_ALL)
+            print(Fore.WHITE + Style.DIM + "    WRITING {}".format(path) + Style.RESET_ALL)
 
         if mask_nodata is True:
             custom_nodata_mask = custom_nodata_mask if custom_nodata_mask is not None else self.lsm_nodata_mask
