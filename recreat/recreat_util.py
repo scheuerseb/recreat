@@ -35,11 +35,13 @@ def recreat_util(data_path, root_path, verbose, datatype, landuse_filename, noda
 @recreat_util.command(help="Specify model parameters.")
 @click.option('-p', '--patch', default=None, multiple=True, help="(Comma-separated) patch class(es).")
 @click.option('-e', '--edge', default=None, multiple=True, help="(Comma-separated) edge class(es).")
+@click.option('-g', '--grow-edge', default=None, multiple=True, help="(Comma-separated) edge class(es) to grow.")
 @click.option('-b', '--built-up', default=None, multiple=True, help="(Comma-separated) built-up class(es).")
 @click.option('-c', '--cost', default=None, multiple=True, help="(Comma-separated) cost(s).")
-def params(cost, patch, edge, built_up):
+def params(cost, patch, edge, grow_edge, built_up):
     new_model.classes_patch = sorted(list({int(num) for item in patch for num in str(item).split(',')}))
     new_model.classes_edge = sorted(list({int(num) for item in edge for num in str(item).split(',')}))
+    new_model.classes_grow_edge = sorted(list({int(num) for item in grow_edge for num in str(item).split(',')}))
     new_model.classes_builtup = sorted(list({int(num) for item in built_up for num in str(item).split(',')}))
     new_model.costs = sorted(list({int(num) for item in cost for num in str(item).split(',')}))
 
@@ -135,6 +137,9 @@ def disaggregate_population(pop, exclude_scaled, force):
 
 @recreat_util.result_callback()
 def run_process(result, **kwargs):
+    
+    print(new_model.classes_edge)
+    
     user_confirm = new_model.get_model_confirmation()
     if not user_confirm:
         print('Aborted')
@@ -166,8 +171,10 @@ def run_process(result, **kwargs):
             if p is recreat_process.mask_landuses:
                 rc.mask_landuses()
             
-            if p is recreat_process.edge_detection:
-                rc.detect_edges(ignore_edges_to_class=new_model.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction))
+            if p is recreat_process.edge_detection:               
+                rc.detect_edges(lu_classes=new_model.classes_edge,
+                    ignore_edges_to_class=new_model.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction),
+                    grow_edges=new_model.classes_grow_edge)
             
             if p is recreat_process.class_total_supply:
                 rc.class_total_supply(mode = new_model.get_processing_parameter(p, recreat_process_parameters.mode))

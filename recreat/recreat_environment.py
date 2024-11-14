@@ -29,7 +29,7 @@ class recreat_params(Enum):
     data_type = 'use-data-type'
     verbose = 'verbose-reporting'
     classes_patch = 'classes.patch'
-    classes_edge = 'classes.edge'
+    classes_edge = 'classes.edge'    
     classes_builtup = 'classes.builtup'
     costs = 'costs'
 
@@ -43,6 +43,7 @@ class recreat_environment(Enum):
 
 class recreat_process_parameters(Enum):
     classes_on_restriction = 'classes-on-restriction'
+    grow_edge_classes = 'grow-edge-classes'
     lu_weights = 'landuse-weights'
     cost_weights = 'cost-weights'
     mode = 'mode'
@@ -51,6 +52,7 @@ class recreat_process_parameters(Enum):
     include_special_class = 'include-special-class'
     population_raster = 'population-grid'
     force = 'force'
+    
 
 class recreat_model():
 
@@ -74,6 +76,8 @@ class recreat_model():
         self.params[recreat_params.classes_builtup] = []
         self.params[recreat_params.costs] = []
 
+        self.specials = {}
+        self.specials['grow-edges'] = None
 
     # data path and root path
     @property
@@ -154,12 +158,29 @@ class recreat_model():
     @classes_patch.setter
     def classes_patch(self, class_values: List[int]):
         self._add_key(self.params, recreat_params.classes_patch, class_values)
+    
     @property
     def classes_edge(self) -> List[int]:
-        return self.params[recreat_params.classes_edge]
+        retval = []        
+        retval += self.params[recreat_params.classes_edge]
+        if self.specials['grow-edges'] is not None:
+            retval += self.specials['grow-edges']
+        return retval
+    
     @classes_edge.setter
     def classes_edge(self, class_values: List[int]):
         self._add_key(self.params, recreat_params.classes_edge, class_values)
+    
+    @property 
+    def classes_grow_edge(self) -> List[int]:
+        return self.specials['grow-edges'] 
+    
+    @classes_grow_edge.setter
+    def classes_grow_edge(self, class_values: List[int]) -> None:
+        if len(class_values) == 0:
+            class_values = None
+        self.specials['grow-edges'] = class_values 
+    
     @property 
     def classes_builtup(self) -> List[int]:
         return self.params[recreat_params.classes_builtup]
@@ -291,6 +312,9 @@ class recreat_model():
                 pars = "barrier classes={}".format(self.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction))
             if p is recreat_process.edge_detection and contains_process:
                 pars = "ignore edges to class={}".format(self.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction))
+                if self.classes_grow_edge is not None:
+                    pars += ", grow=" + ','.join(map(str, self.classes_grow_edge))
+
             if p is recreat_process.class_total_supply and contains_process:
                 pars = "mode={}".format(self.get_processing_parameter(p, recreat_process_parameters.mode))
             if p is recreat_process.aggregate_class_total_supply and contains_process:                
@@ -351,12 +375,12 @@ class recreat_model():
         if self.is_debug:
             return False
         else:
-            return True
-            #user_confirm = input("Run this model? (Y/n): ")
-            #if user_confirm is None or user_confirm == '' or user_confirm.lower() == 'y':
-            #    return True
-            #else:
-            #    return False
+            #return True
+            user_confirm = input("Run this model? (y/N): ")
+            if user_confirm is None or user_confirm == '' or user_confirm.lower() == 'n':
+                return False
+            else:
+                return True
           
 
     def get_processes(self):

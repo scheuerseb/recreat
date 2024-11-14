@@ -271,12 +271,11 @@ class recreat:
                         ptr = ctypes.cast(ctypes.pointer(user_data), ctypes.c_void_p)
                         div_filter = LowLevelCallable(self.clib.div_filter_ignore_class, user_data=ptr, signature="int (double *, intptr_t, double *, void *)")              
 
-
                     # read masking raster
                     mtx_mask = self._read_band("MASKS/mask_{}.tif".format(lu)) 
                     
                     # apply a 3x3 rectangular sliding window to determine pixel value diversity in window
-                    rst_edgePixelDiversity = self._moving_window_generic(self.lsm_mtx, div_filter, 3, 'rect') 
+                    rst_edgePixelDiversity = self._moving_window_generic(data_mtx=self.lsm_mtx, kernel_func=div_filter, kernel_size=3, kernel_shape='rect', dest_datatype=np.int16) 
                     rst_edgePixelDiversity = rst_edgePixelDiversity - 1
                     rst_edgePixelDiversity[rst_edgePixelDiversity > 1] = 1                
                     
@@ -288,8 +287,12 @@ class recreat:
                     else:
                         self._write_dataset("MASKS/edges_{}.tif".format(lu), rst_edgePixelDiversity)    
 
-                    self.progress.update(current_task, advance=1)
+                    # some cleaning
+                    del mtx_mask
+                    del rst_edgePixelDiversity
         
+                    self.progress.update(current_task, advance=1)
+
             # done
             self.taskProgressReportStepCompleted()
 
@@ -361,6 +364,9 @@ class recreat:
                     self.progress.update(current_task, advance=1)
 
                 self._write_dataset("PROX/dr_{}.tif".format(lu), lu_dr)
+                # clean up
+                del lu_dr
+
 
         if assess_builtup:
             
@@ -398,6 +404,7 @@ class recreat:
                     self.progress.update(current_task, advance=1)
 
                 self._write_dataset("PROX/dr_built-up.tif".format(lu), lu_dr)
+                del lu_dr
         
         # done
         self.taskProgressReportStepCompleted()
@@ -446,6 +453,7 @@ class recreat:
             # write built-up raster to disk
             self.progress.update(current_task, advance=1)                 
             self._write_dataset("MASKS/built-up.tif", mtx_builtup)
+            del mtx_builtup
         
         # done
         self.printStepCompleteInfo()
@@ -497,6 +505,7 @@ class recreat:
             # export
             # this is the number of builtup pixels per pop raster grid cell
             self._write_dataset('DEMAND/builtup_count.tif', mtx_sum_of_builtup, src2)
+            del mtx_sum_of_builtup
             self.progress.update(current_task, advance=1)
         
         # done
@@ -523,9 +532,9 @@ class recreat:
             self._write_dataset('DEMAND/patch_population.tif', mtx_patch_population, custom_grid_reference=ref_pop, custom_nodata_mask=nodata_patch_count)
             self.progress.update(current_task, advance=1)     
             
-            del(mtx_pop)
-            del(mtx_patch_count)
-            del(mtx_patch_population)
+            del mtx_pop
+            del mtx_patch_count
+            del mtx_patch_population
 
     def _reproject_patch_population_to_builtup(self) -> None:
         """ Matches patch population and built-up rasters. It will write the reprojected dataset to disk.
@@ -565,6 +574,7 @@ class recreat:
             # export
             # this is the number of builtup pixels per pop raster grid cell
             self._write_dataset('DEMAND/reprojected_patch_population.tif', mtx_reprojected_patch_population, src2)
+            del mtx_reprojected_patch_population
             self.progress.update(current_task, advance=1)
         
         # done
@@ -678,12 +688,13 @@ class recreat:
                     self.progress.update(current_task, advance=1)
 
                 self._write_dataset("DEMAND/beneficiaries_within_cost_{}.tif".format(c), mtx_pop_within_cost)
+                del mtx_pop_within_cost
 
         # done
         self.taskProgressReportStepCompleted()
 
 
-    def class_total_supply(self, mode = 'ocv_filter2d'):
+    def class_total_supply(self, mode: str = 'ocv_filter2d') -> None:
         """Determine class total supply.
 
         Args:
@@ -711,7 +722,8 @@ class recreat:
                     # get result of windowed operation
                     lu_supply_mtx = self._class_total_supply_for_lu_and_cost(mask_path=infile_name, rst_clumps=rst_clumps, clump_slices=clump_slices, cost=c, mode=mode, progress_task=current_task)                            
                     # export current cost
-                    self._write_dataset(outfile_name, lu_supply_mtx)                
+                    self._write_dataset(outfile_name, lu_supply_mtx)     
+                    del lu_supply_mtx           
                     
 
         # done
@@ -840,7 +852,7 @@ class recreat:
 
         with self.progress as p:
             for c in self.cost_thresholds:            
-                mtx_diversity_at_cost = self._get_value_matrix()
+                mtx_diversity_at_cost = self._get_value_matrix(dest_datatype=np.int16)
 
                 for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
                     # determine source of list
@@ -852,6 +864,7 @@ class recreat:
                 
                 # export current cost diversity
                 self._write_dataset("INDICATORS/diversity_cost_{}.tif".format(c), mtx_diversity_at_cost) 
+                del mtx_diversity_at_cost
 
         # done
         self.taskProgressReportStepCompleted()
@@ -873,15 +886,22 @@ class recreat:
                 mtx_pop = self._read_band("DEMAND/beneficiaries_within_cost_{}.tif".format(c))
 
                 for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
+                    
                     # determine source of list
                     lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"   
                     mtx_lu = self._get_mask_for_lu(lu, lu_type)
                     mtx_res = mtx_lu * mtx_pop
+                    
                     # write result
                     outfile_name = "FLOWS/flow_class_{}_cost_{}.tif".format(lu, c) if lu_type == 'patch' else "FLOWS/flow_edge_class_{}_cost_{}.tif".format(lu, c)
                     self._write_dataset(outfile_name, mtx_res)
+                    
+                    del mtx_res
+                    del mtx_lu
+
                     p.update(current_task, advance=1)
 
+                del mtx_pop
         # done
         self.taskProgressReportStepCompleted()
 
@@ -1332,7 +1352,8 @@ class recreat:
             mtx_average_cost = 1-scaler.fit_transform(mtx_average_cost.reshape([-1,1]))
             self._write_dataset('INDICATORS/scaled_non_weighted_avg_cost.tif', mtx_average_cost.reshape(self.lsm_mtx.shape))
 
-        
+        del mtx_average_cost
+
         # done
         self.taskProgressReportStepCompleted()
 
@@ -1452,19 +1473,21 @@ class recreat:
         # return mask
         return lu_mask
 
-    def _get_value_matrix(self, fill_value: float = 0, shape: Tuple[int, int] = None) -> np.ndarray:
+    def _get_value_matrix(self, fill_value: float = 0, shape: Tuple[int, int] = None, dest_datatype: any = None) -> np.ndarray:
         """Return array with specified fill value. 
 
         Args:
             fill_value (float, optional): Fill value. Defaults to 0.
             shape (Tuple[int, int], optional): Shape of the matrix to be returned.
+            dest_datatype (any, optional): Datatype of matrix. 
 
         Returns:
             np.ndarray: Filled array.
         """
         
         # determine parameters based on specified method arguments
-        rst_dtype = self.lsm_mtx.dtype if self.dtype is None else self.dtype
+        dest_dtype = self.dtype if dest_datatype is None else dest_datatype
+        rst_dtype = self.lsm_mtx.dtype if dest_dtype is None else dest_dtype
         rst_shape = self.lsm_mtx.shape if shape is None else shape
 
         rst_new = np.full(shape=rst_shape, fill_value=fill_value, dtype=rst_dtype)
@@ -1497,7 +1520,7 @@ class recreat:
         """
         return(ndimage.sum(subarr))
     
-    def _moving_window_generic(self, data_mtx: np.ndarray, kernel_func: Callable[[np.ndarray], float], kernel_size: int, kernel_shape: str = 'circular') -> np.ndarray:
+    def _moving_window_generic(self, data_mtx: np.ndarray, kernel_func: Callable[[np.ndarray], float], kernel_size: int, kernel_shape: str = 'circular', dest_datatype = None) -> np.ndarray:
         """Conduct a moving window operation with specified kernel shape and kernel size on an array.
 
         Args:
@@ -1505,13 +1528,17 @@ class recreat:
             kernel_func (Callable[[np.ndarray], float]): Callable for aggregation/Summarization of values in kernel window.
             kernel_size (int): Size of kernel (total with for squared kernel window, kernel diameter for circular kernel window).
             kernel_shape (str, optional): Kernel shape: Circular kernel (circular) or squared/rectangular kernel (rect). Defaults to 'circular'.
+            dest_datatype (any, optional): Destination datatype.
 
         Returns:
             np.ndarray: Output array
         """
         # define properties of result matrix
         # for the moment, use the dtype set by user
-        target_dtype = self.lsm_mtx.dtype if self.dtype is None else self.dtype
+        if dest_datatype is None:
+            dest_datatype = self.dtype
+
+        target_dtype = self.lsm_mtx.dtype if dest_datatype is None else dest_datatype
 
         # make kernel
         kernel = self._get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
