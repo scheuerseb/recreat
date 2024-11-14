@@ -169,6 +169,9 @@ class recreat:
         self.make_environment()         
         
         # import lsm
+        # support lazy-loading of data going forward
+        # get only a reference to the raster, and require the data itself and the nodata mask only if needed.
+
         self.lsm_rst, self.lsm_mtx, self.lsm_nodata_mask = self._read_dataset(land_use_file, nodata_values=nodata_values, nodata_fill_value = nodata_fill_value)
 
 
@@ -1370,8 +1373,8 @@ class recreat:
                     print(Fore.YELLOW + Style.DIM + "    REPLACING NODATA VALUE={} WITH FILL VALUE={}".format(nodata_value, fill_value) + Style.RESET_ALL) 
                 band_data = np.where(band_data==nodata_value, fill_value, band_data)
 
-        # determine nodata mask AFTER potential filling of nodata values        
-        nodata_mask = np.isin(band_data, nodata_values, invert=False)                
+        # determine nodata mask AFTER potential filling of nodata values  
+        nodata_mask = np.isin(band_data, [fill_value], invert=False)                
         return rst_ref, band_data, nodata_mask
         
     def _read_band(self, file_name: str, band: int = 1, is_scenario_specific: bool = True) -> np.ndarray:
