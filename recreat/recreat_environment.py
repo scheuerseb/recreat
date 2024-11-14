@@ -56,7 +56,7 @@ class recreat_model():
 
     params = None   
     processes = None 
-    
+    debug = False
     environment = None
 
     def __init__(self) -> None:  
@@ -117,6 +117,13 @@ class recreat_model():
     def nodata_fill_value(self, value: float) -> None:
         self._add_key(self.environment, recreat_environment.nodata_fill_value, value)
 
+    # debug model
+    @property 
+    def is_debug(self):
+        return self.debug
+    @is_debug.setter
+    def is_debug(self, value):
+        self.debug = value
 
     # verbosity, datatype
     @property
@@ -341,12 +348,15 @@ class recreat_model():
 
 
         print()
-        return True
-        #user_confirm = input("Run this model? (Y/n): ")
-        #if user_confirm is None or user_confirm == '' or user_confirm.lower() == 'y':
-        #    return True
-        #else:
-        #    return False
+        if self.is_debug:
+            return False
+        else:
+            return True
+            #user_confirm = input("Run this model? (Y/n): ")
+            #if user_confirm is None or user_confirm == '' or user_confirm.lower() == 'y':
+            #    return True
+            #else:
+            #    return False
           
 
     def get_processes(self):

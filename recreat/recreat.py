@@ -223,7 +223,7 @@ class recreat:
         # done    
         self.taskProgressReportStepCompleted()
     
-    def detect_edges(self, lu_classes: List[int] = None, ignore_edges_to_class: int = None) -> None:
+    def detect_edges(self, lu_classes: List[int] = None, ignore_edges_to_class: int = None, grow_edges: bool = False, grow_factor: int = 1) -> None:
         """ Detect edges (patch perimeters) of land-use classes that are defined as edge classes.
 
         Args:
@@ -273,8 +273,11 @@ class recreat:
                     mtx_mask = self._read_band("MASKS/mask_{}.tif".format(lu)) 
                     
                     # apply a 3x3 rectangular sliding window to determine pixel value diversity in window
-                    #rst_edgePixelDiversity = self._moving_window(mtx_mask, self._kernel_diversity, 3, 'rect') 
                     rst_edgePixelDiversity = self._moving_window_generic(self.lsm_mtx, div_filter, 3, 'rect') 
+                    # test export at this step
+                    self._write_dataset("MASKS/edges_{}_before_subtract.tif".format(lu), rst_edgePixelDiversity)
+
+
                     rst_edgePixelDiversity = rst_edgePixelDiversity - 1
 
                     rst_edgePixelDiversity[rst_edgePixelDiversity > 1] = 1                
@@ -457,9 +460,14 @@ class recreat:
             # raster 1 = builtup
             src1, mtx_builtup, nodata_builtup = self._read_dataset("MASKS/built-up.tif")
             meta1 = src1.meta.copy()
+
+            print(meta1)
+
             # raster 2 = pop
             src2, mtx_pop, nodata_pop = self._read_dataset(population_grid)
             meta2 = src2.meta.copy()
+
+            print(meta2)
 
             transform, width, height = calculate_default_transform(src1.crs, meta2['crs'], meta2['width'], meta2['height'], *src2.bounds)                        
             meta1.update({
@@ -480,6 +488,7 @@ class recreat:
                 dst_crs=meta2['crs'],
                 resampling=Resampling.sum
             )
+
 
             # export
             # this is the number of builtup pixels per pop raster grid cell
@@ -1476,18 +1485,6 @@ class recreat:
         """
         return(ndimage.sum(subarr))
     
-    def _kernel_diversity(self, subarr: np.ndarray) -> float:
-        """Determine the number of unique elements in a kernel window. Classes to which edges should be ignored are excluded from the return set.
-
-        Args:
-            subarr (np.ndarray): Kernel.
-            
-        Returns:
-            int: Number of unique elements in kernel.
-        
-        """        
-        return len(set(subarr))
-
     def _moving_window_generic(self, data_mtx: np.ndarray, kernel_func: Callable[[np.ndarray], float], kernel_size: int, kernel_shape: str = 'circular') -> np.ndarray:
         """Conduct a moving window operation with specified kernel shape and kernel size on an array.
 

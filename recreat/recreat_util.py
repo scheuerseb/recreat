@@ -13,6 +13,7 @@ new_model = recreat_model()
 
 @click.group(invoke_without_command=True, chain=True, )
 @click.option('-w', '--data-path', default=None, help="Set data path if data is not located in the current path.")
+@click.option('-d', '--debug', default=False, is_flag=True, type=bool, help="Debug command-line parameters, do not run model.")
 @click.option('-v', '--verbose', is_flag=True, default=False, type=bool, help="Enable verbose reporting.")
 @click.option('--datatype', default=None, type=click.Choice(['int', 'float', 'double'], case_sensitive=False), help="Set datatype to use. By default, the same datatype as the land-use raster is used.")
 @click.option('-m', '--nodata', default=[0.0], type=str, multiple=True, help="Nodata values in land-use raster.")
@@ -20,7 +21,7 @@ new_model = recreat_model()
 @click.option('--no-cleaning', is_flag=True, default=True, type=bool, help="Do not clean temporary files after completion.")
 @click.argument('root-path')
 @click.argument('landuse-filename')
-def recreat_util(data_path, root_path, verbose, datatype, landuse_filename, nodata, fill, no_cleaning):
+def recreat_util(data_path, root_path, verbose, datatype, landuse_filename, nodata, fill, no_cleaning, debug):
     new_model.data_path = data_path if data_path is not None else str(pathlib.Path().absolute())
     new_model.root_path = root_path
     new_model.landuse_file = landuse_filename
@@ -29,6 +30,7 @@ def recreat_util(data_path, root_path, verbose, datatype, landuse_filename, noda
     new_model.verbose = verbose
     new_model.clean_temporary_files = no_cleaning
     new_model.datatype = datatype
+    new_model.is_debug = debug
 
 @recreat_util.command(help="Specify model parameters.")
 @click.option('-p', '--patch', default=None, multiple=True, help="(Comma-separated) patch class(es).")
@@ -141,9 +143,6 @@ def run_process(result, **kwargs):
     # conduct model initialization and process data as requested by user
     # instantiate
     
-    #if True == True:
-    #    return
-
     from recreat import recreat    
     rc = recreat(new_model.data_path)
 
@@ -197,7 +196,7 @@ def run_process(result, **kwargs):
                                             assess_builtup=new_model.get_processing_parameter(p, recreat_process_parameters.include_special_class))
             
             if p is recreat_process.class_flow:
-                pass
+                rc.class_flow()
 
             if p is recreat_process.population_disaggregation:
                 rc.disaggregate_population(population_grid=new_model.get_processing_parameter(p, recreat_process_parameters.population_raster),
