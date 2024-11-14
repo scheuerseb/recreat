@@ -174,7 +174,6 @@ class recreat:
 
         self.lsm_rst, self.lsm_mtx, self.lsm_nodata_mask = self._read_dataset(land_use_file, nodata_values=nodata_values, nodata_fill_value = nodata_fill_value)
 
-
     #
     # The following classes will be called from asses_map_units. 
     # They will disaggregate population and determine clumped land-use class supplies.
@@ -226,12 +225,13 @@ class recreat:
         # done    
         self.taskProgressReportStepCompleted()
     
-    def detect_edges(self, lu_classes: List[int] = None, ignore_edges_to_class: int = None, grow_edges: bool = False, grow_factor: int = 1) -> None:
+    def detect_edges(self, lu_classes: List[int] = None, ignore_edges_to_class: int = None, grow_edges: List[int] = None) -> None:
         """ Detect edges (patch perimeters) of land-use classes that are defined as edge classes.
 
         Args:
             lu_classes (List[int], optional): List of classes for which edges should be assessed. If None, classes specified as classes.edge will be used. Defaults to None. 
             ignore_edges_to_classes (int, optional): Class to which edges should be ignored. Defaults to None.
+            grow_edges (List[int], optional): Indicate classes for which edges should be grown (expanded).
         """
         # determine edge pixels of edge-only classes such as water opportunities
         
@@ -277,16 +277,17 @@ class recreat:
                     
                     # apply a 3x3 rectangular sliding window to determine pixel value diversity in window
                     rst_edgePixelDiversity = self._moving_window_generic(self.lsm_mtx, div_filter, 3, 'rect') 
-                    # test export at this step
-                    self._write_dataset("MASKS/edges_{}_before_subtract.tif".format(lu), rst_edgePixelDiversity)
-
-
                     rst_edgePixelDiversity = rst_edgePixelDiversity - 1
-
                     rst_edgePixelDiversity[rst_edgePixelDiversity > 1] = 1                
                     
-                    mtx_mask = mtx_mask * rst_edgePixelDiversity
-                    self._write_dataset("MASKS/edges_{}.tif".format(lu), mtx_mask)
+                    # depending on whether to grow edge or not, intersect with land-use mask to have edge within land-use, or
+                    # extending outside.
+                    if not lu in grow_edges:
+                        mtx_mask = mtx_mask * rst_edgePixelDiversity
+                        self._write_dataset("MASKS/edges_{}.tif".format(lu), mtx_mask)
+                    else:
+                        self._write_dataset("MASKS/edges_{}.tif".format(lu), rst_edgePixelDiversity)    
+
                     self.progress.update(current_task, advance=1)
         
             # done
@@ -1342,8 +1343,7 @@ class recreat:
     #
     #
 
-
-    def _read_dataset(self, file_name: str, band: int = 1, nodata_values: List[float] = [0], is_scenario_specific:bool = True, nodata_fill_value = None) -> Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]:
+    def _read_dataset(self, file_name: str, band: int = 1, nodata_values: List[float] = [0], is_scenario_specific:bool = True, nodata_fill_value = None, is_lazy_load = False) -> Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]:
         """Read a dataset and return reference to the dataset, values, and boolean mask of nodata values.
 
         Args:
@@ -1352,6 +1352,7 @@ class recreat:
             nodata_values (List[float], optional): List of values indicating nodata. Defaults to [0].
             is_scenario_specific (bool, optional): Indicates if the specified datasource located in a scenario-specific subfolder (True) or at the data path root (False). Defaults to True.
             nodata_fill_value (float, optional): If set to a value, nodata values of the raster to be imported will be filled up with the specified value.           
+            is_lazy_load (bool, optional): If set to True, apply lazy loading of raster data. 
 
         Returns:
             Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]: Dataset, data matrix, and mask of nodata values.
@@ -1364,19 +1365,27 @@ class recreat:
         band_data = rst_ref.read(band)
 
         # attempt replacement of nodata with desired fill value
-        fill_value = self.nodata_value if nodata_fill_value is None else nodata_fill_value
-        for nodata_value in nodata_values:
+        nodata_mask = np.isin(band_data, nodata_values, invert=False)             
+        
+        if not is_lazy_load:
 
-            # replace only if not the same values!
-            if fill_value != nodata_value:
-                if self.verbose_reporting:                
-                    print(Fore.YELLOW + Style.DIM + "    REPLACING NODATA VALUE={} WITH FILL VALUE={}".format(nodata_value, fill_value) + Style.RESET_ALL) 
-                band_data = np.where(band_data==nodata_value, fill_value, band_data)
+            fill_value = self.nodata_value if nodata_fill_value is None else nodata_fill_value
+            for nodata_value in nodata_values:
+
+                # replace only if not the same values!
+                if fill_value != nodata_value:
+                    if self.verbose_reporting:                
+                        print(Fore.YELLOW + Style.DIM + "    REPLACING NODATA VALUE={} WITH FILL VALUE={}".format(nodata_value, fill_value) + Style.RESET_ALL) 
+                    band_data = np.where(band_data==nodata_value, fill_value, band_data)
+
+        else:
+            del band_data
+            band_data is None
 
         # determine nodata mask AFTER potential filling of nodata values  
-        nodata_mask = np.isin(band_data, [fill_value], invert=False)                
         return rst_ref, band_data, nodata_mask
-        
+
+
     def _read_band(self, file_name: str, band: int = 1, is_scenario_specific: bool = True) -> np.ndarray:
         """Read a raster band. 
 
@@ -1389,7 +1398,7 @@ class recreat:
             np.ndarray: _description_
         """
         path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
-        rst_ref, band_data, nodata_mask = self._read_dataset(file_name=file_name, band=band, is_scenario_specific=is_scenario_specific)
+        rst_ref, band_data, nodata_mask = self._read_dataset(file_name=file_name, band=band, is_scenario_specific=is_scenario_specific, is_lazy_load=False)
         return band_data
     
     def _write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True, custom_grid_reference: rasterio.DatasetReader = None, custom_nodata_mask: np.ndarray = None) -> None:        
