@@ -1,8 +1,8 @@
-Welcome to ReCreat's documentation!
+Welcome to recreat's documentation!
 ===================================
 
-**recreat** (/re’creat'/) is a Python library for assessing dimensions of green-blue
-infrastructure provisioning, supply, and demand through the analytical lens of recreation.
+**recreat** (/re’creat'/) is a Python library for assessing landscape recreational potential. Applying the concept of ecosystem services, **recreat**  
+assesses dimensions of landscape recreational potential throught the analytical lenses of supply, demand, flow, and cost.
 
 Check out the :doc:`usage` section for further information.
 

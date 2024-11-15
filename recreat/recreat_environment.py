@@ -129,13 +129,15 @@ class recreat_model():
     def is_debug(self, value):
         self.debug = value
 
-    # verbosity, datatype
+    # verbosity
     @property
     def verbose(self) -> bool:
         return self.params[recreat_params.verbose]
     @verbose.setter
     def verbose(self, value: bool) -> None:
         self._add_key(self.params, recreat_params.verbose, value)
+    
+    # datatype
     @property
     def datatype(self) -> str:
         return self.params[recreat_params.data_type]
@@ -148,10 +150,9 @@ class recreat_model():
         elif self.datatype == 'float':
             return float32
         elif self.datatype == 'double':
-            return float64
-        
+            return float64        
     
-    # patch, edge, built-up classes
+    # patch classes
     @property
     def classes_patch(self) -> List[int]:
         return self.params[recreat_params.classes_patch]
@@ -159,28 +160,29 @@ class recreat_model():
     def classes_patch(self, class_values: List[int]):
         self._add_key(self.params, recreat_params.classes_patch, class_values)
     
+    # edge classes
     @property
     def classes_edge(self) -> List[int]:
         retval = []        
         retval += self.params[recreat_params.classes_edge]
         if self.specials['grow-edges'] is not None:
             retval += self.specials['grow-edges']
-        return retval
-    
+        return retval    
     @classes_edge.setter
     def classes_edge(self, class_values: List[int]):
         self._add_key(self.params, recreat_params.classes_edge, class_values)
     
+    # grow edges
     @property 
     def classes_grow_edge(self) -> List[int]:
-        return self.specials['grow-edges'] 
-    
+        return self.specials['grow-edges']     
     @classes_grow_edge.setter
     def classes_grow_edge(self, class_values: List[int]) -> None:
         if len(class_values) == 0:
             class_values = None
         self.specials['grow-edges'] = class_values 
     
+    # builtup classes
     @property 
     def classes_builtup(self) -> List[int]:
         return self.params[recreat_params.classes_builtup]
@@ -375,7 +377,6 @@ class recreat_model():
         if self.is_debug:
             return False
         else:
-            #return True
             user_confirm = input("Run this model? (y/N): ")
             if user_confirm is None or user_confirm == '' or user_confirm.lower() == 'n':
                 return False

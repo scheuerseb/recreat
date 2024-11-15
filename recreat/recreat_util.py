@@ -7,7 +7,7 @@ import pathlib
 from colorama import just_fix_windows_console
 just_fix_windows_console()
 
-from recreat_environment import recreat_model, recreat_environment, recreat_params, recreat_process, recreat_process_parameters
+from recreat.recreat_environment import recreat_model, recreat_environment, recreat_params, recreat_process, recreat_process_parameters
 
 new_model = recreat_model()
 
