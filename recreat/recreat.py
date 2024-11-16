@@ -409,21 +409,21 @@ class recreat:
         # done
         self.taskProgressReportStepCompleted()
 
-    def aggregate_classes(self, aggregations: Dict[int, List[int]]) -> None:
-        """Replaces values of classes to aggregate with a new class value in the land-use dataset.
+    def reclass_classes(self, reclassifications: Dict[int, List[int]]) -> None:
+        """Reclassifies class values as a new class value in the land-use dataset.
 
         Args:
-            aggregations (Dict[int, List[int]]): Dictionary of intended classes (keys), and corresponding list of classes to aggregate (values). 
+            reclassifications (Dict[int, List[int]]): Dictionary of new classes (keys), and corresponding list of classes to reclassify (values). 
         """
         self.printStepInfo("Aggregating classes")
         if self.lsm_mtx is not None:
             
-            current_task = self._get_task("[white]Aggregating classes", total=len(aggregations.keys()))
+            current_task = self._get_task("[white]Aggregating classes", total=len(reclassifications.keys()))
 
             # iterate over key-value combinations
             with self.progress if self._runsAsStandalone() else nullcontext() as bar:
                 
-                for (new_class_value, classes_to_aggregate) in aggregations.items():
+                for (new_class_value, classes_to_aggregate) in reclassifications.items():
                     replacement_mask = np.isin(self.lsm_mtx, classes_to_aggregate, invert=False)
                     self.lsm_mtx[replacement_mask] = new_class_value
                     del replacement_mask

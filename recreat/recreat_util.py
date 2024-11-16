@@ -46,11 +46,11 @@ def params(cost, patch, edge, grow_edge, built_up):
     new_model.costs = sorted(list({int(num) for item in cost for num in str(item).split(',')}))
 
 
-@recreat_util.command(help="Aggregate sets of classes into new class.")
+@recreat_util.command(help="Reclassify sets of classes into new class.")
 @click.option('-n', '--new', help="Value of new class.")
-@click.option('-o', '--old', multiple=True, help="(Comma-separated) class(es) to aggregate into new class.")
-def aggregate(new, old):        
-    new_model.add_aggregation(int(new), sorted(list({int(num) for item in old for num in str(item).split(',')})))
+@click.option('-o', '--old', multiple=True, help="(Comma-separated) class(es) to reclassify into new class.")
+def reclassify(new, old):        
+    new_model.add_reclassification(int(new), sorted(list({int(num) for item in old for num in str(item).split(',')})))
     
 @recreat_util.command(help="Identify clumps in land-use raster.")
 @click.option('--barrier-classes', default=[0], type=str, multiple=True)
@@ -162,8 +162,8 @@ def run_process(result, **kwargs):
     # conduct processing. This will be done in a sensible order depending on data requirements across tools        
     for p in recreat_process:
         if p in new_model.get_processes().keys():
-            if p is recreat_process.aggregation:
-                rc.aggregate_classes(aggregations=new_model.aggregations)
+            if p is recreat_process.reclassification:
+                rc.reclass_classes(reclassifications=new_model.aggregations)
             
             if p is recreat_process.clump_detection:
                 rc.detect_clumps(barrier_classes=new_model.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction))

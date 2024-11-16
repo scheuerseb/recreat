@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.table import Table
 
 class recreat_process(Enum):
-    aggregation = 'aggregate'
+    reclassification = 'reclassification'
     clump_detection = 'clumps'
     mask_landuses = 'mask-landuses'
     edge_detection = 'detect-edges'
@@ -203,12 +203,12 @@ class recreat_model():
     # processes and their parameters
     
     # aggregations
-    def add_aggregation(self, dest_class: int, source_classes: List[int]) -> None:
-        self._add_process(recreat_process.aggregation)
-        self.processes[recreat_process.aggregation][dest_class] = source_classes
+    def add_reclassification(self, dest_class: int, source_classes: List[int]) -> None:
+        self._add_process(recreat_process.reclassification)
+        self.processes[recreat_process.reclassification][dest_class] = source_classes
     @property
     def aggregations(self) -> Dict[int, List[int]]:
-        return self.processes[recreat_process.aggregation]
+        return self.processes[recreat_process.reclassification]
     
     # clump detection
     def add_clump_detection(self, barrier_classes: List[int]) -> None:
@@ -355,7 +355,7 @@ class recreat_model():
 
             # process items to be shown in lines under title
             
-            if p is recreat_process.aggregation and contains_process:
+            if p is recreat_process.reclassification and contains_process:
                 for k,v in self.processes[p].items():
                     print(fore + "     {} -> {}".format(v, k) + Style.RESET_ALL)
             
