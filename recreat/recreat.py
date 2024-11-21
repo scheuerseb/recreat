@@ -225,13 +225,13 @@ class recreat:
         # done    
         self.taskProgressReportStepCompleted()
     
-    def detect_edges(self, lu_classes: List[int] = None, ignore_edges_to_class: int = None, grow_edges: List[int] = None) -> None:
+    def detect_edges(self, lu_classes: List[int] = None, ignore_edges_to_class: int = None, buffer_edges: List[int] = None) -> None:
         """ Detect edges (patch perimeters) of land-use classes that are defined as edge classes.
 
         Args:
             lu_classes (List[int], optional): List of classes for which edges should be assessed. If None, classes specified as classes.edge will be used. Defaults to None. 
             ignore_edges_to_classes (int, optional): Class to which edges should be ignored. Defaults to None.
-            grow_edges (List[int], optional): Indicate classes for which edges should be grown (expanded).
+            buffer_edges (List[int], optional): Indicate classes for which edges should be grown (expanded).
         """
         # determine edge pixels of edge-only classes such as water opportunities
         
@@ -281,7 +281,7 @@ class recreat:
                     
                     # depending on whether to grow edge or not, intersect with land-use mask to have edge within land-use, or
                     # extending outside.
-                    if not lu in grow_edges:
+                    if not lu in buffer_edges:
                         mtx_mask = mtx_mask * rst_edgePixelDiversity
                         self._write_dataset("MASKS/edges_{}.tif".format(lu), mtx_mask)
                     else:

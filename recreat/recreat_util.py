@@ -35,13 +35,13 @@ def recreat_util(data_path, root_path, verbose, datatype, landuse_filename, noda
 @recreat_util.command(help="Specify model parameters.")
 @click.option('-p', '--patch', default=None, multiple=True, help="(Comma-separated) patch class(es).")
 @click.option('-e', '--edge', default=None, multiple=True, help="(Comma-separated) edge class(es).")
-@click.option('-g', '--grow-edge', default=None, multiple=True, help="(Comma-separated) edge class(es) to grow.")
+@click.option('-g', '--buffer-edge', default=None, multiple=True, help="(Comma-separated) edge class(es) to buffer.")
 @click.option('-b', '--built-up', default=None, multiple=True, help="(Comma-separated) built-up class(es).")
 @click.option('-c', '--cost', default=None, multiple=True, help="(Comma-separated) cost(s).")
-def params(cost, patch, edge, grow_edge, built_up):
+def params(cost, patch, edge, buffer_edge, built_up):
     new_model.classes_patch = sorted(list({int(num) for item in patch for num in str(item).split(',')}))
     new_model.classes_edge = sorted(list({int(num) for item in edge for num in str(item).split(',')}))
-    new_model.classes_grow_edge = sorted(list({int(num) for item in grow_edge for num in str(item).split(',')}))
+    new_model.classes_grow_edge = sorted(list({int(num) for item in buffer_edge for num in str(item).split(',')}))
     new_model.classes_builtup = sorted(list({int(num) for item in built_up for num in str(item).split(',')}))
     new_model.costs = sorted(list({int(num) for item in cost for num in str(item).split(',')}))
 
@@ -123,8 +123,8 @@ def class_flow():
     new_model.add_class_flow()
 
 @recreat_util.command(help="Compute proximity (distance) rasters.")
-@click.option('-b', '--include-builtup', is_flag=True, default=False, help="Include built-up in proximity assessment.")
 @click.option('-m', '--mode', type=click.Choice(['dr', 'xr']), default='xr', help="Method to use. Either distancerasters or xarray-spatial.")
+@click.option('-b', '--include-builtup', is_flag=True, default=False, help="Include built-up in proximity assessment.")
 def proximities(mode, include_builtup):
     new_model.add_proximity(mode=mode, lu_classes=None, include_builtup=include_builtup)
 
@@ -176,7 +176,7 @@ def run_process(result, **kwargs):
             if p is recreat_process.edge_detection:               
                 rc.detect_edges(lu_classes=new_model.classes_edge,
                     ignore_edges_to_class=new_model.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction),
-                    grow_edges=new_model.classes_grow_edge)
+                    buffer_edges=new_model.classes_grow_edge)
             
             if p is recreat_process.class_total_supply:
                 rc.class_total_supply(mode = new_model.get_processing_parameter(p, recreat_process_parameters.mode))
