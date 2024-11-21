@@ -154,12 +154,12 @@ class recreat:
         elif paramName == 'verbose-reporting':
             self.verbose_reporting = paramValue
       
-    def set_land_use_map(self, root_path: str, land_use_file: str, nodata_values: list[float] = [0], nodata_fill_value: float = None) -> None:
+    def set_land_use_map(self, root_path: str, land_use_filename: str, nodata_values: list[float] = [0], nodata_fill_value: float = None) -> None:
         """Specify data sources for a given scenrio, i.e., root path, and import land-use raster file.
 
         Args:
             root_path (str): Name of a scenario, i.e., subfolder within root of data path.
-            land_use_file (str): Name of the land-use raster file for the given scenario.
+            land_use_filename (str): Name of the land-use raster file for the given scenario.
             nodata_values (List[float], optional): Values in the land-use raster that should be treated as nodata values.  
             nodata_fill_value (float, optional): If set, specified nodata values in the land-use raster will be filled with the specified value.           
         """
@@ -172,7 +172,7 @@ class recreat:
         # support lazy-loading of data going forward
         # get only a reference to the raster, and require the data itself and the nodata mask only if needed.
 
-        self.lsm_rst, self.lsm_mtx, self.lsm_nodata_mask = self._read_dataset(land_use_file, nodata_values=nodata_values, nodata_fill_value = nodata_fill_value)
+        self.lsm_rst, self.lsm_mtx, self.lsm_nodata_mask = self._read_dataset(land_use_filename, nodata_values=nodata_values, nodata_fill_value = nodata_fill_value)
 
     #
     # The following classes will be called from asses_map_units. 
@@ -409,7 +409,7 @@ class recreat:
         # done
         self.taskProgressReportStepCompleted()
 
-    def reclass_classes(self, reclassifications: Dict[int, List[int]]) -> None:
+    def reclassify(self, reclassifications: Dict[int, List[int]]) -> None:
         """Reclassifies class values as a new class value in the land-use dataset.
 
         Args:
