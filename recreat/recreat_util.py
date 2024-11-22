@@ -2,12 +2,15 @@
 # (C) 2024 Sebastian Scheuer (seb.scheuer@outlook.de)                         #
 ###############################################################################
 
+from .recreat_environment import recreat_model, recreat_params, recreat_process, recreat_process_parameters
+
 import click
 import pathlib
 from colorama import just_fix_windows_console
 just_fix_windows_console()
 
-from recreat.recreat_environment import recreat_model, recreat_environment, recreat_params, recreat_process, recreat_process_parameters
+
+
 
 new_model = recreat_model()
 

@@ -33,7 +33,7 @@ class recreat_params(Enum):
     classes_builtup = 'classes.builtup'
     costs = 'costs'
 
-class recreat_environment(Enum):
+class recreat_env(Enum):
     data_path = 'working-directory'
     root = 'root-directory'
     landuse_file = 'land-use-file'
@@ -82,44 +82,44 @@ class recreat_model():
     # data path and root path
     @property
     def data_path(self) -> str:
-        return self.environment[recreat_environment.data_path]
+        return self.environment[recreat_env.data_path]
     @data_path.setter
     def data_path(self, data_path: str) -> None:
-        self._add_key(self.environment, recreat_environment.data_path, data_path)
+        self._add_key(self.environment, recreat_env.data_path, data_path)
     @property
     def root_path(self) -> str:
-        return self.environment[recreat_environment.root]
+        return self.environment[recreat_env.root]
     @root_path.setter
     def root_path(self, root_dir: str) -> None:
-        self._add_key(self.environment, recreat_environment.root, root_dir)
+        self._add_key(self.environment, recreat_env.root, root_dir)
 
     # clean tmp folder
     @property
     def clean_temporary_files(self) -> bool:
-        return self.environment[recreat_environment.clean_temporary_files]
+        return self.environment[recreat_env.clean_temporary_files]
     @clean_temporary_files.setter
     def clean_temporary_files(self, value: bool) -> None:
-        self._add_key(self.environment, recreat_environment.clean_temporary_files, value)
+        self._add_key(self.environment, recreat_env.clean_temporary_files, value)
 
     # landuse file
     @property
     def landuse_file(self) -> str:
-        return self.environment[recreat_environment.landuse_file]
+        return self.environment[recreat_env.landuse_file]
     @landuse_file.setter
     def landuse_file(self, filename: str) -> None:
-        self._add_key(self.environment, recreat_environment.landuse_file, filename)
+        self._add_key(self.environment, recreat_env.landuse_file, filename)
     @property
     def landuse_file_nodata_values(self) -> List[float]:
-        return self.environment[recreat_environment.nodata_values]
+        return self.environment[recreat_env.nodata_values]
     @landuse_file_nodata_values.setter
     def landuse_file_nodata_values(self, nodata_vals: List[float]) -> None:
-        self._add_key(self.environment, recreat_environment.nodata_values, nodata_vals)
+        self._add_key(self.environment, recreat_env.nodata_values, nodata_vals)
     @property
     def nodata_fill_value(self) -> float:
-        return self.environment[recreat_environment.nodata_fill_value]
+        return self.environment[recreat_env.nodata_fill_value]
     @nodata_fill_value.setter
     def nodata_fill_value(self, value: float) -> None:
-        self._add_key(self.environment, recreat_environment.nodata_fill_value, value)
+        self._add_key(self.environment, recreat_env.nodata_fill_value, value)
 
     # debug model
     @property 
