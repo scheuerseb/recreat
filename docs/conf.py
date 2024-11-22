@@ -22,6 +22,6 @@ language = "en"
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", ".venv"]
 html_theme = "furo"
 pygments_style = "sphinx"
-extensions = ["sphinx.ext.intersphinx", "sphinx_tabs.tabs"]
+extensions = ["sphinx.ext.intersphinx"]
 todo_include_todos = False
 
