@@ -2,6 +2,10 @@
 # Configuration file for the Sphinx documentation builder.
 
 from datetime import datetime
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath('../recreat'))
 
 project = "recreat documentation"
 author = "Sebastian Scheuer"
@@ -21,6 +25,6 @@ master_doc = "index"
 language = "en"
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", ".venv"]
 pygments_style = "sphinx"
-extensions = ["sphinx.ext.intersphinx"]
+extensions = ["sphinx.ext.intersphinx", "sphinx.ext.autodoc"]
 todo_include_todos = False
 
