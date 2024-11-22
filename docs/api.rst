@@ -1,5 +1,5 @@
 API
 ===
 
-.. autoclass:: recreat
+.. autoclass:: recreat.recreat.recreat
    :members:
