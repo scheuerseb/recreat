@@ -29,5 +29,5 @@ sphinx:
 
 # pip-compile -o .\docs\requirements.txt .\pyproject.toml [pip-tools]
 python:
-   install:
-   - requirements: docs/requirements.txt
+  install:
+    - requirements: docs/requirements.txt
