@@ -20,11 +20,9 @@ Broadly, recreat:
 * computes distance (proximity) rasters to recreational opportunities, and determines (minimum) costs to nearest recreational opportunities.   
 
 
-Check out the :doc:`usage` section for further information.
-
 .. note::
 
-   This project is under development.
+   Please check the detailed documentation hosted .. here: https://sebsc.gitbook.io/recreat for the usage of recreat.
 
 Contents
 --------
@@ -32,5 +30,4 @@ Contents
 .. toctree::
 
    Home <self>
-   Usage <usage>
    API <api>

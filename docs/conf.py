@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath('../recreat'))
 
-project = "recreat documentation"
+project = "recreat"
 author = "Sebastian Scheuer"
 version = "0.0.8"
 release = version
