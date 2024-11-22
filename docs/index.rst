@@ -22,7 +22,7 @@ Broadly, recreat:
 
 .. note::
 
-   Please check the detailed documentation hosted .. here: https://sebsc.gitbook.io/recreat for the usage of recreat.
+   Please check the detailed documentation hosted `here <https://sebsc.gitbook.io/recreat/>`_ for the usage of recreat.
 
 Contents
 --------
