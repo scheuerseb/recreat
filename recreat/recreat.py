@@ -1292,13 +1292,12 @@ class recreat:
 
 
 
-    def cost_to_closest(self, threshold_masking: bool = True, distance_threshold: float = 25, builtup_masking: bool = False, write_scaled_result: bool = True) -> None:
+    def cost_to_closest(self, distance_threshold: float = -1, builtup_masking: bool = False, write_scaled_result: bool = True) -> None:
         """Determines cost to closest entities of each land-use class, and determines averaged cost to closest.
 
         Args:
-            threshold_masking (bool, optional): Should a maximum distance be considered for assessing costs to closest? Defaults to True.
-            distance_threshold (float, optional): Threshold for distance-cost-based masking. Defaults to 25.
-            builtup_masking (bool, optional): Should result be restricted to built-up land-use pixels?. Defaults to False.
+            distance_threshold (float, optional): Maximum cost value used for masking of cost rasters, by default, set to -1. If set to a negative value, do not mask areas with costs higher than maximum cost. 
+            builtup_masking (bool, optional): Indicates whether outputs will be restricted to built-up land-use classes. Defaults to False.
             write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
         """
         self.printStepInfo("Assessing cost to closest")
@@ -1308,7 +1307,7 @@ class recreat:
 
         with self.progress as p:
             # get built-up layer 
-            if threshold_masking:
+            if distance_threshold > 0:
                 print(Fore.YELLOW + Style.BRIGHT + "APPLYING THRESHOLD MASKING" + Style.RESET_ALL)
 
             if builtup_masking:
@@ -1322,7 +1321,7 @@ class recreat:
                 # import pre-computed proximity raster
                 mtx_proximity = self._read_band("PROX/dr_{}.tif".format(lu))
                 # mask out values that are greater than upper_threshold as they are considered irrelevant, if requested by user
-                if threshold_masking:
+                if distance_threshold > 0:
                     # fill higher values with upper threshold
                     mtx_proximity[mtx_proximity > distance_threshold] = 0 # here, 0 is equal to the lsm nodata value
                 

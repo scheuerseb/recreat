@@ -138,7 +138,9 @@ def proximities(mode, include_builtup):
 def disaggregate_population(pop, exclude_scaled, force):
     new_model.add_disaggregate_population(pop_raster=pop, force=force, export_scaled=exclude_scaled)
 
-
+@recreat_util.command(help="Determine (average) cost to closest.")
+def cost():
+    pass
 
 @recreat_util.result_callback()
 def run_process(result, **kwargs):
