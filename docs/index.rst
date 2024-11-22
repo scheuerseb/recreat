@@ -7,7 +7,7 @@ potential through the analytical lenses of supply, demand, flow, and cost. recre
 following a data-driven, rapid assessment approach, allowing for flexibility and transferability.
 
 What does recreat do?
-=====================
+---------------------
 
 recreat assesses landscape recreational potential in the form of land use supply, 
 heterogeneity respectively diversity, demand and flow, as well as (minimum) cost. 
@@ -33,4 +33,4 @@ Contents
 
    Home <self>
    Usage <usage>
-   API <recreat_api>
+   API <api>
