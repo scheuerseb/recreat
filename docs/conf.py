@@ -22,18 +22,6 @@ language = "en"
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", ".venv"]
 html_theme = "furo"
 pygments_style = "sphinx"
-extensions = ["sphinx.ext.intersphinx", "recommonmark", "sphinx_tabs.tabs"]
-intersphinx_mapping = {
-    "python": ("https://docs.python.org/", None),
-    "official_sphinx": ("http://www.sphinx-doc.org/", None),
-    "https://gdevops.gitlab.io/tuto_python/": None,
-    "https://gdevops.gitlab.io/tuto_django/": None,
-    "docker": ("https://gdevops.gitlab.io/tuto_docker/", None),
-    "https://gdevops.gitlab.io/tuto_cli/": None,
-    "https://gdevops.gitlab.io/tuto_build/": None,
-    "https://gdevops.gitlab.io/tuto_kubernetes/": None,
-    "http://blockdiag.com/en/": None,
-}
-extensions = extensions + ["sphinx.ext.todo"]
-todo_include_todos = True
+extensions = ["sphinx.ext.intersphinx", "sphinx_tabs.tabs"]
+todo_include_todos = False
 
