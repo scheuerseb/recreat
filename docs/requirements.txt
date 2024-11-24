@@ -4,6 +4,9 @@
 #
 #    pip-compile --output-file='.\docs\requirements.txt' '.\pyproject.toml'
 #
+sphinx_rtd_theme==3.0.2
+    # via
+    #   manually added
 affine==2.4.0
     # via
     #   distancerasters
