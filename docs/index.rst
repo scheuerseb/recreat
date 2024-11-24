@@ -24,12 +24,10 @@ Broadly, recreat:
 
    Please check the detailed documentation hosted `here <https://sebsc.gitbook.io/recreat/>`_ for the usage of recreat.
 
-Contents
---------
-
 .. toctree::
-
-   Home <self>
+   :hidden:
    
+   Home <self>
    :caption: Quickstart
-   Installation <installation>
+      Installation <installation>
+      API <api>
