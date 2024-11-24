@@ -35,3 +35,24 @@ Broadly, recreat:
    
    Installation <quickstart/installation>
    Using recreat from scripts <quickstart/scripting>
+
+.. toctree::
+   :hidden:
+   :caption: Fundamentals
+
+   Prerequisites <fundamentals/prerequisites>
+   Workflows <fundamentals/workflows>
+
+.. toctree::
+   :hidden:
+   :caption: Usage
+
+   Instantiation <usage/instantiation>
+   Set model parameters <usage/parameters>
+
+
+.. toctree::
+   :hidden:
+   :caption: more
+
+   API <api>
