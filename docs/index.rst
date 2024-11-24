@@ -28,6 +28,10 @@ Broadly, recreat:
    :hidden:
    
    Home <self>
+
+.. toctree::
+   :hidden:
    :caption: Quickstart
-      Installation <installation>
-      API <api>
+   
+   Installation <quickstart/installation>
+   Using recreat from scripts <quickstart/scripting>
