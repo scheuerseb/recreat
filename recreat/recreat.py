@@ -9,7 +9,9 @@ from os.path import isfile, join
 import ctypes
 import platform
 
-os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = pow(2,40).__str__()
+cv_max_pixel_count = pow(2,40).__str__()
+os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = cv_max_pixel_count
+
 # opencv-python
 import cv2 as cv
 
@@ -87,19 +89,25 @@ class recreat:
 
     def __init__(self, data_path: str):
         os.system('cls' if os.name == 'nt' else 'clear')
-        self.data_path = data_path  
-        print(Fore.WHITE + Style.BRIGHT + "ReCreat (C) 2024, Sebastian Scheuer" + Style.RESET_ALL)
-        self.py_path = os.path.dirname(__file__)
 
-        # determine extension module to be used depending on platform
-        if platform.system() == "Windows":
-            extension_filename = 'LowLevelGenericFilters.dll'
+        if not os.path.exists(data_path) and os.access(data_path, os.W_OK):
+            print(f"{Fore.RED}Error: data_path not found.{Style.RESET_ALL}")
+            raise FileNotFoundError()
+        
         else:
-            extension_filename = 'LowLevelGenericFilters.so'
+            self.data_path = data_path
+            print(Fore.WHITE + Style.BRIGHT + "recreat (C) 2024, Sebastian Scheuer" + Style.RESET_ALL)
+            self.py_path = os.path.dirname(__file__)
 
-        clib_path = os.path.join(self.py_path, extension_filename)
-        print(Fore.WHITE + Style.DIM + "Using low-level callable shared libary " + clib_path + Style.RESET_ALL)
-        self.clib = ctypes.cdll.LoadLibrary(clib_path)
+            # determine extension module to be used depending on platform
+            if platform.system() == "Windows":
+                extension_filename = 'LowLevelGenericFilters.dll'
+            else:
+                extension_filename = 'LowLevelGenericFilters.so'
+
+            clib_path = os.path.join(self.py_path, extension_filename)
+            print(Fore.WHITE + Style.DIM + "Using low-level callable shared libary " + clib_path + Style.RESET_ALL)
+            self.clib = ctypes.cdll.LoadLibrary(clib_path)
 
     def __del__(self):        
         print("BYE BYE.")

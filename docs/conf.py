@@ -25,6 +25,11 @@ master_doc = "index"
 language = "en"
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", ".venv"]
 pygments_style = "sphinx"
-extensions = ["sphinx.ext.intersphinx", "sphinx.ext.autodoc"]
+extensions = [
+    "sphinx.ext.intersphinx", 
+    "sphinx.ext.autodoc",
+    "sphinx_rtd_theme"
+]
 todo_include_todos = False
+html_theme = "sphinx_rtd_theme"
 

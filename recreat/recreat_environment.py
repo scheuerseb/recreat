@@ -304,7 +304,7 @@ class recreat_model():
             pars = ""            
             contains_process = True if p in self.processes.keys() else False
             
-            star = ' ' if not contains_process else '*'
+            star = '*' if contains_process else ' '
             fore = Fore.YELLOW if contains_process else Fore.WHITE
             highlight = Style.BRIGHT if contains_process else Style.NORMAL
             
