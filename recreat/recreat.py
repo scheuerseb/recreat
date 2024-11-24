@@ -143,12 +143,14 @@ class recreat:
         )
 
     def set_params(self, paramName: str, paramValue: any) -> None:
-        """ Set processing parameters.
+        """Set processing parameters.
 
-        Args:
-            paramType (str): Parameter, one of 'classes.edge', 'classes.patch', 'classes.builtup', 'costs', 'use-data-type', 'verbose-reporting'. 
-            paramValue (any): Parameter value, depending on parameter name.
-        """
+        :param paramName: Parameter, one of 'classes.edge', 'classes.patch', 'classes.builtup', 'costs', 'use-data-type', 'verbose-reporting'. 
+        :type paramName: str
+        :param paramValue: Parameter value, depending on parameter name.
+        :type paramValue: any
+        """        
+
         if paramName == 'classes.edge':
             self.lu_classes_recreation_edge = paramValue
         elif paramName == 'classes.patch':
@@ -165,12 +167,16 @@ class recreat:
     def set_land_use_map(self, root_path: str, land_use_filename: str, nodata_values: list[float] = [0], nodata_fill_value: float = None) -> None:
         """Specify data sources for a given scenrio, i.e., root path, and import land-use raster file.
 
-        Args:
-            root_path (str): Name of a scenario, i.e., subfolder within root of data path.
-            land_use_filename (str): Name of the land-use raster file for the given scenario.
-            nodata_values (List[float], optional): Values in the land-use raster that should be treated as nodata values.  
-            nodata_fill_value (float, optional): If set, specified nodata values in the land-use raster will be filled with the specified value.           
-        """
+        :param root_path: Name of a scenario, i.e., subfolder within root of data path.
+        :type root_path: str
+        :param land_use_filename: Name of the land-use raster file for the given scenario.
+        :type land_use_filename: str
+        :param nodata_values: Values in the land-use raster that should be treated as nodata values, defaults to [0]
+        :type nodata_values: list[float], optional
+        :param nodata_fill_value: If set, specified nodata values in the land-use raster will be filled with the specified value, defaults to None.
+        :type nodata_fill_value: float, optional
+        """        
+
         self.root_path = root_path
                 
         # check if folders are properly created in current scenario workspace
@@ -189,11 +195,12 @@ class recreat:
     #
         
     def detect_clumps(self, barrier_classes: List[int] = [0]) -> None:
-        """ Detect clumps as contiguous areas in the land-use raster that are separated by the specified barrier land-uses. Connectivity is defined as queens contiguity. 
+        """Detect clumps as contiguous areas in the land-use raster that are separated by the specified barrier land-uses. Connectivity is defined as queens contiguity. 
 
-        Args:
-            barrier_classes (List[int], optional): _description_. Defaults to [0].
-        """
+        :param barrier_classes: Classes acting as barriers, i.e., separating clumps, defaults to [0]
+        :type barrier_classes: List[int], optional
+        """        
+
         self.printStepInfo("Detecting clumps")
         clump_connectivity = np.full((3,3), 1)
         rst_clumps = self._get_value_matrix()
@@ -234,13 +241,16 @@ class recreat:
         self.taskProgressReportStepCompleted()
     
     def detect_edges(self, lu_classes: List[int] = None, ignore_edges_to_class: int = None, buffer_edges: List[int] = None) -> None:
-        """ Detect edges (patch perimeters) of land-use classes that are defined as edge classes.
+        """Detect edges (patch perimeters) of land-use classes that are defined as edge classes.
 
-        Args:
-            lu_classes (List[int], optional): List of classes for which edges should be assessed. If None, classes specified as classes.edge will be used. Defaults to None. 
-            ignore_edges_to_classes (int, optional): Class to which edges should be ignored. Defaults to None.
-            buffer_edges (List[int], optional): Indicate classes for which edges should be grown (expanded).
-        """
+        :param lu_classes: List of classes for which edges should be assessed. If None, classes specified as classes.edge will be used, defaults to None
+        :type lu_classes: List[int], optional
+        :param ignore_edges_to_class: Class to which edges should be ignored, defaults to None
+        :type ignore_edges_to_class: int, optional
+        :param buffer_edges: Indicate classes for which edges should be buffered (expanded), defaults to None
+        :type buffer_edges: List[int], optional
+        """        
+
         # determine edge pixels of edge-only classes such as water opportunities
         
         classes_to_assess = lu_classes if lu_classes is not None else self.lu_classes_recreation_edge
@@ -307,11 +317,14 @@ class recreat:
     def compute_distance_rasters(self, mode: str = 'xr', lu_classes: List[int] = None, assess_builtup: bool = False) -> None:
         """Generate proximity rasters to land-use classes based on identified clumps.
 
-        Args:
-            mode (str, optional): Method used to compute proximity matrix. Either 'dr' or 'xr'. Defaults to 'xr'.
-            lu_classes (List[int], optional): List of integers, i.e., land-use classes to assess. Defaults to None.
-            assess_builtup (bool, optional): Assesses proximities to built-up, if true. Defaults to False.
-        """
+        :param mode: Method used to compute proximity matrix. Either 'dr' or 'xr', defaults to 'xr'
+        :type mode: str, optional
+        :param lu_classes: List of integers, i.e., land-use classes to assess, defaults to None
+        :type lu_classes: List[int], optional
+        :param assess_builtup: Assesses proximities to built-up, if true, defaults to False
+        :type assess_builtup: bool, optional
+        """        
+
         self.printStepInfo("Computing distance rasters")
         # determine proximity outward from relevant lu classes, including built-up
         classes_for_proximity_calculation = (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge) if lu_classes is None else lu_classes
@@ -420,9 +433,10 @@ class recreat:
     def reclassify(self, reclassifications: Dict[int, List[int]]) -> None:
         """Reclassifies class values as a new class value in the land-use dataset.
 
-        Args:
-            reclassifications (Dict[int, List[int]]): Dictionary of new classes (keys), and corresponding list of classes to reclassify (values). 
-        """
+        :param reclassifications: Dictionary of new classes (keys), and corresponding list of classes to reclassify (values).
+        :type reclassifications: Dict[int, List[int]]
+        """        
+
         self.printStepInfo("Aggregating classes")
         if self.lsm_mtx is not None:
             
@@ -451,8 +465,7 @@ class recreat:
         self.printStepInfo("Aggregating built-up land-use classes")
         current_task = self._get_task("[white]Aggregating built-up", total=1)
         with self.progress if self._runsAsStandalone() else nullcontext() as bar:
-            
-            # we don't add up independent classes anymore, but just grab all builtup classes, and make value replacements on the original input matrix 
+                       
             mtx_builtup = self.lsm_mtx.copy()                        
             builtup_mask = np.isin(mtx_builtup, self.lu_classes_builtup, invert=False)
             mtx_builtup[builtup_mask] = 1
@@ -468,11 +481,12 @@ class recreat:
 
 
     def _reproject_builtup_to_population(self, population_grid: str) -> None:
-        """ Matches population and built-up rasters and sums built-up pixels within each cell of the population raster. It will write a raster of built-up pixel count.
+        """Matches population and built-up rasters and sums built-up pixels within each cell of the population raster. It will write a raster of built-up pixel count.
 
-        Args:
-            population_grid (str): Name of the population raster file to be used for disaggregation.
-        """
+        :param population_grid: Name of the population raster file to be used for disaggregation.
+        :type population_grid: str
+        """        
+
         self.printStepInfo('Reprojecting built-up')
         current_task = self._get_task("[white]Reprojection", total=1)
         with self.progress if self._runsAsStandalone() else nullcontext() as bar:
@@ -520,11 +534,11 @@ class recreat:
         self.printStepCompleteInfo()
 
     def _conduct_disaggregation(self, population_grid: str) -> None:
-        """ Applies disaggregation algorithm. At the moment, a simple area-weighted approach is implemented.
+        """Applies disaggregation algorithm. At the moment, a simple area-weighted approach is implemented.
 
-        Args:
-            population_grid (str): Name of the population raster file to be used for disaggregation.
-        """
+        :param population_grid: Name of the population raster file to be used for disaggregation.
+        :type population_grid: str
+        """        
         current_task = self._get_task("[white]Applying disaggregation algorithm", total=1)
         with self.progress if self._runsAsStandalone() else nullcontext() as bar:            
             # read the built-up patch count 
@@ -594,11 +608,14 @@ class recreat:
            The method currently implements a simple area-weighted disaggregation method. This method can currently account for gridded land-use and population featuring the same extent and resolution,
            and for the gridded population to have a lower resolution than gridded land-use 
 
-        Args:
-            population_grid (str): Name of the population raster file to be used for disaggregation.
-            force_computing (bool, optional): Force (re-)computation of intermediate products if they already exist. 
-            write_scaled_result (bool, optional): Export min-max scaled result, if True. Defaults to True.
-        """
+        :param population_grid: Name of the population raster file to be used for disaggregation.
+        :type population_grid: str
+        :param force_computing: Force (re-)computation of intermediate products if they already exist, defaults to False
+        :type force_computing: bool, optional
+        :param write_scaled_result: Export min-max scaled result, if set to True, defaults to True
+        :type write_scaled_result: bool, optional
+        """        
+
         self.printStepInfo("Disaggregating population to built-up")
         
 
@@ -703,11 +720,12 @@ class recreat:
 
 
     def class_total_supply(self, mode: str = 'ocv_filter2d') -> None:
-        """Determine class total supply.
+        """Determines class total supply.
 
-        Args:
-            mode (str, optional): Method to perform sliding window operation. One of 'generic_filter', 'convolve', or 'ocv_filter2d'. Defaults to 'ocv_filter2d'.
-        """
+        :param mode: Method to perform sliding window operation. One of 'generic_filter', 'convolve', or 'ocv_filter2d'. Defaults to 'ocv_filter2d', defaults to 'ocv_filter2d'
+        :type mode: str, optional
+        """        
+
         # for each recreation patch class and edge class, determine total supply within cost windows
         # do this for each clump, i.e., operate only on parts of masks corresponding to clumps, ignore patches/edges external to each clump
         self.printStepInfo("Determining clumped supply per class")
@@ -741,17 +759,22 @@ class recreat:
     def _class_total_supply_for_lu_and_cost(self, mask_path: str, rst_clumps: np.ndarray, clump_slices: List[any], cost: float, mode: str, progress_task: any = None) -> np.ndarray:
         """Compute supply of land-use within a given cost.
 
-        Args:
-            mask_path (str): Path to land-use mask.
-            rst_clumps (np.ndarray): Array of clumps.
-            clump_slices (List[any]): List of clump slices.
-            cost (float): Cost threshold.
-            mode (str): Method to use to determine supply within cost. One of 'convolve', 'generic_filter', or 'ocv_filter2d'.
-            progress_task (any, optional): _description_. Defaults to None.
+        :param mask_path: Path to land-use mask.
+        :type mask_path: str
+        :param rst_clumps: Array of clumps.
+        :type rst_clumps: np.ndarray
+        :param clump_slices: List of clump slices.
+        :type clump_slices: List[any]
+        :param cost: Cost threshold.
+        :type cost: float
+        :param mode: Method to use to determine supply within cost. One of 'convolve', 'generic_filter', or 'ocv_filter2d'.
+        :type mode: str
+        :param progress_task: Progress task, defaults to None
+        :type progress_task: any, optional
+        :return: Class supply for given land-use class within given cost.
+        :rtype: np.ndarray
+        """        
 
-        Returns:
-            np.ndarray: _description_
-        """
         # grid to store lu supply 
         lu_supply_mtx = self._get_value_matrix().astype(np.int32)
         # get land-use current mask
@@ -822,10 +845,12 @@ class recreat:
     def aggregate_class_total_supply(self, lu_weights: Dict[any,float] = None, write_non_weighted_result: bool = True) -> None:
         """Aggregate total supply of land-use classes within each specified cost threshold. A weighting schema may be supplied, in which case a weighted average is determined as the sum of weighted class supply divided by the sum of all weights.
 
-        Args:
-            lu_weights (Dict[any,float], optional): Dictionary of land-use class weights, where keys refer to land-use classes, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
-            write_non_weighted_result (bool, optional): Indicates if non-weighted total supply be computed. Defaults to True.
-        """
+        :param lu_weights: Dictionary of land-use class weights, where keys refer to land-use classes, and values to weights. If specified, weighted total supply will be determined, defaults to None
+        :type lu_weights: Dict[any,float], optional
+        :param write_non_weighted_result: Indicates if non-weighted total supply be computed, defaults to True
+        :type write_non_weighted_result: bool, optional
+        """        
+                
         self.printStepInfo('Determining clumped total supply')
 
         # progress reporting        
@@ -924,12 +949,16 @@ class recreat:
            If either weighting schema (land-use classes or costs) is supplied, the total supply is determined as weighted average, i.e., the weighted sum of land-use class-specific supply, divided by the sum of weights.
            Potential combinations, i.e., land-use and subsequently cost-based weighting, are considered if both weighting schemas are supplied.
 
-        Args:
-            lu_weights (Dict[any,float], optional): Dictionary of land-use class weights, where keys refer to land-use classes, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
-            cost_weights (Dict[float, float], optional): Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
-            write_non_weighted_result (bool, optional): Indicates if non-weighted total supply be computed. Defaults to True.
-            write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
-        """
+        :param lu_weights: Dictionary of land-use class weights, where keys refer to land-use classes, and values to weights. If specified, weighted total supply will be determined, defaults to None
+        :type lu_weights: Dict[any, float], optional
+        :param cost_weights: Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined, defaults to None
+        :type cost_weights: Dict[float, float], optional
+        :param write_non_weighted_result: Indicates if non-weighted total supply be computed, defaults to True
+        :type write_non_weighted_result: bool, optional
+        :param write_scaled_result: Indicates if min-max-scaled values should be written as separate outputs, defaults to True
+        :type write_scaled_result: bool, optional
+        """        
+
         self.printStepInfo("Averaging supply across costs")
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))
         current_task = self._get_task("[white]Averaging supply", total=step_count)
@@ -1025,11 +1054,14 @@ class recreat:
     def average_diversity_across_cost(self, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
         """Determine diversity of (recreational) land-uses averaged across cost thresholds. 
 
-        Args:
-            cost_weights (Dict[float, float], optional): Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
-            write_non_weighted_result (bool, optional): Indicates if non-weighted total supply be computed. Defaults to True.
-            write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
-        """
+        :param cost_weights: Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined, defaults to None
+        :type cost_weights: Dict[float, float], optional
+        :param write_non_weighted_result: Indicates if non-weighted total supply be computed, defaults to True
+        :type write_non_weighted_result: bool, optional
+        :param write_scaled_result: Indicates if min-max-scaled values should be written as separate outputs, defaults to True
+        :type write_scaled_result: bool, optional
+        """        
+
         self.printStepInfo("Averaging diversity across costs")
         step_count = len(self.cost_thresholds)
         current_task = self._get_task("[white]Averaging diversity", total=step_count)
@@ -1078,11 +1110,14 @@ class recreat:
     def average_beneficiaries_across_cost(self, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
         """Determine the number of potential beneficiaries, averaged across cost thresholds. 
 
-        Args:
-            cost_weights (Dict[float, float], optional): Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
-            write_non_weighted_result (bool, optional): Indicates if non-weighted total supply be computed. Defaults to True.
-            write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
-        """
+        :param cost_weights: Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined, defaults to None
+        :type cost_weights: Dict[float, float], optional
+        :param write_non_weighted_result: Indicates if non-weighted total supply be computed, defaults to True
+        :type write_non_weighted_result: bool, optional
+        :param write_scaled_result: Indicates if min-max-scaled values should be written as separate outputs, defaults to True
+        :type write_scaled_result: bool, optional
+        """        
+
         self.printStepInfo("Averaging beneficiaries across costs")
         step_count = len(self.cost_thresholds)
         current_task = self._get_task("[white]Averaging beneficiaries", total=step_count)
@@ -1132,11 +1167,14 @@ class recreat:
     def average_flow_across_cost(self, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True):
         """Determine the number of potential beneficiaries in terms of flow to (recreational) land-use classes, averaged across cost thresholds.
 
-        Args:
-            cost_weights (Dict[float, float], optional): Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined. Defaults to None.
-            write_non_weighted_result (bool, optional): Indicates if non-weighted total supply be computed. Defaults to True.
-            write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
-        """
+        :param cost_weights: Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined, defaults to None
+        :type cost_weights: Dict[float, float], optional
+        :param write_non_weighted_result: Indicates if non-weighted total supply be computed, defaults to True
+        :type write_non_weighted_result: bool, optional
+        :param write_scaled_result: Indicates if min-max-scaled values should be written as separate outputs, defaults to True
+        :type write_scaled_result: bool, optional
+        """        
+
         self.printStepInfo("Averaging flow across costs")        
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)) 
         current_task = self._get_task("[white]Averaging flow across costs", total=step_count)
@@ -1303,11 +1341,14 @@ class recreat:
     def cost_to_closest(self, distance_threshold: float = -1, builtup_masking: bool = False, write_scaled_result: bool = True) -> None:
         """Determines cost to closest entities of each land-use class, and determines averaged cost to closest.
 
-        Args:
-            distance_threshold (float, optional): Maximum cost value used for masking of cost rasters, by default, set to -1. If set to a negative value, do not mask areas with costs higher than maximum cost. 
-            builtup_masking (bool, optional): Indicates whether outputs will be restricted to built-up land-use classes. Defaults to False.
-            write_scaled_result (bool, optional): Indicates if min-max-scaled values should be written as separate outputs. Defaults to True. 
-        """
+        :param distance_threshold: Maximum cost value used for masking of cost rasters. If set to a negative value, do not mask areas with costs higher than maximum cost, defaults to -1
+        :type distance_threshold: float, optional
+        :param builtup_masking: Indicates whether outputs will be restricted to built-up land-use classes, defaults to False
+        :type builtup_masking: bool, optional
+        :param write_scaled_result: Indicates if min-max-scaled values should be written as separate outputs, defaults to True
+        :type write_scaled_result: bool, optional
+        """        
+
         self.printStepInfo("Assessing cost to closest")
         included_lu_classes = self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
         step_count = len(included_lu_classes)         
@@ -1374,17 +1415,22 @@ class recreat:
     def _read_dataset(self, file_name: str, band: int = 1, nodata_values: List[float] = [0], is_scenario_specific:bool = True, nodata_fill_value = None, is_lazy_load = False) -> Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]:
         """Read a dataset and return reference to the dataset, values, and boolean mask of nodata values.
 
-        Args:
-            file_name (str): Filename of dataset to be read.
-            band (int, optional): Band to be read. Defaults to 1.
-            nodata_values (List[float], optional): List of values indicating nodata. Defaults to [0].
-            is_scenario_specific (bool, optional): Indicates if the specified datasource located in a scenario-specific subfolder (True) or at the data path root (False). Defaults to True.
-            nodata_fill_value (float, optional): If set to a value, nodata values of the raster to be imported will be filled up with the specified value.           
-            is_lazy_load (bool, optional): If set to True, apply lazy loading of raster data. 
-
-        Returns:
-            Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]: Dataset, data matrix, and mask of nodata values.
-        """
+        :param file_name: Filename of dataset to be read.
+        :type file_name: str
+        :param band: Band to be read, defaults to 1
+        :type band: int, optional
+        :param nodata_values: List of values indicating nodata, defaults to [0]
+        :type nodata_values: List[float], optional
+        :param is_scenario_specific: Indicates if the specified datasource located in a scenario-specific subfolder (True) or at the data path root (False), defaults to True
+        :type is_scenario_specific: bool, optional
+        :param nodata_fill_value: If set to a value, nodata values of the raster to be imported will be filled up with the specified value, defaults to None
+        :type nodata_fill_value: _type_, optional
+        :param is_lazy_load: If set to True, apply lazy loading of raster data, defaults to False
+        :type is_lazy_load: bool, optional
+        :return: Dataset, data matrix, and mask of nodata values
+        :rtype: Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]
+        """        
+        
         path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
         if self.verbose_reporting:
             print(Fore.WHITE + Style.DIM + "    READING {}".format(path) + Style.RESET_ALL)
@@ -1415,16 +1461,18 @@ class recreat:
 
 
     def _read_band(self, file_name: str, band: int = 1, is_scenario_specific: bool = True) -> np.ndarray:
-        """Read a raster band. 
+        """Read a raster band.
 
-        Args:
-            file_name (str): Filename of dataset to be read.
-            band (int, optional): Band to be read. Defaults to 1.
-            is_scenario_specific (bool, optional): Indicates if the specified datasource located in a scenario-specific subfolder (True) or at the data path root (False). Defaults to True.
+        :param file_name: Filename of dataset to be read.
+        :type file_name: str
+        :param band: Band to be read, defaults to 1
+        :type band: int, optional
+        :param is_scenario_specific: Indicates if the specified datasource located in a scenario-specific subfolder (True) or at the data path root (False), defaults to True
+        :type is_scenario_specific: bool, optional
+        :return: Raster band
+        :rtype: np.ndarray
+        """        
 
-        Returns:
-            np.ndarray: _description_
-        """
         path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
         rst_ref, band_data, nodata_mask = self._read_dataset(file_name=file_name, band=band, is_scenario_specific=is_scenario_specific, is_lazy_load=False)
         return band_data
@@ -1432,14 +1480,20 @@ class recreat:
     def _write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True, custom_grid_reference: rasterio.DatasetReader = None, custom_nodata_mask: np.ndarray = None) -> None:        
         """Write a dataset to disk.
 
-        Args:
-            file_name (str): Name of file to be written.
-            outdata (np.ndarray): Values to be written.
-            mask_nodata (bool, optional): Indicates if nodata values should be masked using default or custom nodata mask (True) or not (False). Defaults to True. Uses custom nodata mask if specified.
-            is_scenario_specific (bool, optional): Indicates whether file should be written in a scenario-specific subfolder (True) or in the data path root (False). Defaults to True.
-            custom_grid_reference (rasterio.DatasetReader, optional): Custom grid reference (i.e., crs, transform) to be used. If not specified, uses default land-use grid crs and transform.
-            custom_nodata_mask (np.ndarray, optional): Custom nodata mask to apply if mask_nodata is set to True.
-        """
+
+        :param file_name: Name of file to be written.
+        :type file_name: str
+        :param outdata: Values to be written.
+        :type outdata: np.ndarray
+        :param mask_nodata: Indicates if nodata values should be masked using default or custom nodata mask (True) or not (False). Uses custom nodata mask if specified, defaults to True
+        :type mask_nodata: bool, optional
+        :param is_scenario_specific: Indicates whether file should be written in a scenario-specific subfolder (True) or in the data path root (False), defaults to True
+        :type is_scenario_specific: bool, optional
+        :param custom_grid_reference: Custom grid reference (i.e., crs, transform) to be used. If not specified, uses default land-use grid crs and transform, defaults to None
+        :type custom_grid_reference: rasterio.DatasetReader, optional
+        :param custom_nodata_mask: Custom nodata mask to apply if mask_nodata is set to True, defaults to None
+        :type custom_nodata_mask: np.ndarray, optional
+        """        
 
         custom_grid_reference = custom_grid_reference if custom_grid_reference is not None else self.lsm_rst
 
@@ -1483,14 +1537,15 @@ class recreat:
     def _get_value_matrix(self, fill_value: float = 0, shape: Tuple[int, int] = None, dest_datatype: any = None) -> np.ndarray:
         """Return array with specified fill value. 
 
-        Args:
-            fill_value (float, optional): Fill value. Defaults to 0.
-            shape (Tuple[int, int], optional): Shape of the matrix to be returned.
-            dest_datatype (any, optional): Datatype of matrix. 
-
-        Returns:
-            np.ndarray: Filled array.
-        """
+        :param fill_value: Fill value, defaults to 0
+        :type fill_value: float, optional
+        :param shape: Shape of the matrix to be returned, defaults to None
+        :type shape: Tuple[int, int], optional
+        :param dest_datatype: Datatype of matrix, defaults to None
+        :type dest_datatype: any, optional
+        :return: Data matrix of given shape and fill value.
+        :rtype: np.ndarray
+        """        
         
         # determine parameters based on specified method arguments
         dest_dtype = self.dtype if dest_datatype is None else dest_datatype
