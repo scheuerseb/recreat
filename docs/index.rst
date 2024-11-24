@@ -30,4 +30,6 @@ Contents
 .. toctree::
 
    Home <self>
-   API <api>
+   
+   :caption: Quickstart
+   Installation <installation>
