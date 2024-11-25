@@ -130,4 +130,35 @@ Options:
 -s, --exclude-scaled         Optional flag to indicate that the scaled result should not be determined.
 -u, --exclude-non-weighted   Optional flag to indicate that the non-weighted result should not be determined.
 
+class-diversity subcommand
+--------------------------
+
+.. code-block::
+
+    class-diversity
+
+This subcommand has no arguments or options.
+
+average-diversity subcommand
+----------------------------
+
+.. code-block::
+
+    average-diversity [options]
+
+Options:
+
+--cost-weights                 A comma-separated list of cost thresholds and weights, in the form cost1=weight1,cost2=weight2,... (optional);
+-s, --exclude-scaled           Optional flag to indicate that the scaled result should not be determined;
+-u, --exclude-non-weighted     Optional flag to indicate that the non-weighted result should not be determined.
+
+proximities subcommand
+----------------------
+
+.. code-block::
+
+    proximities [options]
+
+-m, --mode <dr|xr>         Method to use for determining distance (proximity) rasters, either using the distancerasters package (dr) or xarray-spatial (xr; by default, set to xr).
+-b, --include-builtup      Optional flag to indicate that also proximities to built-up areas should be determined, in addition to proximities to recreational opportunities.
 

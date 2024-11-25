@@ -36,7 +36,7 @@ In a script, clump detection is conducted using the :py:meth:`.detect_clumps` me
 
 Example:
 
-.. code-block::
+.. code-block:: python
     
     # define land-use classes 39 and 44 as barriers
     my_model.detect_clumps(barrier_classes=[39,44])

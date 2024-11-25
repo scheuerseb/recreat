@@ -36,6 +36,7 @@ Broadly, recreat:
    Installation <quickstart/installation>
    Using recreat from the command-line <quickstart/cli>
    Using recreat from scripts <quickstart/scripting>
+   recreat outputs <quickstart/outputs>
 
 .. toctree::
    :hidden:
@@ -58,6 +59,10 @@ Broadly, recreat:
    Class total supply <usage/class_total_supply>
    Aggregate total supply <usage/aggregate_total_supply>
    Average total supply <usage/average_total_supply>
+   Class diversity <usage/class_diversity>
+   Average diversity <usage/average_diversity>
+   Compute distance rasters <usage/proximity_rasters>
+   Average cost <usage/average_cost>
 
 .. toctree::
    :hidden:

@@ -8,9 +8,7 @@ divided by the number of cost thresholds considered. Depending on the options/pa
 * Class-weighted average total supply: Land-use-weighted average of class total supply across cost thresholds (if land-use weights, i.e., a weight provided for each land-use class, has been specified); 
 * Cost-weighted average total supply: Cost-weighted average of class total supply across cost thresholds (if cost weights, i.e., a weight provided for each cost threshold, have been specified);
 * Bi-weighted average total supply: Land-use- and cost-weighted average of class total supply across cost thresholds (if both land-use weights and cost weights have been specified);
-
-For each of these outputs, a scaled (i.e., min-max normalized raster in the range [0;1]) raster will be exported (if not specifically excluded 
-from the result set). 
+* For each of these outputs, a scaled raster, i.e., min-max normalized raster in the range [0;1],  will be exported (if not specifically excluded from the result set). 
 
 .. note::
     
@@ -56,7 +54,7 @@ Example:
     cost_weights=cost_weights,
     write_non_weighted_result=False)
 
-In this example, average total supply is determined through the average_total_supply_across_cost method. A weight is defined 
+In this example, average total supply is determined through the :py:meth:`.average_total_supply_across_cost` method. A weight is defined 
 for each cost threshold; accordingly, cost-weighted average class total supply will be exported. 
 The non-weighted average total supply will not be determined, as the write_non_weighted_result 
 parameter has been set to False. 
