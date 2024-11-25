@@ -170,7 +170,7 @@ def run_process(result, **kwargs):
     for p in recreat_process:
         if p in new_model.get_processes().keys():
             if p is recreat_process.reclassification:
-                rc.reclassify(reclassifications=new_model.aggregations)
+                rc.reclassify(mappings=new_model.aggregations)
             
             if p is recreat_process.clump_detection:
                 rc.detect_clumps(barrier_classes=new_model.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction))

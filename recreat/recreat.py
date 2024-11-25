@@ -116,11 +116,11 @@ class recreat:
         """Create required subfolders for raster files in the current scenario folder.
         """
         # create directories, if needed
-        dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'TMP', 'FLOWS', 'CLUMPS_LU', 'PROX', 'COSTS']
+        dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'TMP', 'FLOWS', 'CLUMPS_LU', 'PROX', 'COSTS', 'DIVERSITY']
         for d in dirs_required:
-            cpath = "{}/{}/{}".format(self.data_path, self.root_path, d)
-            if not os.path.exists(cpath):
-                os.makedirs(cpath)
+            current_path = f"{self.data_path}/{self.root_path}/{d}"
+            if not os.path.exists(current_path):
+                os.makedirs(current_path)
 
     def printStepInfo(self, msg):
         print(Fore.CYAN + Style.BRIGHT + msg.upper() + Style.RESET_ALL)
@@ -430,22 +430,22 @@ class recreat:
         # done
         self.taskProgressReportStepCompleted()
 
-    def reclassify(self, reclassifications: Dict[int, List[int]]) -> None:
-        """Reclassifies class values as a new class value in the land-use dataset.
+    def reclassify(self, mappings: Dict[int, List[int]]) -> None:
+        """Reclassifies set(s) of source class values into a new destination class in the land-use dataset.
 
-        :param reclassifications: Dictionary of new classes (keys), and corresponding list of classes to reclassify (values).
-        :type reclassifications: Dict[int, List[int]]
+        :param mappings: Dictionary of new classes (keys), and corresponding list of class values to recategorize (values).
+        :type mappings: Dict[int, List[int]]
         """        
 
-        self.printStepInfo("Aggregating classes")
+        self.printStepInfo("Recategorizing classes")
         if self.lsm_mtx is not None:
             
-            current_task = self._get_task("[white]Aggregating classes", total=len(reclassifications.keys()))
+            current_task = self._get_task("[white]Reclassification", total=len(mappings.keys()))
 
             # iterate over key-value combinations
             with self.progress if self._runsAsStandalone() else nullcontext() as bar:
                 
-                for (new_class_value, classes_to_aggregate) in reclassifications.items():
+                for (new_class_value, classes_to_aggregate) in mappings.items():
                     replacement_mask = np.isin(self.lsm_mtx, classes_to_aggregate, invert=False)
                     self.lsm_mtx[replacement_mask] = new_class_value
                     del replacement_mask
@@ -896,7 +896,7 @@ class recreat:
                     p.update(current_task, advance=1)
                 
                 # export current cost diversity
-                self._write_dataset("INDICATORS/diversity_cost_{}.tif".format(c), mtx_diversity_at_cost) 
+                self._write_dataset("DIVERSITY/diversity_cost_{}.tif".format(c), mtx_diversity_at_cost) 
                 del mtx_diversity_at_cost
 
         # done
@@ -1076,7 +1076,7 @@ class recreat:
 
             # iterate over cost thresholds and aggregate cost-specific diversities into result
             for c in self.cost_thresholds:
-                mtx_current_diversity = self._read_band("INDICATORS/diversity_cost_{}.tif".format(c)) 
+                mtx_current_diversity = self._read_band("DIVERSITY/diversity_cost_{}.tif".format(c)) 
                 if write_non_weighted_result:
                     average_diversity += mtx_current_diversity
                 if cost_weights is not None:
