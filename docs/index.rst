@@ -34,6 +34,7 @@ Broadly, recreat:
    :caption: Quickstart
    
    Installation <quickstart/installation>
+   Using recreat from the command-line <quickstart/cli>
    Using recreat from scripts <quickstart/scripting>
 
 .. toctree::
@@ -49,7 +50,14 @@ Broadly, recreat:
 
    Instantiation <usage/instantiation>
    Set model parameters <usage/parameters>
-
+   Import land-use data <usage/import_land_use_data>
+   Reclassification <usage/reclassification>
+   Detect clumps <usage/clumps>
+   Mask land-uses <usage/masking>
+   Edge detection <usage/detect_edge.rst>
+   Class total supply <usage/class_total_supply>
+   Aggregate total supply <usage/aggregate_total_supply>
+   Average total supply <usage/average_total_supply>
 
 .. toctree::
    :hidden:
