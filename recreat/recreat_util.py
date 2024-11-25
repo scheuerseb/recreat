@@ -139,8 +139,11 @@ def disaggregate_population(pop, exclude_scaled, force):
     new_model.add_disaggregate_population(pop_raster=pop, force=force, export_scaled=exclude_scaled)
 
 @recreat_util.command(help="Determine (average) cost to closest.")
-def cost():
-    pass
+@click.option('-d', '--max-distance', default=-1.0, type=float, help="Maximum cost value used for masking of cost rasters. If set to a negative value, do not mask areas with costs higher than maximum cost. Defaults to -1.")
+@click.option('-b', '--mask-built-up', is_flag=True, default=False, type=bool, help="Indicates whether outputs will be restricted to built-up land-use classes, defaults to False.")
+@click.option('-s', '--exclude-scaled', is_flag=True, default=True, type=bool, help="Exclude export of scaled result(s).")
+def cost(max_distance, mask_built_up, exclude_scaled):
+    new_model.add_average_cost(max_distance=max_distance, mask_built_up=mask_built_up, export_scaled=exclude_scaled)
 
 @recreat_util.result_callback()
 def run_process(result, **kwargs):

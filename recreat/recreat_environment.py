@@ -24,6 +24,7 @@ class recreat_process(Enum):
     population_disaggregation = 'disaggregate-population'
     class_flow = 'class-flow'
     proximity = 'proximities'
+    average_cost = 'average-cost'
 
 class recreat_params(Enum):
     data_type = 'use-data-type'
@@ -52,6 +53,7 @@ class recreat_process_parameters(Enum):
     include_special_class = 'include-special-class'
     population_raster = 'population-grid'
     force = 'force'
+    user_threshold = 'user-threshold'
     
 
 class recreat_model():
@@ -202,46 +204,54 @@ class recreat_model():
 
     # processes and their parameters
     
-    # aggregations
+    # reclassification
     def add_reclassification(self, dest_class: int, source_classes: List[int]) -> None:
-        self._add_process(recreat_process.reclassification)
-        self.processes[recreat_process.reclassification][dest_class] = source_classes
+        current_process = recreat_process.reclassification
+        self._add_process(current_process)
+        self._add_process_config(current_process, dest_class, source_classes) 
+
     @property
     def aggregations(self) -> Dict[int, List[int]]:
         return self.processes[recreat_process.reclassification]
     
     # clump detection
     def add_clump_detection(self, barrier_classes: List[int]) -> None:
-        self._add_process(recreat_process.clump_detection)
-        self.processes[recreat_process.clump_detection][recreat_process_parameters.classes_on_restriction] = barrier_classes
+        current_process = recreat_process.clump_detection
+        self._add_process(current_process)
+        self._add_process_config(current_process, recreat_process_parameters.classes_on_restriction, barrier_classes)
 
     # landuse masking
-    def add_mask_landuses(self) -> None:
+    def add_mask_landuses(self) -> None:        
         self._add_process(recreat_process.mask_landuses)
 
     # edge detection
     def add_detect_edges(self, class_ignore_edges: float = 0) -> None:
-        self._add_process(recreat_process.edge_detection)
-        self.processes[recreat_process.edge_detection][recreat_process_parameters.classes_on_restriction] = class_ignore_edges
+        current_process = recreat_process.edge_detection
+        self._add_process(current_process)
+        self._add_process_config(current_process, recreat_process_parameters.classes_on_restriction, class_ignore_edges)
 
     # class total supply
     def add_class_total_supply(self, mode: str) -> None:
-        self._add_process(recreat_process.class_total_supply)
-        self.processes[recreat_process.class_total_supply][recreat_process_parameters.mode] = mode
+        current_process = recreat_process.class_total_supply
+        self._add_process(current_process)
+        self._add_process_config(current_process, recreat_process_parameters.mode, mode)
 
     # aggregate supply
-    def add_aggregate_supply(self, lu_weights:Dict[int,float], export_non_weighted: bool):
-        self._add_process(recreat_process.aggregate_class_total_supply)
-        self.processes[recreat_process.aggregate_class_total_supply][recreat_process_parameters.lu_weights] = lu_weights
-        self.processes[recreat_process.aggregate_class_total_supply][recreat_process_parameters.export_non_weighted_results] = export_non_weighted
+    def add_aggregate_supply(self, lu_weights:Dict[int,float], export_non_weighted: bool):        
+        current_process = recreat_process.aggregate_class_total_supply
+        self._add_process(current_process)
+        self._add_process_config(current_process, recreat_process_parameters.lu_weights, lu_weights)
+        self._add_process_config(current_process, recreat_process_parameters.export_non_weighted_results, export_non_weighted)
 
     # average total supply across cost
     def add_average_total_supply_across_cost(self, lu_weights:Dict[int,float], cost_weights: Dict[int,float], export_non_weighted: bool, export_scaled: bool) -> None:
-        self._add_process(recreat_process.average_total_supply_across_cost)
-        self.processes[recreat_process.average_total_supply_across_cost][recreat_process_parameters.lu_weights] = lu_weights
-        self.processes[recreat_process.average_total_supply_across_cost][recreat_process_parameters.cost_weights] = cost_weights
-        self.processes[recreat_process.average_total_supply_across_cost][recreat_process_parameters.export_non_weighted_results] = export_non_weighted
-        self.processes[recreat_process.average_total_supply_across_cost][recreat_process_parameters.export_scaled_results] = export_scaled
+        current_process = recreat_process.average_total_supply_across_cost
+        self._add_process(current_process)
+        self._add_process_config(current_process, recreat_process_parameters.lu_weights, lu_weights)
+        self._add_process_config(current_process, recreat_process_parameters.cost_weights, cost_weights)
+        self._add_process_config(current_process, recreat_process_parameters.export_non_weighted_results, export_non_weighted)
+        self._add_process_config(current_process, recreat_process_parameters.export_scaled_results, export_scaled)
+
 
     # class diversity
     def add_class_diversity(self) -> None:
@@ -249,10 +259,11 @@ class recreat_model():
 
     # average diversity across cost
     def add_average_diversity_across_cost(self, cost_weights: Dict[int, float], export_non_weighted: bool, export_scaled: bool) -> None:
-        self._add_process(recreat_process.average_diversity_across_cost)
-        self.processes[recreat_process.average_diversity_across_cost][recreat_process_parameters.cost_weights] = cost_weights
-        self.processes[recreat_process.average_diversity_across_cost][recreat_process_parameters.export_non_weighted_results] = export_non_weighted
-        self.processes[recreat_process.average_diversity_across_cost][recreat_process_parameters.export_scaled_results] = export_scaled
+        current_process = recreat_process.average_diversity_across_cost
+        self._add_process(current_process)
+        self._add_process_config(current_process, recreat_process_parameters.cost_weights, cost_weights)
+        self._add_process_config(current_process, recreat_process_parameters.export_non_weighted_results, export_non_weighted)
+        self._add_process_config(current_process, recreat_process_parameters.export_scaled_results, export_scaled)
 
     # class flow
     def add_class_flow(self) -> None:
@@ -261,18 +272,27 @@ class recreat_model():
 
     # proximity rasters
     def add_proximity(self, mode, lu_classes: List[int], include_builtup: bool) -> None:
-        self._add_process(recreat_process.proximity)
-        self.processes[recreat_process.proximity][recreat_process_parameters.classes_on_restriction] = lu_classes
-        self.processes[recreat_process.proximity][recreat_process_parameters.mode] = mode
-        self.processes[recreat_process.proximity][recreat_process_parameters.include_special_class] = include_builtup
+        current_process = recreat_process.proximity
+        self._add_process(current_process)
+        self._add_process_config(current_process, recreat_process_parameters.classes_on_restriction, lu_classes)
+        self._add_process_config(current_process, recreat_process_parameters.mode, mode)
+        self._add_process_config(current_process, recreat_process_parameters.include_special_class, include_builtup)
 
+
+    def add_average_cost(self, max_distance: float, mask_built_up: bool, export_scaled: bool) -> None:
+        current_process = recreat_process.average_cost
+        self._add_process(current_process)
+        self._add_process_config(current_process, recreat_process_parameters.user_threshold, max_distance)
+        self._add_process_config(current_process, recreat_process_parameters.include_special_class, mask_built_up)
+        self._add_process_config(current_process, recreat_process_parameters.export_scaled_results, export_scaled)
 
     # population disaggregation
     def add_disaggregate_population(self, pop_raster: str,  force: bool, export_scaled: bool) -> None:
-        self._add_process(recreat_process.population_disaggregation)
-        self.processes[recreat_process.population_disaggregation][recreat_process_parameters.population_raster] = pop_raster
-        self.processes[recreat_process.population_disaggregation][recreat_process_parameters.export_scaled_results] = export_scaled
-        self.processes[recreat_process.population_disaggregation][recreat_process_parameters.force] = force
+        current_process = recreat_process.population_disaggregation
+        self._add_process(current_process)
+        self._add_process_config(current_process, recreat_process_parameters.population_raster, pop_raster)
+        self._add_process_config(current_process, recreat_process_parameters.export_scaled_results, export_scaled)
+        self._add_process_config(current_process, recreat_process_parameters.force, force)
 
 
 
@@ -309,46 +329,57 @@ class recreat_model():
             highlight = Style.BRIGHT if contains_process else Style.NORMAL
             
             # process items to be shown as (pars) with title 
+            process_state = []
 
             if p is recreat_process.clump_detection and contains_process:
-                pars = "barrier classes={}".format(self.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction))
+                process_state.append("barrier classes={}".format(self.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction)))
+            
             if p is recreat_process.edge_detection and contains_process:
-                pars = "ignore edges to class={}".format(self.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction))
-                if self.classes_grow_edge is not None:
-                    pars += ", grow=" + ','.join(map(str, self.classes_grow_edge))
-
+                process_state.append("ignore edges to class={}".format(self.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction)))
+                process_state.append("buffer=" + ','.join(map(str, self.classes_grow_edge)))
+                
             if p is recreat_process.class_total_supply and contains_process:
-                pars = "mode={}".format(self.get_processing_parameter(p, recreat_process_parameters.mode))
-            if p is recreat_process.aggregate_class_total_supply and contains_process:                
-                vals = []
-                if self.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results):
-                    vals.append("export non-weighted results")                              
-                pars = ", ".join(vals)
-            if p is recreat_process.average_total_supply_across_cost and contains_process:                
-                vals = []
-                if self.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results):
-                    vals.append("export non-weighted results")                
-                if self.get_processing_parameter(p, recreat_process_parameters.export_scaled_results):
-                    vals.append("export scaled results")                
-                pars = ", ".join(vals)
-            if p is recreat_process.average_diversity_across_cost and contains_process:                
-                vals = []
-                if self.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results):
-                    vals.append("export non-weighted results")                
-                if self.get_processing_parameter(p, recreat_process_parameters.export_scaled_results):
-                    vals.append("export scaled results")                
-                pars = ", ".join(vals)
-            if p is recreat_process.proximity and contains_process:
-                pars = "mode={}".format(self.get_processing_parameter(p, recreat_process_parameters.mode))
-                if self.get_processing_parameter(p, recreat_process_parameters.include_special_class):
-                    pars += ", assess proximities to built-up"
-            if p is recreat_process.population_disaggregation and contains_process:
-                pars = "population={}".format(self.get_processing_parameter(p, recreat_process_parameters.population_raster))
-                if self.get_processing_parameter(p, recreat_process_parameters.force):
-                    pars += ", force"
-                if self.get_processing_parameter(p, recreat_process_parameters.export_scaled_results):
-                    pars += ", export scaled results"
+                process_state.append("mode={}".format(self.get_processing_parameter(p, recreat_process_parameters.mode)))
 
+            if p is recreat_process.aggregate_class_total_supply and contains_process:                                
+                if self.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results):
+                    process_state.append("export non-weighted results")                              
+                
+            if p is recreat_process.average_total_supply_across_cost and contains_process:                                
+                if self.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results):
+                    process_state.append("export non-weighted results")                
+                if self.get_processing_parameter(p, recreat_process_parameters.export_scaled_results):
+                    process_state.append("export scaled results")                
+                
+            if p is recreat_process.average_diversity_across_cost and contains_process:                
+                if self.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results):
+                    process_state.append("export non-weighted results")                
+                if self.get_processing_parameter(p, recreat_process_parameters.export_scaled_results):
+                    process_state.append("export scaled results")                
+
+            if p is recreat_process.proximity and contains_process:
+                process_state.append("mode={}".format(self.get_processing_parameter(p, recreat_process_parameters.mode)))
+                if self.get_processing_parameter(p, recreat_process_parameters.include_special_class):
+                    process_state.append("assess proximities to built-up")
+
+            if p is recreat_process.average_cost and contains_process:                                            
+                if self.get_processing_parameter(p, recreat_process_parameters.user_threshold) > 0:
+                    process_state.append(f"distance threshold={self.get_processing_parameter(p, recreat_process_parameters.user_threshold)}")                
+                else:
+                    process_state.append("no maximum distance masking")
+
+                if self.get_processing_parameter(p, recreat_process_parameters.export_scaled_results):                             
+                    process_state.append("export scaled results")
+
+            if p is recreat_process.population_disaggregation and contains_process:
+                process_state.append("population={}".format(self.get_processing_parameter(p, recreat_process_parameters.population_raster)))
+                if self.get_processing_parameter(p, recreat_process_parameters.force):
+                    process_state.append("force")
+                if self.get_processing_parameter(p, recreat_process_parameters.export_scaled_results):
+                    process_state("export scaled results")
+
+            # print out result
+            pars = ", ".join(process_state)
             op_bracket = "" if pars == "" else "("
             cl_bracket = "" if pars == "" else ")"
             print(fore + highlight + "   {} {} ".format(star, p.value) + Style.RESET_ALL + "{}{}{}".format(op_bracket, pars, cl_bracket))
@@ -404,6 +435,9 @@ class recreat_model():
     def _add_process(self, process):
         if not process in self.processes.keys():
             self.processes[process] = {}
+
+    def _add_process_config(self, process, process_param, config_value):
+        self.processes[process][process_param] = config_value
 
 
 
