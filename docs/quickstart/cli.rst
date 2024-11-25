@@ -162,3 +162,16 @@ proximities subcommand
 -m, --mode <dr|xr>         Method to use for determining distance (proximity) rasters, either using the distancerasters package (dr) or xarray-spatial (xr; by default, set to xr).
 -b, --include-builtup      Optional flag to indicate that also proximities to built-up areas should be determined, in addition to proximities to recreational opportunities.
 
+cost subcommand
+---------------
+
+
+.. code-block::
+
+    cost [options]
+
+Options:
+
+-d, --max-distance        Maximum cost value used for masking of cost rasters. If set to a negative value, do not mask areas with costs higher than maximum cost. Defaults to -1.
+-b, --mask-built-up       Indicates whether outputs will be restricted to built-up land-use classes, defaults to False.
+-s, --exclude-scaled      Optional flag to indicate that the scaled result should not be determined.
