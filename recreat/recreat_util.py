@@ -163,7 +163,9 @@ def run_process(result, **kwargs):
     # conduct model initialization and process data as requested by user
     # instantiate
     
-    from recreat import Recreat    
+    from .recreat import Recreat
+    from .recreat_clustering import clustering
+
     rc = Recreat(new_model.data_path)
 
     # set parameters for model
@@ -171,8 +173,10 @@ def run_process(result, **kwargs):
     for p in recreat_params:
         rc.set_params(p.value, model_parameters[p])
 
-    # import land-use map
-    rc.set_land_use_map(new_model.root_path, new_model.landuse_file, new_model.landuse_file_nodata_values, new_model.nodata_fill_value)
+    # import the land-use map only for specific subcommands. its not needed for clustering
+    if len(set([p for p in recreat_process]).intersection(new_model.get_processes().keys())) > 0:
+        # requested processes requires import of map: import land-use map
+        rc.set_land_use_map(new_model.root_path, new_model.landuse_file, new_model.landuse_file_nodata_values, new_model.nodata_fill_value)
 
     # conduct processing. This will be done in a sensible order depending on data requirements across tools        
     for p in recreat_process:
