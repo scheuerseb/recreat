@@ -19,21 +19,26 @@ new_model = recreat_model()
 @click.option('-d', '--debug', default=False, is_flag=True, type=bool, help="Debug command-line parameters, do not run model.")
 @click.option('-v', '--verbose', is_flag=True, default=False, type=bool, help="Enable verbose reporting.")
 @click.option('--datatype', default=None, type=click.Choice(['int', 'float', 'double'], case_sensitive=False), help="Set datatype to use. By default, the same datatype as the land-use raster is used.")
-@click.option('-m', '--nodata', default=[0.0], type=str, multiple=True, help="Nodata values in land-use raster.")
-@click.option('-f', '--fill', default=0, type=str, help="Fill value to replace nodata values in land-use raster.")
 @click.option('--no-cleaning', is_flag=True, default=True, type=bool, help="Do not clean temporary files after completion.")
 @click.argument('root-path')
-@click.argument('landuse-filename')
-def recreat_util(data_path, root_path, verbose, datatype, landuse_filename, nodata, fill, no_cleaning, debug):
+def recreat_util(data_path, root_path, verbose, datatype, no_cleaning, debug):
     new_model.data_path = data_path if data_path is not None else str(pathlib.Path().absolute())
     new_model.root_path = root_path
-    new_model.landuse_file = landuse_filename
-    new_model.landuse_file_nodata_values = sorted(list({float(num) for item in nodata for num in str(item).split(',')}))
-    new_model.nodata_fill_value = float(fill)
     new_model.verbose = verbose
     new_model.clean_temporary_files = no_cleaning
     new_model.datatype = datatype
     new_model.is_debug = debug
+
+
+@recreat_util.command(help="Use specified land-use dataset")
+@click.option('-m', '--nodata', default=[0.0], type=str, multiple=True, help="Nodata values in land-use raster.")
+@click.option('-f', '--fill', default=0, type=str, help="Fill value to replace nodata values in land-use raster.")
+@click.argument('landuse-filename')
+def use(landuse_filename, nodata, fill):
+    new_model.landuse_file = landuse_filename
+    new_model.landuse_file_nodata_values = sorted(list({float(num) for item in nodata for num in str(item).split(',')}))
+    new_model.nodata_fill_value = float(fill)
+
 
 @recreat_util.command(help="Specify model parameters.")
 @click.option('-p', '--patch', default=None, multiple=True, help="(Comma-separated) patch class(es).")
