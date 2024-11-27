@@ -18,18 +18,34 @@ recreat_util command
 
 .. code-block::
     
-    recreat_util [options] <root-path> <landuse-file-name> [subcommand [options] <args>] [...]
+    recreat_util [options] <root-path> [subcommand [options] <args>] [...]
 
 Arguments:
 
-* root-path ― The root path to use which contains relevant raster files.
-* land-use-filename ― The land-use raster file to use.
+* root-path ― The root path to use which contains relevant raster files. 
 
 Options:
 
 -w, --data-path                     Set path to data-path folder.
 -v, --verbose                       Enable verbose output.
 --datatype <int|float|double>       Specify the default datatype to be used. One of int (int32), float (float32), or double (float64).
+
+
+use subcommand
+--------------
+
+.. code-block::
+    
+    use [options] <land-use-filename>
+
+Arguments:
+
+* land-use-filename ― The land-use raster file to use.
+
+Options:
+
+-m, --nodata         Comma-separated list of nodata values.
+-f, --fill           Fill value to replace nodata values.
 
 params subcommand
 -----------------

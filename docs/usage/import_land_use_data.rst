@@ -12,18 +12,16 @@ land-use data is imported as follows.
 Using recreat_util from the CLI
 -------------------------------
 
-When using recreat_util, both root-path and landuse-filename are arguments of recreat_util, 
-and need to be provided at the command-line following after all options, but before any other 
-subcommand(s). 
-
-.. code-block::
-
-    recreat_util [options] root-path landuse-filename [...]
-
-Options include:
+When using recreat_util, the root-path is specified as argument of the CLI recreat_util command. 
+The land-use raster to use is then specified through the ``use`` subcommand. This subcommand has the following options:
 
 -m, --nodata         Comma-separated list of nodata values.
 -f, --fill           Fill value to replace nodata values.
+
+.. code-block::
+
+    recreat_util [options] root-path use [options] landuse-filename [...]
+
 
 Example:
 
