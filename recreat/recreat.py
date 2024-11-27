@@ -47,6 +47,12 @@ from typing import Tuple, List, Callable, Dict
 from enum import Enum
 
 
+class recreational_dimension(Enum):
+    DIVERSITY = 'diversity'
+    TOTAL_SUPPLY = 'total supply'
+    FLOW = 'flow'
+    DEMAND = 'demand'
+    COST = 'cost'
 
 
 class Recreat:
@@ -1408,14 +1414,84 @@ class Recreat:
 
 
     # clustering of the resultset
-    def indicatorbased_clustering(self, k: int, include_dimensions = None) -> None:
-        pass
+    def indicator_clustering_kmeans(self, k: int, dimensions: List[recreational_dimension] = [recreational_dimension.TOTAL_SUPPLY, recreational_dimension.DIVERSITY, recreational_dimension.COST], attempts: int = 10) -> None:
+        """Make a map of clusters of recreational potential, derived from scaled, non-weighted averaged indicators 
+
+        :param k: Number of clusters.
+        :type k: int
+        :param dimensions: Dimensions of landscape recreational potential to be included in the clustering, defaults to [recreational_dimension.TOTAL_SUPPLY, recreational_dimension.DIVERSITY, recreational_dimension.COST].
+        :type dimensions: List[recreational_dimension], optional
+        :param attempts: Number of attempts, defaults to 10.
+        :type attempts: int, optional
+        """
+        self.printStepInfo("CLUSTER SCALED RECREATIONAL DIMENSIONS")
+
+        if not dimensions:            
+            return
+
+        if self.verbose_reporting:
+            assessed_dimensions = [f.value for f in dimensions]
+            print(Fore.WHITE + Style.DIM + ", ".join(assessed_dimensions) + Style.RESET_ALL)
+
+
+        # include all cells where clumps > 0
+        src_clumps = rasterio.open("K:/shares/sscheuer/NC_CLC/current/MASKS/clumps.tif")
+        rst_clumps = src_clumps.read(1)
+        clumps_mask = rst_clumps > 0
+        src_meta = src_clumps.meta
+        del rst_clumps
+
+        indata = {
+            d: np.extract(clumps_mask, self._get_dimension(d)).reshape(-1, 1)
+            for d in dimensions
+        }
+
+        cluster_input = np.hstack(tuple(indata.values()))
+        cluster_input = np.float32(cluster_input) # to be sure
+
+        # Apply KMeans
+        print("STARTING CLUSTERING")
+        criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 10, 1.0)
+        flags = cv.KMEANS_RANDOM_CENTERS
+        compactness, labels, centers = cv.kmeans(cluster_input, k, None, criteria, attempts, flags)
+        print(Fore.YELLOW + Style.BRIGHT + f"COMPACTNESS={compactness}" + Style.RESET_ALL)
+
+        # we need an array of zeros with the same shape as lsm
+        final_labels = np.zeros(src_clumps.shape, dtype=np.int32)
+        np.place(final_labels, clumps_mask, labels + 1)
+
+        # export final
+        self._write_dataset(f"labels_{k}.tif", final_labels, mask_nodata=False)
+
 
 
     #
     # Helper functions
     #
     #
+
+    def _get_dimension(self, dimension: recreational_dimension) -> np.ndarray:
+        file_path = None
+
+        if dimension is recreational_dimension.TOTAL_SUPPLY:
+            file_path = 'INDICATORS/scaled_non_weighted_avg_totalsupply.tif'
+        elif dimension is recreational_dimension.DIVERSITY:
+            file_path = 'INDICATORS/scaled_non_weighted_avg_diversity.tif'
+        elif dimension is recreational_dimension.COST:
+            file_path = 'INDICATORS/scaled_non_weighted_avg_cost.tif'
+        elif dimension is recreational_dimension.FLOW:
+            pass
+
+
+        if file_path is None:
+            return None
+        else:
+            rst_data = self._read_band(file_path)
+            return rst_data
+
+
+
+
 
     def _read_dataset(self, file_name: str, band: int = 1, nodata_values: List[float] = [0], is_scenario_specific:bool = True, nodata_fill_value = None, is_lazy_load = False) -> Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]:
         """Read a dataset and return reference to the dataset, values, and boolean mask of nodata values.
