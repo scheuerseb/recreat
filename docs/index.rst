@@ -66,6 +66,7 @@ Broadly, recreat:
 
 .. toctree::
    :hidden:
-   :caption: more
+   :caption: API
 
-   API <api>
+   Recreat <api/Recreat>
+   clustering <api/clustering>
