@@ -1,6 +1,6 @@
 API
 ===
 
-.. autoclass:: recreat.recreat
+.. autoclass:: recreat.Recreat
    :members:
-   :exclude-members: recreat.make_environment
+   :exclude-members: Recreat.make_environment
