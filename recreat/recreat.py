@@ -44,12 +44,12 @@ from skimage.draw import disk
 from sklearn.preprocessing import MinMaxScaler
 # typing
 from typing import Tuple, List, Callable, Dict
+from enum import Enum
 
 
 
 
-
-class recreat:
+class Recreat:
 
     # some status variables
     verbose_reporting = False
@@ -1405,6 +1405,11 @@ class recreat:
         # done
         self.taskProgressReportStepCompleted()
 
+
+
+    # clustering of the resultset
+    def indicatorbased_clustering(self, k: int, include_dimensions = None) -> None:
+        pass
 
 
     #

@@ -158,8 +158,8 @@ def run_process(result, **kwargs):
     # conduct model initialization and process data as requested by user
     # instantiate
     
-    from recreat import recreat    
-    rc = recreat(new_model.data_path)
+    from recreat import Recreat    
+    rc = Recreat(new_model.data_path)
 
     # set parameters for model
     model_parameters = new_model.get_model_parameters()
