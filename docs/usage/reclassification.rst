@@ -21,7 +21,7 @@ source-classes to be reclassified, and destination-class, i.e., the new class va
 
 Options:
 
--e, --export         Export recategorized raster to specified filename (by default, None).  
+-e, --export         Export recategorized raster to root-path with specified filename (by default, None).  
 
 Example:
 
