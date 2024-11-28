@@ -1,3 +1,6 @@
+###############################################################################
+# (C) 2024 Sebastian Scheuer (seb.scheuer@outlook.de)                         #
+###############################################################################
 
 # opencv-python
 import cv2 as cv
@@ -37,7 +40,7 @@ class clustering:
         return file_path
 
     @staticmethod
-    def kmeans(data_path: str, root_path: str, k: int, dimensions: List[recreational_dimension] = [recreational_dimension.TOTAL_SUPPLY, recreational_dimension.DIVERSITY, recreational_dimension.COST], attempts: int = 10) -> None:
+    def kmeans(data_path: str, root_path: str, k: int, dimensions: List[recreational_dimension] = [recreational_dimension.SUPPLY, recreational_dimension.DIVERSITY, recreational_dimension.COST], attempts: int = 10) -> None:
         """Make a map of clusters of recreational potential, derived from scaled, non-weighted averaged indicators 
 
         :param data_path: Data-path to use.
