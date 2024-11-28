@@ -49,18 +49,17 @@ def use(landuse_filename, nodata, fill):
 def params(cost, patch, edge, buffer_edge, built_up):
     new_model.classes_patch = sorted(list({int(num) for item in patch for num in str(item).split(',')}))
     new_model.classes_edge = sorted(list({int(num) for item in edge for num in str(item).split(',')}))
-    new_model.classes_grow_edge = sorted(list({int(num) for item in buffer_edge for num in str(item).split(',')}))
+    new_model.buffered_edge_classes = sorted(list({int(num) for item in buffer_edge for num in str(item).split(',')}))
     new_model.classes_builtup = sorted(list({int(num) for item in built_up for num in str(item).split(',')}))
     new_model.costs = sorted(list({int(num) for item in cost for num in str(item).split(',')}))
 
 
 @recreat_util.command(help="Reclassify sets of classes into new class.")
-#@click.option('-n', '--new', help="Value of new class.")
-#@click.option('-o', '--old', multiple=True, help="(Comma-separated) class(es) to reclassify into new class.")
+@click.option('-e', '--export', default=None, type=str, help="Export result of reclassification into root-path.")
 @click.argument('source-classes')
 @click.argument('destination-class')
-def reclassify(source_classes, destination_class):        
-    new_model.add_reclassification(int(destination_class), sorted(list({int(num) for item in source_classes for num in str(item).split(',')})))
+def reclassify(source_classes, destination_class, export):       
+    new_model.add_reclassification(int(destination_class), sorted([int(item) for item in source_classes.split(',')]), export_filename=export)
     
 @recreat_util.command(help="Identify clumps in land-use raster.")
 @click.option('--barrier-classes', default=[0], type=str, multiple=True)
@@ -182,7 +181,7 @@ def run_process(result, **kwargs):
     for p in recreat_process:
         if p in new_model.get_processes().keys():
             if p is recreat_process.reclassification:
-                rc.reclassify(mappings=new_model.aggregations)
+                rc.reclassify(mappings=new_model.mappings, export_filename=new_model.get_processing_parameter(p, recreat_process_parameters.export_name))
             
             if p is recreat_process.clump_detection:
                 rc.detect_clumps(barrier_classes=new_model.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction))
@@ -193,7 +192,7 @@ def run_process(result, **kwargs):
             if p is recreat_process.edge_detection:               
                 rc.detect_edges(lu_classes=new_model.classes_edge,
                     ignore_edges_to_class=new_model.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction),
-                    buffer_edges=new_model.classes_grow_edge)
+                    buffer_edges=new_model.buffered_edge_classes)
             
             if p is recreat_process.class_total_supply:
                 rc.class_total_supply(mode = new_model.get_processing_parameter(p, recreat_process_parameters.mode))

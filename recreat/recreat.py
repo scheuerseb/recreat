@@ -428,11 +428,13 @@ class Recreat:
         # done
         self.taskProgressReportStepCompleted()
 
-    def reclassify(self, mappings: Dict[int, List[int]]) -> None:
+    def reclassify(self, mappings: Dict[int, List[int]], export_filename: str = None) -> None:
         """Reclassifies set(s) of source class values into a new destination class in the land-use dataset.
 
         :param mappings: Dictionary of new classes (keys), and corresponding list of class values to recategorize (values).
         :type mappings: Dict[int, List[int]]
+        :param export_filename: Export to specified filename into root-path, defaults to None.
+        :type str  
         """        
 
         self.printStepInfo("Recategorizing classes")
@@ -447,8 +449,13 @@ class Recreat:
                     replacement_mask = np.isin(self.lsm_mtx, classes_to_aggregate, invert=False)
                     self.lsm_mtx[replacement_mask] = new_class_value
                     del replacement_mask
-
+                    
                     self.progress.update(current_task, advance=1)                 
+
+            # export to disk, if requested by user
+            if export_filename is not None:
+                print(f"{Fore.YELLOW}{Style.BRIGHT}Exporting reclassified land-use raster to {export_filename}{Style.RESET_ALL}")
+                self._write_dataset(export_filename, self.lsm_mtx)
 
             # done
             self.printStepCompleteInfo()
