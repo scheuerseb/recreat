@@ -464,7 +464,7 @@ class Recreat:
             print(Fore.WHITE + Back.RED + "ERR: Import Land-Use first" + Style.RESET_ALL)
 
 
-    def aggregate_builtup_classes(self) -> None:
+    def _aggregate_builtup_classes(self) -> None:
         """ Aggregates specified built-up (i.e., potentially residential) classes into a single built-up layer. 
         """
         self.printStepInfo("Aggregating built-up land-use classes")
@@ -497,25 +497,36 @@ class Recreat:
         with self.progress if self._runsAsStandalone() else nullcontext() as bar:
             
             # raster 1 = builtup
-            src1, mtx_builtup, nodata_builtup = self._read_dataset("MASKS/built-up.tif")
+            src1, mtx_builtup, _ = self._read_dataset("MASKS/built-up.tif")
             meta1 = src1.meta.copy()
 
             print(meta1)
+            
 
             # raster 2 = pop
-            src2, mtx_pop, nodata_pop = self._read_dataset(population_grid)
+            src2 = self._get_dataset_reader(population_grid)
             meta2 = src2.meta.copy()
 
             print(meta2)
+            
 
-            transform, width, height = calculate_default_transform(src1.crs, meta2['crs'], meta2['width'], meta2['height'], *src2.bounds)                        
+            print("Starting transform")
+            dst_transform, width, height = calculate_default_transform(
+                src_crs=src1.crs, 
+                dst_crs=meta2['crs'], 
+                width=meta2['width'], 
+                height=meta2['height'], 
+                *src2.bounds)                        
+            
+
             meta1.update({
                 'crs': meta2['crs'],
-                'transform': transform,
+                'transform': dst_transform,
                 'width': width,
                 'height': height
             })
 
+            print("Starting reproject")
             mtx_sum_of_builtup = np.zeros((height, width), dtype=rasterio.float32)
             
             reproject(
@@ -523,7 +534,7 @@ class Recreat:
                 destination=mtx_sum_of_builtup,
                 src_transform=src1.transform,
                 src_crs=src1.crs,
-                dst_transform=transform,
+                dst_transform=dst_transform,
                 dst_crs=meta2['crs'],
                 resampling=Resampling.sum
             )
@@ -615,9 +626,9 @@ class Recreat:
 
         :param population_grid: Name of the population raster file to be used for disaggregation.
         :type population_grid: str
-        :param force_computing: Force (re-)computation of intermediate products if they already exist, defaults to False
+        :param force_computing: Force (re-)computation of intermediate products if they already exist, defaults to False.
         :type force_computing: bool, optional
-        :param write_scaled_result: Export min-max scaled result, if set to True, defaults to True
+        :param write_scaled_result: Export min-max scaled result, if set to True, defaults to True.
         :type write_scaled_result: bool, optional
         """        
 
@@ -632,8 +643,8 @@ class Recreat:
 
         # disaggregation in multiple steps
         # we require built-up to be available
-        if not os.path.isfile("{}/{}/MASKS/built-up.tif".format(self.data_path, self.root_path)) or force_computing:
-            self.aggregate_builtup_classes()
+        if not os.path.isfile(f"{self.data_path}/{self.root_path}/MASKS/built-up.tif") or force_computing:
+            self._aggregate_builtup_classes()
         else:
             print(Style.DIM + "    Skip aggregation of built-up classes. File exists." + Style.RESET_ALL)
 
@@ -1416,7 +1427,28 @@ class Recreat:
     # Helper functions
     #
     #
-    def _read_dataset(self, file_name: str, band: int = 1, nodata_values: List[float] = [0], is_scenario_specific:bool = True, nodata_fill_value = None, is_lazy_load = False) -> Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]:
+    def _get_dataset_reader(self, file_name: str, is_scenario_specific: bool = True) -> rasterio.DatasetReader:
+        """Get dataset reader for a given raster file.
+
+        :param file_name: Raster file for which a dataset reader should be returned.
+        :type file_name: str
+        :param is_scenario_specific: Indicates if the specified datasource located in a scenario-specific subfolder (True) or at the data path root (False), defaults to True
+        :type is_scenario_specific: bool, optional
+        :return: Dataset reader
+        :rtype: rasterio.DatasetReader
+        """
+        path = (
+            f"{self.data_path}/{file_name}"
+            if not is_scenario_specific
+            else f"{self.data_path}/{self.root_path}/{file_name}"
+        )
+
+        return rasterio.open(path)
+
+
+
+
+    def _read_dataset(self, file_name: str, band: int = 1, nodata_values: List[float] = [0], is_scenario_specific: bool = True, nodata_fill_value = None, is_lazy_load = False) -> Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]:
         """Read a dataset and return reference to the dataset, values, and boolean mask of nodata values.
 
         :param file_name: Filename of dataset to be read.
