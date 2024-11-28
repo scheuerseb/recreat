@@ -12,12 +12,16 @@ Depending on whether recreat is used from the CLI through recreat_util, or in a 
 Using recreat_util from the CLI
 -------------------------------
 
-When using recreat_util, reclassification is conducted using the ``reclassify`` subcommand. This subcommand takles two arguments, first, 
+When using recreat_util, reclassification is conducted using the ``reclassify`` subcommand. This subcommand takes two arguments, first, 
 source-classes to be reclassified, and destination-class, i.e., the new class value for al source classes. 
 
 .. code-block::
 
-    recreat_util [...] reclassify <source-classes> <destination-class> [...]
+    recreat_util [...] reclassify [options] <source-classes> <destination-class> [...]
+
+Options:
+
+-e, --export         Export recategorized raster to specified filename (by default, None).  
 
 Example:
 

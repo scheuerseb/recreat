@@ -68,12 +68,16 @@ reclassify subcommand
 
 .. code-block::
 
-    reclassify <source-classes> <destination-class>
+    reclassify [options] <source-classes> <destination-class>
 
 Arguments:
 
   * source-classes ― Comma-separated list of source class values.
   * destination-class ― Destination class value.
+
+Options:
+
+-e, --export         Export recategorized raster to specified filename (by default, None).  
 
 clumps subcommand
 -----------------
