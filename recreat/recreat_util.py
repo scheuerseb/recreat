@@ -163,7 +163,8 @@ def run_process(result, **kwargs):
     # instantiate
     
     from .recreat import Recreat
-    from .recreat_clustering import clustering
+    from .clustering import kmeans
+
 
     rc = Recreat(new_model.data_path)
 

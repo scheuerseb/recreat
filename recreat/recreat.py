@@ -434,7 +434,7 @@ class Recreat:
         :param mappings: Dictionary of new classes (keys), and corresponding list of class values to recategorize (values).
         :type mappings: Dict[int, List[int]]
         :param export_filename: Export to specified filename into root-path, defaults to None.
-        :type str  
+        :type export_filename: str  
         """        
 
         self.printStepInfo("Recategorizing classes")
