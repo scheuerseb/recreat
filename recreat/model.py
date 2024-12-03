@@ -4,7 +4,7 @@
 
 from enum import Enum
 from numpy import int32, float32, float64
-from typing import List, Dict
+from typing import List, Dict, Union
 from colorama import Fore, Back, Style
 from rich import print as outp
 from rich.panel import Panel
@@ -154,53 +154,13 @@ class recreat_model():
             return None    
     
     
-
-    # class diversity
-    def add_class_diversity(self) -> None:
-        self.add_task(CoreTask.class_diversity)
-
-    # average diversity across cost
-    def add_average_diversity_across_cost(self, cost_weights: Dict[int, float], export_non_weighted: bool, export_scaled: bool) -> None:
-        current_process = CoreTask.average_diversity_across_cost
-        self.add_task(current_process)
-        self._add_process_config(current_process, recreat_process_parameters.cost_weights, cost_weights)
-        self._add_process_config(current_process, recreat_process_parameters.export_non_weighted_results, export_non_weighted)
-        self._add_process_config(current_process, recreat_process_parameters.export_scaled_results, export_scaled)
-
-    # class flow
-    def add_class_flow(self) -> None:
-        self.add_task(CoreTask.class_flow)
-
-
-    # proximity rasters
-    def add_proximity(self, mode, lu_classes: List[int], include_builtup: bool) -> None:
-        current_process = CoreTask.proximity
-        self.add_task(current_process)
-        self._add_process_config(current_process, recreat_process_parameters.classes_on_restriction, lu_classes)
-        self._add_process_config(current_process, recreat_process_parameters.mode, mode)
-        self._add_process_config(current_process, recreat_process_parameters.include_special_class, include_builtup)
-
-
-    def add_average_cost(self, max_distance: float, mask_built_up: bool, export_scaled: bool) -> None:
-        current_process = CoreTask.average_cost
-        self.add_task(current_process)
-        self._add_process_config(current_process, recreat_process_parameters.user_threshold, max_distance)
-        self._add_process_config(current_process, recreat_process_parameters.include_special_class, mask_built_up)
-        self._add_process_config(current_process, recreat_process_parameters.export_scaled_results, export_scaled)
-
     # population disaggregation
     def add_disaggregate_population(self, pop_raster: str,  force: bool, export_scaled: bool) -> None:
-        current_process = CoreTask.population_disaggregation
+        current_process = CoreTask.Disaggregation
         self.add_task(current_process)
         self._add_process_config(current_process, recreat_process_parameters.population_raster, pop_raster)
         self._add_process_config(current_process, recreat_process_parameters.export_scaled_results, export_scaled)
         self._add_process_config(current_process, recreat_process_parameters.force, force)
-
-    def add_clustering_kmeans(self, dimensions, k, attempts):
-        self.add_task(ClusteringTask.kmeans)
-        # TODO Add more params
-
-
 
 
     def print(self) -> None:
@@ -214,38 +174,67 @@ class recreat_model():
         print(f"data path: {Fore.YELLOW}{Style.BRIGHT}{self.data_path}{Style.RESET_ALL}")
     
     def _print_land_use_map(self) -> None:
-        if self.model_get(ModelEnvironment.LandUseMap) is not None:
-            map_params = self.model_get(ModelEnvironment.LandUseMap)
-            print(f"root path: {Fore.YELLOW}{Style.BRIGHT}{map_params[LandUseMapParameters.RootPath]}{Style.RESET_ALL}")
-            print(f"use      : {Fore.CYAN}{Style.BRIGHT}{map_params[LandUseMapParameters.LanduseFileName]}{Style.RESET_ALL}")
+        if self.model_get(ModelEnvironment.LandUseData) is not None:
+            map_params = self.model_get(ModelEnvironment.LandUseData)
+            print(f"use      : {Fore.CYAN}{Style.BRIGHT}{map_params[LandUseMapParameters.LanduseFileName]}{Style.RESET_ALL} in {map_params[LandUseMapParameters.RootPath]}")
             print(f"           {map_params[LandUseMapParameters.NodataValues]} -> {map_params[LandUseMapParameters.NodataFillValue]}")
     
     def _print_model_classes(self) -> None:
         # part 2: specified classes etc.
         print()
-        tbl = Table(title="Parameter summary", show_lines=True)
-        tbl.add_column("Parameter")
-        tbl.add_column("Value(s)", style="cyan")
-        tbl.add_row('Patch classes', ','.join(map(str, self.classes_patch)))
-        tbl.add_row('Edge classes', ','.join(map(str, self.classes_edge)))
-        tbl.add_row('Built-up classes', ','.join(map(str, self.classes_builtup)))
-        tbl.add_row('Costs', ','.join(map(str, self.costs)))
-        outp(tbl)
+        print(f"Patch classes    : {','.join(map(str, self.classes_patch))}")
+        print(f"Edge classes     : {','.join(map(str, self.classes_edge))}")
+        print(f"Built-up classes : {','.join(map(str, self.classes_builtup))}")
+        print(f"Costs            : {','.join(map(str, self.costs))}")
+        print()
+        
+        #tbl = Table(title="Parameter summary", show_lines=True)
+        #tbl.add_column("Parameter")
+        #tbl.add_column("Value(s)", style="cyan")
+        #tbl.add_row('Patch classes', ','.join(map(str, self.classes_patch)))
+        #tbl.add_row('Edge classes', ','.join(map(str, self.classes_edge)))
+        #tbl.add_row('Built-up classes', ','.join(map(str, self.classes_builtup)))
+        #tbl.add_row('Costs', ','.join(map(str, self.costs)))
+        #outp(tbl)
 
     def _print_tasks(self) -> None:
         print("Tasks:")            
-        for p in CoreTask:
-   
-            if self.has_task_attached(p):
-                print(f"{Fore.YELLOW}{Style.BRIGHT}   * {p.label()}{Style.RESET_ALL}")
-                print(self.get_task(p).to_string())
-            else:
-                print(f"{Fore.WHITE}{Style.DIM}     {p.label()}{Style.RESET_ALL}")
+        for p in CoreTask:   
+            self._print_task_detail(p)
+        for p in ClusteringTask:
+            self._print_task_detail(p)
+    
+    def _print_task_detail(self, p: Union[CoreTask, ClusteringTask]) -> None:
+        if self.has_task_attached(p):
+            print(f"{Fore.YELLOW}{Style.BRIGHT}   * {p.label()}{Style.RESET_ALL}")
+            print(self.get_task(p).to_string())
+        else:
+            print(f"{Fore.WHITE}{Style.DIM}     {p.label()}{Style.RESET_ALL}")
 
+    def tasks_require_landuse_import(self):
+        return len(set(list(CoreTask)).intersection(self.tasks.keys())) > 0
 
     def validate(self):
+        if len(self.classes_patch + self.classes_edge) < 1:
+            raise ModelValidationError('No recreational classes defined in model.')
         if self.costs is None or len(self.costs) < 1:
-            raise ModelValidationError('No costs defined in model.')
+            raise ModelValidationError('No costs defined in model.')    
+        if self.tasks_require_landuse_import():
+            if self.model_get(ModelEnvironment.LandUseData) is None:
+                raise ModelValidationError('No land-use raster defined in model.')
+            # add tests for root-path and filename to exist
+        
+
+    def run_task(self, cli_model, p: Union[CoreTask, ClusteringTask]) -> None:
+        # get task arguments
+        task_args = {k.name() : v for k,v in self.get_task(p).args.items()}                
+        # for debug purposes
+        print(task_args)
+
+        # execute corresponding method
+        func = getattr(cli_model, p.name())
+        func(**task_args)
+
 
     def run(self):
         
@@ -256,22 +245,22 @@ class recreat_model():
         for attrib in self.getargs_model_params():
             print(attrib)
             rc.set_params(**attrib)
-
-        if set(list(CoreTask)).intersection(self.tasks.keys()):
-            import_args = {k.name() : v for k,v in self.model_get(ModelEnvironment.LandUseMap).items()}
+                
+        if self.tasks_require_landuse_import():
+            import_args = {k.name() : v for k,v in self.model_get(ModelEnvironment.LandUseData).items()}
             print(import_args)
             rc.set_land_use_map(**import_args)
 
         # iterate over tasks
         p: CoreTask
         for p in CoreTask:
-
             if self.has_task_attached(p):
-                task_args = {k.name() : v for k,v in self.get_task(p).args.items()}                
-                # for debug purposes
-                print(task_args)
-                func = getattr(rc, p.name())
-                func(**task_args)
+                self.run_task(rc, p)
+
+        p: ClusteringTask
+        for p in ClusteringTask:
+            if self.has_task_attached(p):
+                self.run_task(rc, p)
 
 
                 

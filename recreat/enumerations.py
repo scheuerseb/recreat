@@ -20,7 +20,7 @@ class ModelParameter(RecreatBaseEnum):
 
 class ModelEnvironment(RecreatBaseEnum):
     DataPath = 'data-path', 'data_path'
-    LandUseMap = 'land-use raster file', 'land_use_data'
+    LandUseData = 'land-use raster file', 'land_use_data'
     clean_temporary_files = 'clean-temp-path'
 
 class LandUseMapParameters(RecreatBaseEnum):
@@ -38,12 +38,12 @@ class CoreTask(RecreatBaseEnum):
     ClassTotalSupply = 'class-total-supply', 'class_total_supply'
     AggregateTotalSupply = 'aggregate-total-supply', 'aggregate_class_total_supply'
     AverageTotalSupplyAcrossCost = 'average-total-supply', 'average_total_supply_across_cost'
-    class_diversity = 'class-diversity', 'class_diversity'
-    average_diversity_across_cost = 'average-diversity', 'average_diversity_across_cost'
-    population_disaggregation = 'disaggregate-population', 'disaggregate_population'
-    class_flow = 'class-flow', 'class_flow'
-    proximity = 'proximities', 'compute_distance_rasters'
-    average_cost = 'average-cost', 'cost_to_closest'
+    ClassDiversity = 'class-diversity', 'class_diversity'
+    AverageDiversityAcrossCost = 'average-diversity', 'average_diversity_across_cost'
+    Disaggregation = 'disaggregate-population', 'disaggregate_population'
+    ClassFlow = 'class-flow', 'class_flow'
+    ComputeDistanceRasters = 'proximities', 'compute_distance_rasters'
+    CostToClosest = 'average-cost', 'cost_to_closest'
     
 class ClusteringTask(RecreatBaseEnum):
     kmeans = 'k-means clustering', 'kmeans'
@@ -99,5 +99,14 @@ class ParameterNames:
         LandUseClasses = 'land-use classes', 'lu_classes'
         AssessBuiltUp = 'assess proximity to built-up', 'assess_builtup' 
 
+    class CostToClosest(RecreatBaseEnum):
+        DistanceThreshold = 'threshold', 'distance_threshold'
+        MaskBuiltUp = 'mask built-up', 'builtup_masking'
+        WriteScaledResult = 'write scaled results', 'write_scaled_result'
+
+    class Disaggregation(RecreatBaseEnum):
+        PopulationRaster = 'population raster filename', 'population_grid'
+        ForceComputing = 'force (re-)computation', 'force_computing'
+        WriteScaledResult = 'write scaled results', 'write_scaled_result'
 
     

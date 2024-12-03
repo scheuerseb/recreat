@@ -10,7 +10,8 @@ from .exceptions import ModelValidationError
 
 import click
 import pathlib
-from colorama import just_fix_windows_console
+from colorama import Fore, Back, Style, just_fix_windows_console
+
 just_fix_windows_console()
 
 
@@ -43,8 +44,7 @@ def use(root_path, landuse_filename, nodata, fill):
         LandUseMapParameters.NodataValues : sorted(list({float(num) for item in nodata for num in str(item).split(',')})),
         LandUseMapParameters.NodataFillValue : float(fill)
     }
-    cli_model.model_set(ModelEnvironment.LandUseMap, landuse_params)
-
+    cli_model.model_set(ModelEnvironment.LandUseData, landuse_params)
 
 @recreat_util.command(help="Specify model parameters.")
 @click.option('-p', '--patch', default=None, multiple=True, help="(Comma-separated) patch class(es).")
@@ -60,7 +60,6 @@ def params(cost, patch, edge, buffered_edge, built_up):
     cli_model.model_set(ClassType.Built_up, sorted(list({int(num) for item in built_up for num in str(item).split(',')})))
     # add costs to model
     cli_model.model_set(ModelParameter.Costs, sorted(list({int(num) for item in cost for num in str(item).split(',')})))
-
 
 @recreat_util.command(help="Reclassify sets of classes into new class.")
 @click.option('-e', '--export', default=None, type=str, help="Export result of reclassification into root-path.")
@@ -83,14 +82,12 @@ def reclassify(source_classes, destination_class, export):
         ):
             current_config.args[ParameterNames.Reclassification.ExportFilename] = export
 
-        
 @recreat_util.command(help="Identify clumps in land-use raster.")
 @click.option('--barrier-classes', default=[0], type=str, multiple=True)
 def clumps(barrier_classes):    
     new_task_config = Configuration(CoreTask.ClumpDetection)
     new_task_config.add_arg(ParameterNames.ClumpDetection.BarrierClasses, sorted(list({int(num) for item in barrier_classes for num in str(item).split(',')})))
     cli_model.add_task(new_task_config)
-
 
 @recreat_util.command(help="Compute land-use (class) masks.")
 def mask_landuses():
@@ -142,7 +139,6 @@ def average_total_supply(cost_weights, landuse_weights, exclude_non_weighted, ex
             for x, y in (element.split('=') 
             for element in landuse_weights.split(',')))
     
-
     new_task_config = Configuration(CoreTask.AverageTotalSupplyAcrossCost)
     new_task_config.add_arg(ParameterNames.AverageTotalSupplyAcrossCost.LandUseWeights, landuse_weights)
     new_task_config.add_arg(ParameterNames.AverageTotalSupplyAcrossCost.CostWeights, cost_weights)
@@ -150,10 +146,10 @@ def average_total_supply(cost_weights, landuse_weights, exclude_non_weighted, ex
     new_task_config.add_arg(ParameterNames.AverageTotalSupplyAcrossCost.WriteScaledResult, exclude_scaled)
     cli_model.add_task(new_task_config)
 
-
 @recreat_util.command(help="Compute class diversity per cost.")
 def class_diversity():
-    cli_model.add_class_diversity()
+    new_task_config = Configuration(CoreTask.ClassDiversity)
+    cli_model.add_task(new_task_config)
 
 @recreat_util.command(help="Average class diversity across costs.")
 @click.option('--cost-weights', type=str, default=None)
@@ -165,32 +161,51 @@ def average_diversity(cost_weights, exclude_non_weighted, exclude_scaled):
              for x, y in (element.split('=') 
              for element in cost_weights.split(',')))
 
-    cli_model.add_average_diversity_across_cost(cost_weights=cost_weights, export_non_weighted=exclude_non_weighted, export_scaled=exclude_scaled)
-
+    new_task_config = Configuration(CoreTask.AverageDiversityAcrossCost)
+    new_task_config.add_arg(ParameterNames.AverageDiversityAcrossCost.CostWeights, cost_weights)
+    new_task_config.add_arg(ParameterNames.AverageDiversityAcrossCost.WriteNonWeightedResult, exclude_non_weighted)
+    new_task_config.add_arg(ParameterNames.AverageDiversityAcrossCost.WriteScaledResult, exclude_scaled)
+    cli_model.add_task(new_task_config)
 
 @recreat_util.command(help="Compute class-based flow per cost.")
 def class_flow():
-    cli_model.add_class_flow()
+    new_task_config = Configuration(CoreTask.ClassFlow)
+    cli_model.add_task(new_task_config)
 
 @recreat_util.command(help="Compute proximity (distance) rasters.")
-@click.option('-m', '--mode', type=click.Choice(['dr', 'xr']), default='xr', help="Method to use. Either distancerasters or xarray-spatial.")
+@click.option('-m', '--mode', type=click.Choice(['dr', 'xr'], case_sensitive=True), default='xr',  help="Method to use. Either distancerasters or xarray-spatial.")
 @click.option('-b', '--include-builtup', is_flag=True, default=False, help="Include built-up in proximity assessment.")
 def proximities(mode, include_builtup):
-    cli_model.add_proximity(mode=mode, lu_classes=None, include_builtup=include_builtup)
+    new_task_config = Configuration(CoreTask.ComputeDistanceRasters)
+    new_task_config.add_arg(ParameterNames.ComputeDistanceRasters.Mode, mode)
+    new_task_config.add_arg(ParameterNames.ComputeDistanceRasters.LandUseClasses, None)
+    new_task_config.add_arg(ParameterNames.ComputeDistanceRasters.AssessBuiltUp, include_builtup)
+    cli_model.add_task(new_task_config)
 
 @recreat_util.command(help="Disaggregate population to built-up.")
 @click.option('-s', '--exclude-scaled', is_flag=True, default=True, type=bool, help="Exclude export of scaled result(s).")
 @click.option('-f', '--force', is_flag=True, default=False, type=bool, help="Force recomputation of intermediate products.")
 @click.argument('pop')
 def disaggregate_population(pop, exclude_scaled, force):
-    cli_model.add_disaggregate_population(pop_raster=pop, force=force, export_scaled=exclude_scaled)
-
+    new_task_config = Configuration(CoreTask.Disaggregation)
+    new_task_config.add_arg(ParameterNames.Disaggregation.PopulationRaster, pop)
+    new_task_config.add_arg(ParameterNames.Disaggregation.ForceComputing, force)
+    new_task_config.add_arg(ParameterNames.Disaggregation.WriteScaledResult, exclude_scaled)
+    cli_model.add_task(new_task_config)
+    
 @recreat_util.command(help="Determine (average) cost to closest.")
 @click.option('-d', '--max-distance', default=-1.0, type=float, help="Maximum cost value used for masking of cost rasters. If set to a negative value, do not mask areas with costs higher than maximum cost. Defaults to -1.")
 @click.option('-b', '--mask-built-up', is_flag=True, default=False, type=bool, help="Indicates whether outputs will be restricted to built-up land-use classes, defaults to False.")
 @click.option('-s', '--exclude-scaled', is_flag=True, default=True, type=bool, help="Exclude export of scaled result(s).")
 def cost(max_distance, mask_built_up, exclude_scaled):
-    cli_model.add_average_cost(max_distance=max_distance, mask_built_up=mask_built_up, export_scaled=exclude_scaled)
+    new_task_config = Configuration(CoreTask.CostToClosest)
+    new_task_config.add_arg(ParameterNames.CostToClosest.DistanceThreshold, max_distance)
+    new_task_config.add_arg(ParameterNames.CostToClosest.MaskBuiltUp, mask_built_up)
+    new_task_config.add_arg(ParameterNames.CostToClosest.WriteScaledResult, exclude_scaled)
+    cli_model.add_task(new_task_config)
+
+
+
 
 @recreat_util.result_callback()
 def run_process(result, **kwargs):
@@ -199,15 +214,16 @@ def run_process(result, **kwargs):
         # model requirements check
         cli_model.validate()
     except ModelValidationError as e:
-        print(f"{e}")
+        print(f"recreat_util error: {Fore.RED}{Style.BRIGHT}{e}{Style.RESET_ALL}")
         return
-
 
     # print model summary
     cli_model.print() 
+    
     # ask if model should be run
     user_confirm = input("Run this model? (y/N): ")
     user_confirm = False if user_confirm is None or user_confirm == '' or user_confirm.lower() == 'n' else True
+    
     if not user_confirm:
         print('Aborted')
         return
@@ -215,47 +231,6 @@ def run_process(result, **kwargs):
     # run model
     cli_model.run()
 
-
-
-            
-    #         if p is CoreTask.edge_detection:               
-    #             rc.detect_edges(lu_classes=new_model.classes_edge,
-    #                 ignore_edges_to_class=new_model.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction),
-    #                 buffer_edges=new_model.classes_buffered_edges)
-            
-    #         if p is CoreTask.class_total_supply:
-    #             rc.class_total_supply(mode = new_model.get_processing_parameter(p, recreat_process_parameters.mode))
-            
-    #         if p is CoreTask.aggregate_class_total_supply:
-    #             rc.aggregate_class_total_supply(lu_weights=new_model.get_processing_parameter(p, recreat_process_parameters.lu_weights), 
-    #                                             write_non_weighted_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results))
-            
-    #         if p is CoreTask.average_total_supply_across_cost:
-    #             rc.average_total_supply_across_cost(lu_weights=new_model.get_processing_parameter(p, recreat_process_parameters.lu_weights), 
-    #                                                 cost_weights=new_model.get_processing_parameter(p, recreat_process_parameters.cost_weights),
-    #                                                 write_non_weighted_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results),
-    #                                                 write_scaled_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_scaled_results)) 
-            
-    #         if p is CoreTask.class_diversity:
-    #             rc.class_diversity()
-                
-    #         if p is CoreTask.average_diversity_across_cost:
-    #             rc.average_diversity_across_cost(cost_weights=new_model.get_processing_parameter(p, recreat_process_parameters.cost_weights),
-    #                                             write_non_weighted_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results),
-    #                                             write_scaled_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_scaled_results))
-                
-    #         if p is CoreTask.proximity:
-    #             rc.compute_distance_rasters(mode=new_model.get_processing_parameter(p, recreat_process_parameters.mode),
-    #                                         lu_classes=new_model.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction),
-    #                                         assess_builtup=new_model.get_processing_parameter(p, recreat_process_parameters.include_special_class))
-            
-    #         if p is CoreTask.class_flow:
-    #             rc.class_flow()
-
-    #         if p is CoreTask.population_disaggregation:
-    #             rc.disaggregate_population(population_grid=new_model.get_processing_parameter(p, recreat_process_parameters.population_raster),
-    #                                        force_computing=new_model.get_processing_parameter(p, recreat_process_parameters.force),
-    #                                        write_scaled_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_scaled_results))
 
 
 
