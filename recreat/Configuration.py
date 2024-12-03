@@ -26,6 +26,9 @@ class Configuration:
     def task_type(self) -> any:
         return self._task_type
     
+    def get_arg(self, arg_name):
+        return None if arg_name not in self._args.keys() else self._args[arg_name]
+    
     def to_string(self) -> str:
         return "\n".join(f"       - {k.label()}: {v}" for k, v in self.args.items())
         

@@ -2,7 +2,7 @@
 # (C) 2024 Sebastian Scheuer (seb.scheuer@outlook.de)                         #
 ###############################################################################
 
-from .model import recreat_model, ModelParameter, ModelEnvironment, LandUseMapParameters, CoreTask, ClusteringTask
+from .model import Model, ModelParameter, ModelEnvironment, ScenarioParameters, CoreTask, ClusteringTask
 from .model import ClassType
 from .Configuration import Configuration
 from .enumerations import ParameterNames
@@ -17,7 +17,7 @@ just_fix_windows_console()
 
 
 
-cli_model = recreat_model()
+cli_model = Model()
 
 @click.group(invoke_without_command=True, chain=True, )
 @click.option('-w', '--data-path', default=None, help="Set data path if data is not located in the current path.")
@@ -27,7 +27,7 @@ cli_model = recreat_model()
 @click.option('--no-cleaning', is_flag=True, default=True, type=bool, help="Do not clean temporary files after completion.")
 def recreat_util(data_path, verbose, datatype, no_cleaning, debug):
     cli_model.model_set(ModelParameter.Verbosity, verbose)
-    cli_model.model_set(ModelParameter.DataType, recreat_model.datatype_to_numpy(datatype) )
+    cli_model.model_set(ModelParameter.DataType, Model.datatype_to_numpy(datatype) )
     cli_model.model_set(ModelEnvironment.DataPath, data_path if data_path is not None else str(pathlib.Path().absolute()))
     #new_model.clean_temporary_files = no_cleaning
     #new_model.is_debug = debug
@@ -39,12 +39,12 @@ def recreat_util(data_path, verbose, datatype, no_cleaning, debug):
 @click.argument('landuse-filename')
 def use(root_path, landuse_filename, nodata, fill):
     landuse_params = {
-        LandUseMapParameters.RootPath : root_path,
-        LandUseMapParameters.LanduseFileName : landuse_filename,
-        LandUseMapParameters.NodataValues : sorted(list({float(num) for item in nodata for num in str(item).split(',')})),
-        LandUseMapParameters.NodataFillValue : float(fill)
+        ScenarioParameters.RootPath : root_path,
+        ScenarioParameters.LanduseFileName : landuse_filename,
+        ScenarioParameters.NodataValues : sorted(list({float(num) for item in nodata for num in str(item).split(',')})),
+        ScenarioParameters.NodataFillValue : float(fill)
     }
-    cli_model.model_set(ModelEnvironment.LandUseData, landuse_params)
+    cli_model.model_set(ModelEnvironment.Scenario, landuse_params)
 
 @recreat_util.command(help="Specify model parameters.")
 @click.option('-p', '--patch', default=None, multiple=True, help="(Comma-separated) patch class(es).")

@@ -21,10 +21,10 @@ class ModelParameter(RecreatBaseEnum):
 
 class ModelEnvironment(RecreatBaseEnum):
     DataPath = 'data-path', 'data_path'
-    LandUseData = 'land-use raster file', 'land_use_data'
+    Scenario = 'land-use raster file', 'land_use_data'
     clean_temporary_files = 'clean-temp-path'
 
-class LandUseMapParameters(RecreatBaseEnum):
+class ScenarioParameters(RecreatBaseEnum):
     RootPath = 'root-path', 'root_path'
     LanduseFileName = 'land-use raster', 'land_use_filename'
     NodataValues = 'nodata values', 'nodata_values'
