@@ -26,3 +26,7 @@ class Configuration:
     def task_type(self) -> any:
         return self._task_type
     
+    def to_string(self) -> str:
+        return "".join(f"       - {k.label()}: {v}\n" for k, v in self.args.items())
+        
+    

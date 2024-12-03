@@ -13,75 +13,8 @@ from rich.table import Table
 
 from .Configuration import Configuration
 
-from .parameternames import ParameterNames
-
-
-class RecreatBaseEnum(Enum):
-    def label(self):
-        return self.value[0]
-    def method_name(self):
-        return self.value[1]
-
-class ClassType(Enum):
-    Edge = 'classes.edge'
-    BufferedEdge = 'buffered-edge'
-    Patch = 'classes.patch'
-    Built_up = 'classes.builtup' 
-
-class ModelParameter(Enum):
-    DataType = 'use-data-type'
-    Verbosity = 'verbose-reporting'
-    Costs = 'costs'
-
-class ModelEnvironment(Enum):
-    DataPath = 'data_path'
-    LandUseMap = 'map'
-    clean_temporary_files = 'clean-temp-path'
-
-class LandUseMapParameters(Enum):
-    RootPath = 'root_path'
-    LanduseFileName = 'land_use_filename'
-    NodataValues = 'nodata_values'
-    NodataFillValue = 'nodata_fill_value'
-
-
-class CoreTask(RecreatBaseEnum):
-    Reclassification = 'reclassification', 'reclassify'
-    ClumpDetection = 'clumps', 'detect_clumps'
-    MaskLandUses = 'mask-landuses', 'mask_landuses'
-    EdgeDetection = 'detect-edges', 'detect_edges'
-    ClassTotalSupply = 'class-total-supply', 'class_total_supply'
-    aggregate_class_total_supply = 'aggregate-total-supply', 'aggregate_class_total_supply'
-    average_total_supply_across_cost = 'average-total-supply', 'average_total_supply_across_cost'
-    class_diversity = 'class-diversity', 'class_diversity'
-    average_diversity_across_cost = 'average-diversity', 'average_diversity_across_cost'
-    population_disaggregation = 'disaggregate-population', 'disaggregate_population'
-    class_flow = 'class-flow', 'class_flow'
-    proximity = 'proximities', 'compute_distance_rasters'
-    average_cost = 'average-cost', 'cost_to_closest'
-    
-
-
-class ClusteringTask(Enum):
-    kmeans = 'kmeans'
-
-
-
-
-class recreat_process_parameters(Enum):
-    classes_on_restriction = 'classes-on-restriction'
-    buffered_edge_classes = 'buffered-edge-classes'
-    lu_weights = 'landuse-weights'
-    cost_weights = 'cost-weights'
-    mode = 'mode'
-    export_name = 'export-name'
-    export_non_weighted_results = 'export-non-weighted-results'
-    export_scaled_results = 'export-scaled-results'
-    include_special_class = 'include-special-class'
-    population_raster = 'population-grid'
-    force = 'force'
-    user_threshold = 'user-threshold'
-    
+from .enumerations import *
+from .exceptions import ModelValidationError
 
 class recreat_model():
 
@@ -112,20 +45,22 @@ class recreat_model():
             self.tasks[task_config.task_type] = task_config
 
     def get_task(self, task_type) -> Configuration:
-        if task_type not in self.tasks.keys():
-            return None
-        return self.tasks[task_type]
+        return None if task_type not in self.tasks.keys() else self.tasks[task_type]
+
+    
+    def has_task_attached(self, task: any) -> bool:
+        return task in self.tasks.keys()
 
     
     
     def getargs_model_params(self) -> List[Dict[str, any]]:
         return [
-            {'param_name': ModelParameter.Verbosity.value, 'param_value': self.verbose},
-            {'param_name': ModelParameter.DataType.value, 'param_value': self.datatype},
-            {'param_name': ClassType.Patch.value, 'param_value': self.classes_patch},
-            {'param_name': ClassType.Edge.value, 'param_value': self.classes_edge},
-            {'param_name': ClassType.Built_up.value, 'param_value': self.classes_builtup},
-            {'param_name': ModelParameter.Costs.value, 'param_value': self.costs},
+            {'param_name': ModelParameter.Verbosity.name(), 'param_value': self.verbose},
+            {'param_name': ModelParameter.DataType.name(), 'param_value': self.datatype},
+            {'param_name': ClassType.Patch.name(), 'param_value': self.classes_patch},
+            {'param_name': ClassType.Edge.name(), 'param_value': self.classes_edge},
+            {'param_name': ClassType.Built_up.name(), 'param_value': self.classes_builtup},
+            {'param_name': ModelParameter.Costs.name(), 'param_value': self.costs},
         ]
     
    
@@ -168,7 +103,10 @@ class recreat_model():
     # costs
     @property
     def costs(self) -> List[int]:
+        if ModelParameter.Costs not in self.params.keys():
+            return []
         return self.params[ModelParameter.Costs]    
+    
     # datatype
     @property
     def datatype(self) -> str:
@@ -217,18 +155,6 @@ class recreat_model():
     
     
         
-
-
-    # tasks and their parameters
-
-
-
-    # class total supply
-    def add_class_total_supply(self, mode: str) -> None:
-        current_process = CoreTask.ClassTotalSupply
-        self.add_task(current_process)
-        self._add_process_config(current_process, recreat_process_parameters.mode, mode)
-
     # aggregate supply
     def add_aggregate_supply(self, lu_weights:Dict[int,float], export_non_weighted: bool):        
         current_process = CoreTask.aggregate_class_total_supply
@@ -307,9 +233,9 @@ class recreat_model():
     def _print_land_use_map(self) -> None:
         if self.model_get(ModelEnvironment.LandUseMap) is not None:
             map_params = self.model_get(ModelEnvironment.LandUseMap)
-            print(f"root path: {Fore.YELLOW}{Style.BRIGHT}{map_params[LandUseMapParameters.RootPath.value]}{Style.RESET_ALL}")
-            print(f"use      : {Fore.CYAN}{Style.BRIGHT}{map_params[LandUseMapParameters.LanduseFileName.value]}{Style.RESET_ALL}")
-            print(f"           {map_params[LandUseMapParameters.NodataValues.value]} -> {map_params[LandUseMapParameters.NodataFillValue.value]}")
+            print(f"root path: {Fore.YELLOW}{Style.BRIGHT}{map_params[LandUseMapParameters.RootPath]}{Style.RESET_ALL}")
+            print(f"use      : {Fore.CYAN}{Style.BRIGHT}{map_params[LandUseMapParameters.LanduseFileName]}{Style.RESET_ALL}")
+            print(f"           {map_params[LandUseMapParameters.NodataValues]} -> {map_params[LandUseMapParameters.NodataFillValue]}")
     
     def _print_model_classes(self) -> None:
         # part 2: specified classes etc.
@@ -326,114 +252,17 @@ class recreat_model():
     def _print_tasks(self) -> None:
         print("Tasks:")            
         for p in CoreTask:
-            processes_info = self._get_task_info(p)
-            for outstr in processes_info:
-                print(outstr)
-        
-        print()
-      
-          
-    def _get_task_info(self, p: any) -> List[str]:
-        
-        str_results = []
-        contains_process = self.has_task_attached(p)
-
-        star = '*' if contains_process else ' '
-        process_foreground = Fore.YELLOW if contains_process else Fore.WHITE
-        process_highlight = Style.BRIGHT if contains_process else Style.NORMAL
-
-        if not contains_process: 
-            str_results.append(f"{process_foreground}{process_highlight}   {star} {p.label()} {Style.RESET_ALL}")
-
-        else:  
-            process_state_shortinfo = []
-            process_state_longinfo = []
-            current_config = self.get_task(p)
-
-            if p is CoreTask.Reclassification:                
-                if current_config.args[ParameterNames.Reclassification.ExportFilename.value] is not None:
-                    process_state_shortinfo.append(f"export={current_config.args[ParameterNames.Reclassification.ExportFilename.value]}")
-                for k,v in current_config.args[ParameterNames.Reclassification.Mappings.value].items():
-                    process_state_longinfo.append(f"     {v} -> {k}")
-
-            if p is CoreTask.ClumpDetection:
-                process_state_shortinfo.append(f"barrier classes={current_config.args[ParameterNames.ClumpDetection.BarrierClasses.value]}")
-
-            if p is CoreTask.EdgeDetection:
-                process_state_shortinfo.extend(
-                    (
-                        f"ignore edges to class={current_config.args[ParameterNames.EdgeDetection.IgnoreEdgesToClass.value]}",
-                        "buffer=" + ','.join(map(str, current_config.args[ParameterNames.EdgeDetection.BufferEdges.value])),
-                    )
-                )
-            
-            if p is CoreTask.ClassTotalSupply:
-                process_state_shortinfo.append(
-                    f"mode={current_config.args[ParameterNames.ClassTotalSupply.Mode.value]}"
-                )
-
-            # if p is CoreTask.aggregate_class_total_supply:                                
-            #     if self.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results):
-            #         process_state_shortinfo.append("export non-weighted results")       
-            #     process_state_longinfo.append(f"{process_foreground}      land-use weights={self.get_processing_parameter(p, recreat_process_parameters.lu_weights)}{Style.RESET_ALL}")
-                                       
-
-            # if p is CoreTask.average_total_supply_across_cost:                                
-            #     if self.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results):
-            #         process_state_shortinfo.append("export non-weighted results")                
-            #     if self.get_processing_parameter(p, recreat_process_parameters.export_scaled_results):
-            #         process_state_shortinfo.append("export scaled results")   
-
-            #     process_state_longinfo.append(f"{process_foreground}      cost weights={self.get_processing_parameter(p, recreat_process_parameters.cost_weights)}{Style.RESET_ALL}")
-            #     process_state_longinfo.append(f"{process_foreground}      land-use weights={self.get_processing_parameter(p, recreat_process_parameters.lu_weights)}{Style.RESET_ALL}")
-             
-
-            # if p is CoreTask.average_diversity_across_cost:                
-            #     if self.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results):
-            #         process_state_shortinfo.append("export non-weighted results")                
-            #     if self.get_processing_parameter(p, recreat_process_parameters.export_scaled_results):
-            #         process_state_shortinfo.append("export scaled results")     
-
-            #     process_state_longinfo.append(f"{process_foreground}     cost weights={self.get_processing_parameter(p, recreat_process_parameters.cost_weights)}{Style.RESET_ALL}")
-                           
-
-            # if p is CoreTask.proximity:
-            #     process_state_shortinfo.append(f"mode={self.get_processing_parameter(p, recreat_process_parameters.mode)}")
-            #     if self.get_processing_parameter(p, recreat_process_parameters.include_special_class):
-            #         process_state_shortinfo.append("assess proximities to built-up")
-
-            #     process_state_longinfo.append(f"{process_foreground}      land-use classes={self.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction)}{Style.RESET_ALL}")
+   
+            if self.has_task_attached(p):
+                print(f"{Fore.YELLOW}{Style.BRIGHT}   * {p.label()}{Style.RESET_ALL}")
+                print(self.get_task(p).to_string())
+            else:
+                print(f"{Fore.WHITE}{Style.DIM}     {p.label()}{Style.RESET_ALL}")
 
 
-            # if p is CoreTask.average_cost:                                            
-            #     if self.get_processing_parameter(p, recreat_process_parameters.user_threshold) > 0:
-            #         process_state_shortinfo.append(f"distance threshold={self.get_processing_parameter(p, recreat_process_parameters.user_threshold)}")                
-            #     else:
-            #         process_state_shortinfo.append("no maximum distance masking")
-
-            #     if self.get_processing_parameter(p, recreat_process_parameters.export_scaled_results):                             
-            #         process_state_shortinfo.append("export scaled results")
-
-            # if p is CoreTask.population_disaggregation:
-            #     process_state_shortinfo.append(
-            #         f"population={self.get_processing_parameter(p, recreat_process_parameters.population_raster)}"
-            #     )
-            #     if self.get_processing_parameter(p, recreat_process_parameters.force):
-            #         process_state_shortinfo.append("force")
-            #     if self.get_processing_parameter(p, recreat_process_parameters.export_scaled_results):
-            #         process_state_shortinfo("export scaled results")
-
-            str_results.append(f"{process_foreground}{process_highlight}   {star} {p.label()}{Style.RESET_ALL} {'(' if process_state_shortinfo else ''}{', '.join(process_state_shortinfo)}{')' if process_state_shortinfo else ''}")
-            str_results += process_state_longinfo 
-
-        return str_results
-
-
-
-
-    def has_task_attached(self, task: any) -> bool:
-        return True if task in self.tasks.keys() else False
-
+    def validate(self):
+        if self.costs is None or len(self.costs) < 1:
+            raise ModelValidationError('No costs defined in model.')
 
     def run(self):
         
@@ -446,19 +275,19 @@ class recreat_model():
             rc.set_params(**attrib)
 
         if set(list(CoreTask)).intersection(self.tasks.keys()):
-            rc.set_land_use_map(**self.model_get(ModelEnvironment.LandUseMap))
+            import_args = {k.name() : v for k,v in self.model_get(ModelEnvironment.LandUseMap).items()}
+            print(import_args)
+            rc.set_land_use_map(**import_args)
 
         # iterate over tasks
         p: CoreTask
         for p in CoreTask:
 
             if self.has_task_attached(p):
-                task_args = self.get_task(p).args
-                
+                task_args = {k.name() : v for k,v in self.get_task(p).args.items()}                
                 # for debug purposes
                 print(task_args)
-
-                func = getattr(rc, p.method_name())
+                func = getattr(rc, p.name())
                 func(**task_args)
 
 
