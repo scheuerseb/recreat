@@ -122,7 +122,7 @@ def aggregate_total_supply(landuse_weights, exclude_non_weighted):
             for x, y in (element.split('=') 
             for element in landuse_weights.split(',')))
     
-    new_task_config = Configuration(CoreTask.aggregate_class_total_supply)
+    new_task_config = Configuration(CoreTask.AggregateTotalSupply)
     new_task_config.add_arg(ParameterNames.AggregateClassTotalSupply.LandUseWeights, landuse_weights)
     new_task_config.add_arg(ParameterNames.AggregateClassTotalSupply.WriteNonWeightedResult, exclude_non_weighted)
     cli_model.add_task(new_task_config)
@@ -142,7 +142,13 @@ def average_total_supply(cost_weights, landuse_weights, exclude_non_weighted, ex
             for x, y in (element.split('=') 
             for element in landuse_weights.split(',')))
     
-    cli_model.add_average_total_supply_across_cost(cost_weights=cost_weights, lu_weights=landuse_weights, export_non_weighted=exclude_non_weighted, export_scaled=exclude_scaled)
+
+    new_task_config = Configuration(CoreTask.AverageTotalSupplyAcrossCost)
+    new_task_config.add_arg(ParameterNames.AverageTotalSupplyAcrossCost.LandUseWeights, landuse_weights)
+    new_task_config.add_arg(ParameterNames.AverageTotalSupplyAcrossCost.CostWeights, cost_weights)
+    new_task_config.add_arg(ParameterNames.AverageTotalSupplyAcrossCost.WriteNonWeightedResult, exclude_non_weighted)
+    new_task_config.add_arg(ParameterNames.AverageTotalSupplyAcrossCost.WriteScaledResult, exclude_scaled)
+    cli_model.add_task(new_task_config)
 
 
 @recreat_util.command(help="Compute class diversity per cost.")

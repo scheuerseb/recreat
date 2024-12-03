@@ -154,23 +154,6 @@ class recreat_model():
             return None    
     
     
-        
-    # aggregate supply
-    def add_aggregate_supply(self, lu_weights:Dict[int,float], export_non_weighted: bool):        
-        current_process = CoreTask.aggregate_class_total_supply
-        self.add_task(current_process)
-        self._add_process_config(current_process, recreat_process_parameters.lu_weights, lu_weights)
-        self._add_process_config(current_process, recreat_process_parameters.export_non_weighted_results, export_non_weighted)
-
-    # average total supply across cost
-    def add_average_total_supply_across_cost(self, lu_weights:Dict[int,float], cost_weights: Dict[int,float], export_non_weighted: bool, export_scaled: bool) -> None:
-        current_process = CoreTask.average_total_supply_across_cost
-        self.add_task(current_process)
-        self._add_process_config(current_process, recreat_process_parameters.lu_weights, lu_weights)
-        self._add_process_config(current_process, recreat_process_parameters.cost_weights, cost_weights)
-        self._add_process_config(current_process, recreat_process_parameters.export_non_weighted_results, export_non_weighted)
-        self._add_process_config(current_process, recreat_process_parameters.export_scaled_results, export_scaled)
-
 
     # class diversity
     def add_class_diversity(self) -> None:
