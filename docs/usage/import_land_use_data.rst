@@ -20,14 +20,14 @@ The land-use raster to use is then specified through the ``use`` subcommand. Thi
 
 .. code-block::
 
-    recreat_util [options] root-path use [options] landuse-filename [...]
+    recreat_util [options] use [options] <root-path> <landuse-filename> [...]
 
 
 Example:
 
 .. code-block::
     
-    recreat_util [...] -m 0.0,-127.0 -f 0 current U2018_CLC2018_V2020_20u1.tif [...]
+    recreat_util [...] use -m 0.0,-127.0 -f 0 current U2018_CLC2018_V2020_20u1.tif [...]
 
 As part of calling recreat using recreat_util, this will import "U2018_CLC2018_V2020_20u1.tif" located in the 
 "current" folder within the data path, treating values of 0 and -127 as nodata values, and 

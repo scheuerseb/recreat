@@ -68,5 +68,5 @@ Broadly, recreat:
    :hidden:
    :caption: API
 
-   Recreat <api/Recreat>
+   assessment <api/Recreat>
    clustering <api/clustering>

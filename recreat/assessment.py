@@ -140,7 +140,7 @@ class Recreat:
             MofNCompleteColumn()
         )
 
-    def set_params(self, paramName: str, paramValue: any) -> None:
+    def set_params(self, param_name: str, param_value: any) -> None:
         """Set processing parameters.
 
         :param paramName: Parameter, one of 'classes.edge', 'classes.patch', 'classes.builtup', 'costs', 'use-data-type', 'verbose-reporting'. 
@@ -149,18 +149,18 @@ class Recreat:
         :type paramValue: any
         """        
 
-        if paramName == 'classes.edge':
-            self.lu_classes_recreation_edge = paramValue
-        elif paramName == 'classes.patch':
-            self.lu_classes_recreation_patch = paramValue
-        elif paramName == 'classes.builtup':
-            self.lu_classes_builtup = paramValue
-        elif paramName == 'costs':
-            self.cost_thresholds = paramValue    
-        elif paramName == 'use-data-type':
-            self.dtype = paramValue 
-        elif paramName == 'verbose-reporting':
-            self.verbose_reporting = paramValue
+        if param_name == 'classes.edge':
+            self.lu_classes_recreation_edge = param_value
+        elif param_name == 'classes.patch':
+            self.lu_classes_recreation_patch = param_value
+        elif param_name == 'classes.builtup':
+            self.lu_classes_builtup = param_value
+        elif param_name == 'costs':
+            self.cost_thresholds = param_value    
+        elif param_name == 'use-data-type':
+            self.dtype = param_value 
+        elif param_name == 'verbose-reporting':
+            self.verbose_reporting = param_value
       
     def set_land_use_map(self, root_path: str, land_use_filename: str, nodata_values: list[float] = [0], nodata_fill_value: float = None) -> None:
         """Specify data sources for a given scenrio, i.e., root path, and import land-use raster file.
@@ -748,7 +748,6 @@ class Recreat:
         # clumps are required to properly mask islands
         rst_clumps = self._read_band("MASKS/clumps.tif")
         clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))        
-
         step_count = len(clump_slices) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
         current_task = self._get_task("[white]Determining clumped supply", total=step_count)
 

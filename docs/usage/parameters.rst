@@ -32,11 +32,11 @@ Setting key model parameters
 When using recreat_util, key model parameters are set using the ``params`` subcommand. 
 This subcommand has the following options:
 
--p, --patch          Comma-separated list of patch classes.
--e, --edge           Comma-separated list of edge classes.
--g, --buffer-edge    Comma-separated list of buffered-edge classes.
--b, --built-up       Comma-separated list of built-up classes.
--c, --cost           Comma-separated list of cost thresholds (in pixel units, odd integer values).
+-p, --patch            Comma-separated list of patch classes.
+-e, --edge             Comma-separated list of edge classes.
+-g, --buffered-edge    Comma-separated list of buffered-edge classes.
+-b, --built-up         Comma-separated list of built-up classes.
+-c, --cost             Comma-separated list of cost thresholds (in pixel units, odd integer values).
 
 .. hint::
 

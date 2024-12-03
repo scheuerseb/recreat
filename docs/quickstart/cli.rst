@@ -18,11 +18,7 @@ recreat_util command
 
 .. code-block::
     
-    recreat_util [options] <root-path> [subcommand [options] <args>] [...]
-
-Arguments:
-
-* root-path ― The root path to use which contains relevant raster files. 
+    recreat_util [options] [subcommand [options] <args>] [...]
 
 Options:
 
@@ -36,10 +32,11 @@ use subcommand
 
 .. code-block::
     
-    use [options] <land-use-filename>
+    use [options] <root-path> <land-use-filename>
 
 Arguments:
 
+* root-path ― The root path to use which contains relevant raster files. 
 * land-use-filename ― The land-use raster file to use.
 
 Options:
@@ -56,11 +53,11 @@ params subcommand
 
 Options:
 
--p, --patch          Comma-separated list of patch classes.
--e, --edge           Comma-separated list of edge classes.
--g, --buffer-edge    Comma-separated list of buffered-edge classes.
--b, --built-up       Comma-separated list of built-up classes.
--c, --cost           Comma-separated list of cost thresholds (in pixel units, odd integer values).
+-p, --patch            Comma-separated list of patch classes.
+-e, --edge             Comma-separated list of edge classes.
+-g, --buffered-edge    Comma-separated list of buffered-edge classes.
+-b, --built-up         Comma-separated list of built-up classes.
+-c, --cost             Comma-separated list of cost thresholds (in pixel units, odd integer values).
 
 
 reclassify subcommand

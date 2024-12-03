@@ -2,7 +2,11 @@
 # (C) 2024 Sebastian Scheuer (seb.scheuer@outlook.de)                         #
 ###############################################################################
 
-from .recreat_environment import recreat_model, recreat_params, recreat_process, recreat_process_parameters
+from .model import recreat_model, ModelParameter, ModelEnvironment, LandUseMapParameters, CoreTask, ClusteringTask
+from .model import ClassType
+from .Configuration import Configuration
+from .parameternames import ParameterNames
+
 
 import click
 import pathlib
@@ -20,38 +24,42 @@ new_model = recreat_model()
 @click.option('-v', '--verbose', is_flag=True, default=False, type=bool, help="Enable verbose reporting.")
 @click.option('--datatype', default=None, type=click.Choice(['int', 'float', 'double'], case_sensitive=False), help="Set datatype to use. By default, the same datatype as the land-use raster is used.")
 @click.option('--no-cleaning', is_flag=True, default=True, type=bool, help="Do not clean temporary files after completion.")
-@click.argument('root-path')
-def recreat_util(data_path, root_path, verbose, datatype, no_cleaning, debug):
-    new_model.data_path = data_path if data_path is not None else str(pathlib.Path().absolute())
-    new_model.root_path = root_path
-    new_model.verbose = verbose
-    new_model.clean_temporary_files = no_cleaning
-    new_model.datatype = datatype
-    new_model.is_debug = debug
-
+def recreat_util(data_path, verbose, datatype, no_cleaning, debug):
+    new_model.model_set(ModelParameter.Verbosity, verbose)
+    new_model.model_set(ModelParameter.DataType, recreat_model.datatype_to_numpy(datatype) )
+    new_model.model_set(ModelEnvironment.DataPath, data_path if data_path is not None else str(pathlib.Path().absolute()))
+    #new_model.clean_temporary_files = no_cleaning
+    #new_model.is_debug = debug
 
 @recreat_util.command(help="Use specified land-use dataset")
 @click.option('-m', '--nodata', default=[0.0], type=str, multiple=True, help="Nodata values in land-use raster.")
 @click.option('-f', '--fill', default=0, type=str, help="Fill value to replace nodata values in land-use raster.")
+@click.argument('root-path')
 @click.argument('landuse-filename')
-def use(landuse_filename, nodata, fill):
-    new_model.landuse_file = landuse_filename
-    new_model.landuse_file_nodata_values = sorted(list({float(num) for item in nodata for num in str(item).split(',')}))
-    new_model.nodata_fill_value = float(fill)
+def use(root_path, landuse_filename, nodata, fill):
+    landuse_params = {
+        LandUseMapParameters.RootPath.value : root_path,
+        LandUseMapParameters.LanduseFileName.value : landuse_filename,
+        LandUseMapParameters.NodataValues.value : sorted(list({float(num) for item in nodata for num in str(item).split(',')})),
+        LandUseMapParameters.NodataFillValue.value : float(fill)
+    }
+    new_model.model_set(ModelEnvironment.LandUseMap, landuse_params)
 
 
 @recreat_util.command(help="Specify model parameters.")
 @click.option('-p', '--patch', default=None, multiple=True, help="(Comma-separated) patch class(es).")
 @click.option('-e', '--edge', default=None, multiple=True, help="(Comma-separated) edge class(es).")
-@click.option('-g', '--buffer-edge', default=None, multiple=True, help="(Comma-separated) edge class(es) to buffer.")
+@click.option('-g', '--buffered-edge', default=None, multiple=True, help="(Comma-separated) edge class(es) to buffer.")
 @click.option('-b', '--built-up', default=None, multiple=True, help="(Comma-separated) built-up class(es).")
 @click.option('-c', '--cost', default=None, multiple=True, help="(Comma-separated) cost(s).")
-def params(cost, patch, edge, buffer_edge, built_up):
-    new_model.classes_patch = sorted(list({int(num) for item in patch for num in str(item).split(',')}))
-    new_model.classes_edge = sorted(list({int(num) for item in edge for num in str(item).split(',')}))
-    new_model.buffered_edge_classes = sorted(list({int(num) for item in buffer_edge for num in str(item).split(',')}))
-    new_model.classes_builtup = sorted(list({int(num) for item in built_up for num in str(item).split(',')}))
-    new_model.costs = sorted(list({int(num) for item in cost for num in str(item).split(',')}))
+def params(cost, patch, edge, buffered_edge, built_up):
+    # add classes to model
+    new_model.model_set(ClassType.Patch, sorted(list({int(num) for item in patch for num in str(item).split(',')})))
+    new_model.model_set(ClassType.Edge, sorted(list({int(num) for item in edge for num in str(item).split(',')})))
+    new_model.model_set(ClassType.BufferedEdge, sorted(list({int(num) for item in buffered_edge for num in str(item).split(',')})))
+    new_model.model_set(ClassType.Built_up, sorted(list({int(num) for item in built_up for num in str(item).split(',')})))
+    # add costs to model
+    new_model.model_set(ModelParameter.Costs, sorted(list({int(num) for item in cost for num in str(item).split(',')})))
 
 
 @recreat_util.command(help="Reclassify sets of classes into new class.")
@@ -59,26 +67,51 @@ def params(cost, patch, edge, buffer_edge, built_up):
 @click.argument('source-classes')
 @click.argument('destination-class')
 def reclassify(source_classes, destination_class, export):       
-    new_model.add_reclassification(int(destination_class), sorted([int(item) for item in source_classes.split(',')]), export_filename=export)
-    
+    current_config = new_model.get_task(CoreTask.Reclassification)   
+    if current_config is None:
+        mappings = { int(destination_class) : sorted([int(item) for item in source_classes.split(',')]) }
+        new_task_config = Configuration(CoreTask.Reclassification)
+        new_task_config.add_arg(ParameterNames.Reclassification.Mappings.value, mappings)
+        new_task_config.add_arg(ParameterNames.Reclassification.ExportFilename.value, export)        
+        new_model.add_task(new_task_config)
+    else:
+        current_config.args[ParameterNames.Reclassification.Mappings.value][int(destination_class)] = sorted([int(item) for item in source_classes.split(',')])
+        if (
+            (current_config.args[ParameterNames.Reclassification.ExportFilename.value] is not None
+            and export is not None)
+            or current_config.args[ParameterNames.Reclassification.ExportFilename.value] is None
+        ):
+            current_config.args[ParameterNames.Reclassification.ExportFilename.value] = export
+
+        
 @recreat_util.command(help="Identify clumps in land-use raster.")
 @click.option('--barrier-classes', default=[0], type=str, multiple=True)
 def clumps(barrier_classes):    
-    new_model.add_clump_detection(sorted(list({int(num) for item in barrier_classes for num in str(item).split(',')})))
+    new_task_config = Configuration(CoreTask.ClumpDetection)
+    new_task_config.add_arg(ParameterNames.ClumpDetection.BarrierClasses.value, sorted(list({int(num) for item in barrier_classes for num in str(item).split(',')})))
+    new_model.add_task(new_task_config)
+
 
 @recreat_util.command(help="Compute land-use (class) masks.")
 def mask_landuses():
-    new_model.add_mask_landuses()
+    new_task_config = Configuration(CoreTask.MaskLandUses)
+    new_model.add_task(new_task_config)
 
 @recreat_util.command(help="Compute land-use (class) edges.")
 @click.option('-i', '--ignore', type=float, default=None, help="Ignore edges to this class.")
 def detect_edges(ignore):
-    new_model.add_detect_edges(class_ignore_edges=ignore)
+    new_task_config = Configuration(CoreTask.EdgeDetection)
+    new_task_config.add_arg(ParameterNames.EdgeDetection.LandUseClasses.value, new_model.classes_edge)
+    new_task_config.add_arg(ParameterNames.EdgeDetection.IgnoreEdgesToClass.value, ignore)
+    new_task_config.add_arg(ParameterNames.EdgeDetection.BufferEdges.value, new_model.classes_buffered_edges)    
+    new_model.add_task(new_task_config)
 
 @recreat_util.command(help="Compute class total supply per cost.")
-@click.option('-m', '--mode', type=click.Choice(['generic_filter', 'convolve', 'ocv_filter2d'], case_sensitive=False), default='ocv_filter2d')
+@click.option('-m', '--mode', type=click.Choice(['generic_filter', 'convolve', 'ocv_filter2d'], case_sensitive=True), default='ocv_filter2d')
 def class_total_supply(mode):
-    new_model.add_class_total_supply(mode)
+    new_task_config = Configuration(CoreTask.ClassTotalSupply)
+    new_task_config.add_arg(ParameterNames.ClassTotalSupply.Mode.value, mode)
+    new_model.add_task(new_task_config)
 
 @recreat_util.command(help="Aggregate total supply per cost.")
 @click.option('--landuse-weights', type=str, default=None)
@@ -151,83 +184,60 @@ def cost(max_distance, mask_built_up, exclude_scaled):
 
 @recreat_util.result_callback()
 def run_process(result, **kwargs):
-    
-    print(new_model.classes_edge)
-    
-    user_confirm = new_model.get_model_confirmation()
+
+    # print model summary
+    new_model.print() 
+    # ask if model should be run
+    user_confirm = input("Run this model? (y/N): ")
+    user_confirm = False if user_confirm is None or user_confirm == '' or user_confirm.lower() == 'n' else True
     if not user_confirm:
         print('Aborted')
         return
     
-    # conduct model initialization and process data as requested by user
-    # instantiate
-    
-    from .recreat import Recreat
-    from .clustering import kmeans
+    # run model
+    new_model.run()
 
 
-    rc = Recreat(new_model.data_path)
 
-    # set parameters for model
-    model_parameters = new_model.get_model_parameters()
-    for p in recreat_params:
-        rc.set_params(p.value, model_parameters[p])
-
-    # import the land-use map only for specific subcommands. its not needed for clustering
-    if len(set([p for p in recreat_process]).intersection(new_model.get_processes().keys())) > 0:
-        # requested processes requires import of map: import land-use map
-        rc.set_land_use_map(new_model.root_path, new_model.landuse_file, new_model.landuse_file_nodata_values, new_model.nodata_fill_value)
-
-    # conduct processing. This will be done in a sensible order depending on data requirements across tools        
-    for p in recreat_process:
-        if p in new_model.get_processes().keys():
-            if p is recreat_process.reclassification:
-                rc.reclassify(mappings=new_model.mappings, export_filename=new_model.get_processing_parameter(p, recreat_process_parameters.export_name))
             
-            if p is recreat_process.clump_detection:
-                rc.detect_clumps(barrier_classes=new_model.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction))
+    #         if p is CoreTask.edge_detection:               
+    #             rc.detect_edges(lu_classes=new_model.classes_edge,
+    #                 ignore_edges_to_class=new_model.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction),
+    #                 buffer_edges=new_model.classes_buffered_edges)
             
-            if p is recreat_process.mask_landuses:
-                rc.mask_landuses()
+    #         if p is CoreTask.class_total_supply:
+    #             rc.class_total_supply(mode = new_model.get_processing_parameter(p, recreat_process_parameters.mode))
             
-            if p is recreat_process.edge_detection:               
-                rc.detect_edges(lu_classes=new_model.classes_edge,
-                    ignore_edges_to_class=new_model.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction),
-                    buffer_edges=new_model.buffered_edge_classes)
+    #         if p is CoreTask.aggregate_class_total_supply:
+    #             rc.aggregate_class_total_supply(lu_weights=new_model.get_processing_parameter(p, recreat_process_parameters.lu_weights), 
+    #                                             write_non_weighted_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results))
             
-            if p is recreat_process.class_total_supply:
-                rc.class_total_supply(mode = new_model.get_processing_parameter(p, recreat_process_parameters.mode))
+    #         if p is CoreTask.average_total_supply_across_cost:
+    #             rc.average_total_supply_across_cost(lu_weights=new_model.get_processing_parameter(p, recreat_process_parameters.lu_weights), 
+    #                                                 cost_weights=new_model.get_processing_parameter(p, recreat_process_parameters.cost_weights),
+    #                                                 write_non_weighted_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results),
+    #                                                 write_scaled_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_scaled_results)) 
             
-            if p is recreat_process.aggregate_class_total_supply:
-                rc.aggregate_class_total_supply(lu_weights=new_model.get_processing_parameter(p, recreat_process_parameters.lu_weights), 
-                                                write_non_weighted_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results))
-            
-            if p is recreat_process.average_total_supply_across_cost:
-                rc.average_total_supply_across_cost(lu_weights=new_model.get_processing_parameter(p, recreat_process_parameters.lu_weights), 
-                                                    cost_weights=new_model.get_processing_parameter(p, recreat_process_parameters.cost_weights),
-                                                    write_non_weighted_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results),
-                                                    write_scaled_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_scaled_results)) 
-            
-            if p is recreat_process.class_diversity:
-                rc.class_diversity()
+    #         if p is CoreTask.class_diversity:
+    #             rc.class_diversity()
                 
-            if p is recreat_process.average_diversity_across_cost:
-                rc.average_diversity_across_cost(cost_weights=new_model.get_processing_parameter(p, recreat_process_parameters.cost_weights),
-                                                write_non_weighted_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results),
-                                                write_scaled_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_scaled_results))
+    #         if p is CoreTask.average_diversity_across_cost:
+    #             rc.average_diversity_across_cost(cost_weights=new_model.get_processing_parameter(p, recreat_process_parameters.cost_weights),
+    #                                             write_non_weighted_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_non_weighted_results),
+    #                                             write_scaled_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_scaled_results))
                 
-            if p is recreat_process.proximity:
-                rc.compute_distance_rasters(mode=new_model.get_processing_parameter(p, recreat_process_parameters.mode),
-                                            lu_classes=new_model.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction),
-                                            assess_builtup=new_model.get_processing_parameter(p, recreat_process_parameters.include_special_class))
+    #         if p is CoreTask.proximity:
+    #             rc.compute_distance_rasters(mode=new_model.get_processing_parameter(p, recreat_process_parameters.mode),
+    #                                         lu_classes=new_model.get_processing_parameter(p, recreat_process_parameters.classes_on_restriction),
+    #                                         assess_builtup=new_model.get_processing_parameter(p, recreat_process_parameters.include_special_class))
             
-            if p is recreat_process.class_flow:
-                rc.class_flow()
+    #         if p is CoreTask.class_flow:
+    #             rc.class_flow()
 
-            if p is recreat_process.population_disaggregation:
-                rc.disaggregate_population(population_grid=new_model.get_processing_parameter(p, recreat_process_parameters.population_raster),
-                                           force_computing=new_model.get_processing_parameter(p, recreat_process_parameters.force),
-                                           write_scaled_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_scaled_results))
+    #         if p is CoreTask.population_disaggregation:
+    #             rc.disaggregate_population(population_grid=new_model.get_processing_parameter(p, recreat_process_parameters.population_raster),
+    #                                        force_computing=new_model.get_processing_parameter(p, recreat_process_parameters.force),
+    #                                        write_scaled_result=new_model.get_processing_parameter(p, recreat_process_parameters.export_scaled_results))
 
 
 
