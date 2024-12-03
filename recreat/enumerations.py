@@ -48,19 +48,6 @@ class CoreTask(RecreatBaseEnum):
 class ClusteringTask(RecreatBaseEnum):
     kmeans = 'k-means clustering', 'kmeans'
 
-class recreat_process_parameters(Enum):
-    classes_on_restriction = 'classes-on-restriction'
-    buffered_edge_classes = 'buffered-edge-classes'
-    lu_weights = 'landuse-weights'
-    cost_weights = 'cost-weights'
-    mode = 'mode'
-    export_name = 'export-name'
-    export_non_weighted_results = 'export-non-weighted-results'
-    export_scaled_results = 'export-scaled-results'
-    include_special_class = 'include-special-class'
-    population_raster = 'population-grid'
-    force = 'force'
-    user_threshold = 'user-threshold'
     
 class ParameterNames:
 
