@@ -153,14 +153,6 @@ class recreat_model():
         else:
             return None    
     
-    
-    # population disaggregation
-    def add_disaggregate_population(self, pop_raster: str,  force: bool, export_scaled: bool) -> None:
-        current_process = CoreTask.Disaggregation
-        self.add_task(current_process)
-        self._add_process_config(current_process, recreat_process_parameters.population_raster, pop_raster)
-        self._add_process_config(current_process, recreat_process_parameters.export_scaled_results, export_scaled)
-        self._add_process_config(current_process, recreat_process_parameters.force, force)
 
 
     def print(self) -> None:
