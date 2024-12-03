@@ -8,6 +8,7 @@ class RecreatBaseEnum(Enum):
         return self.value[1]
 
 class ClassType(RecreatBaseEnum):
+    """Enumeration of model class types"""
     Edge = 'edge classes', 'classes.edge'
     BufferedEdge = 'buffered-edge classes', 'buffered-edge'
     Patch = 'patch classes', 'classes.patch'
