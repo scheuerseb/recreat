@@ -2,22 +2,23 @@
 # (C) 2024 Sebastian Scheuer (seb.scheuer@outlook.de)                         #
 ###############################################################################
 
-from .model import Model, ModelParameter, ModelEnvironment, ScenarioParameters, CoreTask, ClusteringTask
-from .model import ClassType
+
+from .model import Model, ModelParameter, ModelEnvironment, ScenarioParameters, CoreTask, ClusteringTask, ClassType
 from .Configuration import Configuration
 from .enumerations import ParameterNames
 from .exceptions import ModelValidationError
 
 import click
 import pathlib
-from colorama import Fore, Back, Style, just_fix_windows_console
 
+from colorama import Fore, Style, just_fix_windows_console
 just_fix_windows_console()
 
 
 
 
 cli_model = Model()
+
 
 @click.group(invoke_without_command=True, chain=True, )
 @click.option('-w', '--data-path', default=None, help="Set data path if data is not located in the current path.")

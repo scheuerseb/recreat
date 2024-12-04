@@ -26,8 +26,6 @@ from rich.progress import Progress, TaskProgressColumn, TimeElapsedColumn, MofNC
 from contextlib import nullcontext
 # rasterio
 import rasterio
-from rasterio.warp import calculate_default_transform, reproject
-from rasterio.enums import Resampling
 # distancerasters
 import distancerasters as dr
 # xarray-spatial
@@ -46,6 +44,7 @@ from sklearn.preprocessing import MinMaxScaler
 from typing import Tuple, List, Callable, Dict
 from enum import Enum
 
+from .transformations import Transformations
 
 class Recreat:
 
@@ -383,8 +382,10 @@ class Recreat:
                     self.progress.update(current_task, advance=1)
 
                 self._write_dataset("PROX/dr_{}.tif".format(lu), lu_dr)
+                
                 # clean up
                 del lu_dr
+                del src_lu_mtx
 
 
         if assess_builtup:
@@ -485,6 +486,7 @@ class Recreat:
         self.printStepCompleteInfo()
 
 
+
     def _reproject_builtup_to_population(self, population_grid: str) -> None:
         """Matches population and built-up rasters and sums built-up pixels within each cell of the population raster. It will write a raster of built-up pixel count.
 
@@ -494,58 +496,17 @@ class Recreat:
 
         self.printStepInfo('Reprojecting built-up')
         current_task = self._get_task("[white]Reprojection", total=1)
+        
         with self.progress if self._runsAsStandalone() else nullcontext() as bar:
             
-            # raster 1 = builtup
-            src1, mtx_builtup, _ = self._read_dataset("MASKS/built-up.tif")
-            meta1 = src1.meta.copy()
+            # source raster = aggregated builtup area
+            source_filename = self._get_file_path("MASKS/built-up.tif")
+            template_filename = self._get_file_path(population_grid)
+            out_filename = self._get_file_path("DEMAND/builtup_count.tif")
 
-            print(meta1)
-            
-
-            # raster 2 = pop
-            src2 = self._get_dataset_reader(population_grid)
-            meta2 = src2.meta.copy()
-
-            print(meta2)
-            
-
-            print("Starting transform")
-            dst_transform, width, height = calculate_default_transform(
-                src_crs=src1.crs, 
-                dst_crs=meta2['crs'], 
-                width=meta2['width'], 
-                height=meta2['height'], 
-                *src2.bounds)                        
-            
-
-            meta1.update({
-                'crs': meta2['crs'],
-                'transform': dst_transform,
-                'width': width,
-                'height': height
-            })
-
-            print("Starting reproject")
-            mtx_sum_of_builtup = np.zeros((height, width), dtype=rasterio.float32)
-            
-            reproject(
-                source=mtx_builtup,
-                destination=mtx_sum_of_builtup,
-                src_transform=src1.transform,
-                src_crs=src1.crs,
-                dst_transform=dst_transform,
-                dst_crs=meta2['crs'],
-                resampling=Resampling.sum
-            )
-
-
-            # export
-            # this is the number of builtup pixels per pop raster grid cell
-            self._write_dataset('DEMAND/builtup_count.tif', mtx_sum_of_builtup, src2)
-            del mtx_sum_of_builtup
+            Transformations.match_rasters(source_filename, template_filename, out_filename)
             self.progress.update(current_task, advance=1)
-        
+                    
         # done
         self.printStepCompleteInfo()
 
@@ -567,7 +528,7 @@ class Recreat:
             # make sure that a float dtype is set          
             np.divide(mtx_pop.astype(np.float32), mtx_patch_count.astype(np.float32), out=mtx_patch_population, where=mtx_patch_count > 0)
             
-            self._write_dataset('DEMAND/patch_population.tif', mtx_patch_population, custom_grid_reference=ref_pop, custom_nodata_mask=nodata_patch_count)
+            #self._write_dataset('DEMAND/patch_population.tif', mtx_patch_population, custom_grid_reference=ref_pop, custom_nodata_mask=nodata_patch_count)
             self.progress.update(current_task, advance=1)     
             
             del mtx_pop
@@ -611,7 +572,7 @@ class Recreat:
 
             # export
             # this is the number of builtup pixels per pop raster grid cell
-            self._write_dataset('DEMAND/reprojected_patch_population.tif', mtx_reprojected_patch_population, src2)
+            #self._write_dataset('DEMAND/reprojected_patch_population.tif', mtx_reprojected_patch_population, src2)
             del mtx_reprojected_patch_population
             self.progress.update(current_task, advance=1)
         
@@ -1436,16 +1397,23 @@ class Recreat:
         :return: Dataset reader
         :rtype: rasterio.DatasetReader
         """
-        path = (
+        path = self._get_file_path(file_name, is_scenario_specific)
+        return rasterio.open(path)
+
+
+    def _get_file_path(self, file_name: str, is_scenario_specific: bool = True):
+        """Get the fully-qualified path to model file with specified filename.
+
+        :param file_name: Model file for which the fully qualified path should be generated. 
+        :type file_name: str
+        :param is_scenario_specific: Indicates if the specified datasource located in a scenario-specific root-path (True) or at the data-path  (False), defaults to True.
+        :type is_scenario_specific: bool, optional       
+        """
+        return (
             f"{self.data_path}/{file_name}"
             if not is_scenario_specific
             else f"{self.data_path}/{self.root_path}/{file_name}"
         )
-
-        return rasterio.open(path)
-
-
-
 
     def _read_dataset(self, file_name: str, band: int = 1, nodata_values: List[float] = [0], is_scenario_specific: bool = True, nodata_fill_value = None, is_lazy_load = False) -> Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]:
         """Read a dataset and return reference to the dataset, values, and boolean mask of nodata values.
@@ -1465,8 +1433,8 @@ class Recreat:
         :return: Dataset, data matrix, and mask of nodata values
         :rtype: Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]
         """        
-        
-        path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
+                
+        path = self._get_file_path(file_name, is_scenario_specific)
         if self.verbose_reporting:
             print(Fore.WHITE + Style.DIM + "    READING {}".format(path) + Style.RESET_ALL)
         
@@ -1508,11 +1476,10 @@ class Recreat:
         :rtype: np.ndarray
         """        
 
-        path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
         rst_ref, band_data, nodata_mask = self._read_dataset(file_name=file_name, band=band, is_scenario_specific=is_scenario_specific, is_lazy_load=False)
         return band_data
     
-    def _write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True, custom_grid_reference: rasterio.DatasetReader = None, custom_nodata_mask: np.ndarray = None) -> None:        
+    def _write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True, custom_metadata: Dict[str,any] = None, custom_nodata_mask: np.ndarray = None) -> None:        
         """Write a dataset to disk.
 
 
@@ -1524,13 +1491,13 @@ class Recreat:
         :type mask_nodata: bool, optional
         :param is_scenario_specific: Indicates whether file should be written in a scenario-specific subfolder (True) or in the data path root (False), defaults to True
         :type is_scenario_specific: bool, optional
-        :param custom_grid_reference: Custom grid reference (i.e., crs, transform) to be used. If not specified, uses default land-use grid crs and transform, defaults to None
-        :type custom_grid_reference: rasterio.DatasetReader, optional
+        :param custom_metadata: Custom raster metadata to be used. If not specified, uses default land-use grid metadata, defaults to None
+        :type custom_metadata: Dict[str,any], optional
         :param custom_nodata_mask: Custom nodata mask to apply if mask_nodata is set to True, defaults to None
         :type custom_nodata_mask: np.ndarray, optional
         """        
 
-        custom_grid_reference = custom_grid_reference if custom_grid_reference is not None else self.lsm_rst
+        custom_metadata = custom_metadata if custom_metadata is not None else self.lsm_rst.meta
 
         path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
         if self.verbose_reporting:
@@ -1548,8 +1515,8 @@ class Recreat:
             width=outdata.shape[1],
             count=1,
             dtype=outdata.dtype,
-            crs=custom_grid_reference.crs,
-            transform=custom_grid_reference.transform
+            crs=custom_metadata['crs'],
+            transform=custom_metadata['transform']
         ) as new_dataset:
             new_dataset.write(outdata, 1)
     

@@ -2,28 +2,24 @@
 # (C) 2024 Sebastian Scheuer (seb.scheuer@outlook.de)                         #
 ###############################################################################
 
-from enum import Enum
-from numpy import int32, float32, float64
-from typing import List, Dict, Union
-from colorama import Fore, Back, Style
-from rich import print as outp
-from rich.panel import Panel
-from rich.console import Console
-from rich.table import Table
-
 from .Configuration import Configuration
-
 from .enumerations import *
 from .exceptions import ModelValidationError
 
 
+from numpy import int32, float32, float64
+from typing import List, Dict, Union
+from colorama import Fore, Style
+
+from rich import print as outp
+from rich import box
+from rich.panel import Panel
 import os.path
 
 class Model():
 
     params = None   
     tasks = None 
-
     debug = False
 
     def __init__(self) -> None:  
@@ -169,7 +165,7 @@ class Model():
         print(f"     data path: {Fore.YELLOW}{Style.BRIGHT}{self.data_path}{Style.RESET_ALL}")
     
     def _print_land_use_map(self) -> None:
-        outp(Panel("Land-use data"))
+        outp(Panel("Land-use data", box=box.SIMPLE))
         if self.model_get(ModelEnvironment.Scenario) is not None:
             map_params = self.model_get(ModelEnvironment.Scenario)
             print(f"     use {Fore.CYAN}{Style.BRIGHT}{map_params[ScenarioParameters.LanduseFileName]}{Style.RESET_ALL} in {map_params[ScenarioParameters.RootPath]}")
@@ -178,16 +174,15 @@ class Model():
             print("Not defined in model.")
 
     def _print_model_classes(self) -> None:
-        outp(Panel("Parameters"))
+        outp(Panel("Parameters", box=box.SIMPLE))
         print(f"     Patch classes    : {Fore.CYAN}{','.join(map(str, self.classes_patch))}{Style.RESET_ALL}")
         print(f"     Edge classes     : {Fore.CYAN}{','.join(map(str, self.classes_edge))}{Style.RESET_ALL}")
         print(f"     Built-up classes : {Fore.CYAN}{','.join(map(str, self.classes_builtup))}{Style.RESET_ALL}")
-        print()
         print(f"     Costs            : {Fore.CYAN}{','.join(map(str, self.costs))}{Style.RESET_ALL}")
         
 
     def _print_tasks(self) -> None:
-        outp(Panel("Tasks"))
+        outp(Panel("Tasks", box=box.SIMPLE))
        
         for p in CoreTask:   
             self._print_task_detail(p)
