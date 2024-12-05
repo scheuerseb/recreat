@@ -45,6 +45,7 @@ from typing import Tuple, List, Callable, Dict
 from enum import Enum
 
 from .transformations import Transformations
+from .disaggregation import SimpleAreaWeighted, DasymetricMapping, DisaggregationMethod
 
 class Recreat:
 
@@ -213,13 +214,17 @@ class Recreat:
         # done
         self.taskProgressReportStepCompleted()
 
-    def mask_landuses(self) -> None:
+    def mask_landuses(self, lu_classes: List[int] = None) -> None:
         """Generate land-use class masks (occurrence masks) for patch, edge, and built-up land-use classes.
+        
+        :param lu_classes: Classes for which to create class masks. If None, create class masks for all patch classes and edge classes, None by default.
+        :type lu_classes: List[int], optional        
         """
+        classes_for_masking = self.lu_classes_recreation_edge + self.lu_classes_recreation_patch if lu_classes is None else lu_classes
+
         # mask classes of interest into a binary raster to indicate presence/absence of recreational potential
         # we require this for all classes relevant to processing: patch and edge recreational classes, built-up classes
         self.printStepInfo("CREATING LAND-USE MASKS")
-        classes_for_masking = self.lu_classes_recreation_edge + self.lu_classes_recreation_patch
         
         current_task = self._get_task('[white]Masking land-uses', total=len(classes_for_masking))
         
@@ -486,98 +491,25 @@ class Recreat:
         self.printStepCompleteInfo()
 
 
-
-    def _reproject_builtup_to_population(self, population_grid: str) -> None:
-        """Matches population and built-up rasters and sums built-up pixels within each cell of the population raster. It will write a raster of built-up pixel count.
-
-        :param population_grid: Name of the population raster file to be used for disaggregation.
-        :type population_grid: str
-        """        
-
-        self.printStepInfo('Reprojecting built-up')
-        current_task = self._get_task("[white]Reprojection", total=1)
+    def disaggregation(self, population_grid: str, disaggregation_method: DisaggregationMethod, max_pixel_count: int, write_scaled_result: bool = True) -> None:
         
-        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
-            
-            # source raster = aggregated builtup area
-            source_filename = self._get_file_path("MASKS/built-up.tif")
-            template_filename = self._get_file_path(population_grid)
-            out_filename = self._get_file_path("DEMAND/builtup_count.tif")
+        # mask residential classes
+        self.mask_landuses(lu_classes=self.lu_classes_builtup)
 
-            Transformations.match_rasters(source_filename, template_filename, out_filename)
-            self.progress.update(current_task, advance=1)
-                    
-        # done
-        self.printStepCompleteInfo()
+        if disaggregation_method is DisaggregationMethod.SimpleAreaWeighted:            
+            disaggregation_engine = SimpleAreaWeighted(
+                data_path=self.data_path, 
+                root_path=self.root_path,
+                population_grid=population_grid, 
+                residential_classes=self.lu_classes_builtup, 
+                max_pixel_count=max_pixel_count,
+                write_scaled_result=write_scaled_result)
+            disaggregation_engine.run()
 
-    def _conduct_disaggregation(self, population_grid: str) -> None:
-        """Applies disaggregation algorithm. At the moment, a simple area-weighted approach is implemented.
+        elif disaggregation_method is DisaggregationMethod.DasymetricMapping:
+            pass
 
-        :param population_grid: Name of the population raster file to be used for disaggregation.
-        :type population_grid: str
-        """        
-        current_task = self._get_task("[white]Applying disaggregation algorithm", total=1)
-        with self.progress if self._runsAsStandalone() else nullcontext() as bar:            
-            # read the built-up patch count 
-            ref_pop, mtx_pop, nodata_pop = self._read_dataset(population_grid)        
-            ref_patch_count, mtx_patch_count, nodata_patch_count = self._read_dataset('DEMAND/builtup_count.tif')
-            
-            mtx_patch_population = self._get_value_matrix(shape=mtx_pop.shape).astype(np.float32)
-            
-            # make rasters the same data type
-            # make sure that a float dtype is set          
-            np.divide(mtx_pop.astype(np.float32), mtx_patch_count.astype(np.float32), out=mtx_patch_population, where=mtx_patch_count > 0)
-            
-            #self._write_dataset('DEMAND/patch_population.tif', mtx_patch_population, custom_grid_reference=ref_pop, custom_nodata_mask=nodata_patch_count)
-            self.progress.update(current_task, advance=1)     
-            
-            del mtx_pop
-            del mtx_patch_count
-            del mtx_patch_population
 
-    def _reproject_patch_population_to_builtup(self) -> None:
-        """ Matches patch population and built-up rasters. It will write the reprojected dataset to disk.
-        """
-        self.printStepInfo('Reprojecting built-up')
-        current_task = self._get_task("[white]Reprojection", total=1)
-        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
-            
-            # raster 1 = builtup
-            src1, mtx_patch_population, nodata_pop = self._read_dataset("DEMAND/patch_population.tif")
-            meta1 = src1.meta.copy()
-            
-            # raster 2 = pop
-            src2, mtx_builtup, nodata_builtup = self._read_dataset("MASKS/built-up.tif")
-            meta2 = src2.meta.copy()
-
-            transform, width, height = calculate_default_transform(src1.crs, meta2['crs'], meta2['width'], meta2['height'], *src2.bounds)                        
-            meta1.update({
-                'crs': meta2['crs'],
-                'transform': transform,
-                'width': width,
-                'height': height
-            })
-
-            mtx_reprojected_patch_population = np.zeros((height, width), dtype=rasterio.float32)
-            
-            reproject(
-                source=mtx_patch_population,
-                destination=mtx_reprojected_patch_population,
-                src_transform=src1.transform,
-                src_crs=src1.crs,
-                dst_transform=transform,
-                dst_crs=meta2['crs'],
-                resampling=Resampling.min
-            )
-
-            # export
-            # this is the number of builtup pixels per pop raster grid cell
-            #self._write_dataset('DEMAND/reprojected_patch_population.tif', mtx_reprojected_patch_population, src2)
-            del mtx_reprojected_patch_population
-            self.progress.update(current_task, advance=1)
-        
-        # done
-        self.printStepCompleteInfo()
 
 
     def disaggregate_population(self, population_grid: str, force_computing: bool = False, write_scaled_result: bool = True) -> None:
@@ -595,57 +527,68 @@ class Recreat:
 
         self.printStepInfo("Disaggregating population to built-up")
         
-
-        # cases to consider:
-        # A -- pop and built-up (hence, land use) have the same resolution and extent
-        # B -- pop has a lower resolution (and differing extent?) than built-up
-        # TODO: C -- built-up has a lower resolution than pop 
-        # TODO: Test if resolutions actually differ!
-
-        # disaggregation in multiple steps
-        # we require built-up to be available
-        if not os.path.isfile(f"{self.data_path}/{self.root_path}/MASKS/built-up.tif") or force_computing:
-            self._aggregate_builtup_classes()
-        else:
-            print(Style.DIM + "    Skip aggregation of built-up classes. File exists." + Style.RESET_ALL)
-
-        # first: Aggregate built-up pixels per population grid cell to determine patch count 
-        if not os.path.isfile("{}/{}/DEMAND/builtup_count.tif".format(self.data_path, self.root_path)) or force_computing:
-            self._reproject_builtup_to_population(population_grid=population_grid)
-        else:
-            print(Style.DIM + "    Skip reprojection of built-up. File exists." + Style.RESET_ALL)
-
-
-        # second: Determine patch population
-        if not os.path.isfile("{}/{}/DEMAND/patch_population.tif".format(self.data_path, self.root_path)) or force_computing:            
-            self._conduct_disaggregation(population_grid=population_grid)
-        else:
-            print(Style.DIM + "    Skip estimation of patch population. File exists." + Style.RESET_ALL)
-
-        # third: Reproject patch population to match built-up grid
-        if not os.path.isfile("{}/{}/DEMAND/reprojected_patch_population.tif".format(self.data_path, self.root_path)) or force_computing:
-            self._reproject_patch_population_to_builtup()
-        else:
-            print(Style.DIM + "    Skip reprojection of patch population. File exists." + Style.RESET_ALL)
-
-                                               
-        # fourth: intersect patch population with built-up patches
-        if not os.path.isfile("{}/{}/DEMAND/disaggregated_population.tif".format(self.data_path, self.root_path)) or force_computing:            
-            mtx_pop = self._read_band('DEMAND/reprojected_patch_population.tif')                             
-            mtx_builtup = self._read_band('MASKS/built-up.tif')
-            # intersect 
-            mtx_builtup = mtx_builtup * mtx_pop        
-            self._write_dataset("DEMAND/disaggregated_population.tif", mtx_builtup)
+        self.printStepInfo('Reprojecting built-up')
+        current_task = self._get_task("[white]Disaggregation", total=1)
         
-            if write_scaled_result:
-                scaler = MinMaxScaler()
-                mtx_builtup = scaler.fit_transform(mtx_builtup.reshape([-1,1]))
-                self._write_dataset("DEMAND/scaled_disaggregated_population.tif", mtx_builtup.reshape(self.lsm_mtx.shape))
-        else:
-            print(Style.DIM + "    Skip disaggregation of patch population. File exists." + Style.RESET_ALL)
+        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
 
-        # done   
+            # cases to consider:
+            # A -- pop and built-up (hence, land use) have the same resolution and extent
+            # B -- pop has a lower resolution (and differing extent?) than built-up
+            # TODO: C -- built-up has a lower resolution than pop 
+            # TODO: Test if resolutions actually differ!
+
+            # disaggregation in multiple steps
+            # we require built-up to be available
+            if not os.path.isfile(f"{self.data_path}/{self.root_path}/MASKS/built-up.tif") or force_computing:
+                self._aggregate_builtup_classes()
+            else:
+                print(Style.DIM + "    Skip aggregation of built-up classes. File exists." + Style.RESET_ALL)
+
+            # first: Aggregate built-up pixels per population grid cell to determine patch count 
+            if not os.path.isfile("{}/{}/DEMAND/builtup_count.tif".format(self.data_path, self.root_path)) or force_computing:
+                self._reproject_builtup_to_population(population_grid=population_grid)
+            else:
+                print(Style.DIM + "    Skip reprojection of built-up. File exists." + Style.RESET_ALL)
+
+
+            # second: Determine patch population
+            if not os.path.isfile("{}/{}/DEMAND/patch_population.tif".format(self.data_path, self.root_path)) or force_computing:            
+                self._conduct_disaggregation(population_grid=population_grid)
+            else:
+                print(Style.DIM + "    Skip estimation of patch population. File exists." + Style.RESET_ALL)
+
+            # third: Reproject patch population to match built-up grid
+            if not os.path.isfile("{}/{}/DEMAND/reprojected_patch_population.tif".format(self.data_path, self.root_path)) or force_computing:
+                self._reproject_patch_population_to_builtup()
+            else:
+                print(Style.DIM + "    Skip reprojection of patch population. File exists." + Style.RESET_ALL)
+
+                                                
+            # fourth: intersect patch population with built-up patches
+            if not os.path.isfile("{}/{}/DEMAND/disaggregated_population.tif".format(self.data_path, self.root_path)) or force_computing:            
+                mtx_pop = self._read_band('DEMAND/reprojected_patch_population.tif')                             
+                mtx_builtup = self._read_band('MASKS/built-up.tif')
+                # intersect 
+                mtx_builtup = mtx_builtup * mtx_pop        
+                self._write_dataset("DEMAND/disaggregated_population.tif", mtx_builtup)
+            
+                if write_scaled_result:
+                    scaler = MinMaxScaler()
+                    mtx_builtup = scaler.fit_transform(mtx_builtup.reshape([-1,1]))
+                    self._write_dataset("DEMAND/scaled_disaggregated_population.tif", mtx_builtup.reshape(self.lsm_mtx.shape))
+            else:
+                print(Style.DIM + "    Skip disaggregation of patch population. File exists." + Style.RESET_ALL)
+
+        # done 
+        self.progress.update(current_task, advance=1)          
         self.taskProgressReportStepCompleted()
+
+
+
+
+
+
 
         
     def beneficiaries_within_cost(self):        

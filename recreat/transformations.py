@@ -1,5 +1,6 @@
 # rasterio
 import rasterio
+import rasterio.enums
 from rasterio.warp import calculate_default_transform, reproject
 from rasterio.enums import Resampling
 import numpy as np
@@ -7,7 +8,7 @@ import numpy as np
 class Transformations:
 
     @staticmethod
-    def match_rasters(source_raster_filename: str, template_raster_filename: str, out_filename: str ):
+    def match_rasters(source_raster_filename: str, template_raster_filename: str, out_filename: str, resampling_method: rasterio.enums.Resampling ) -> None:
         
         ref_source = rasterio.open(source_raster_filename)
         
@@ -22,7 +23,7 @@ class Transformations:
             src_crs=ref_source.crs,
             dst_transform=out_ref.transform,
             dst_crs=out_ref.crs,
-            resampling=rasterio.enums.Resampling.sum
+            resampling=resampling_method
         )
         out_ref.close()        
         return None
@@ -30,7 +31,7 @@ class Transformations:
 
 
     @staticmethod
-    def to_crs(source_mtx: np.ndarray, source_meta, source_bounds, dest_meta, num_threads: int = 1, warp_mem_limit: int = 64):
+    def to_crs(source_mtx: np.ndarray, source_meta, source_bounds, dest_meta, resampling_method: rasterio.enums.Resampling):
         
         out_transform, out_width, out_height = calculate_default_transform(
             src_crs=source_meta['crs'],
@@ -52,9 +53,7 @@ class Transformations:
             src_crs=source_meta['crs'],
             dst_transform=out_transform,
             dst_crs=dest_meta['crs'],
-            resampling=Resampling.sum,
-            warp_mem_limit=warp_mem_limit,
-            num_threads=num_threads
+            resampling=resampling_method
         )
 
         updated_meta = source_meta.copy()
