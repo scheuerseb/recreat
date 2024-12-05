@@ -198,6 +198,7 @@ class SimpleAreaWeighted(BaseDisaggregation):
         pop_path = self.get_file_path(self.population_grid)
         ref_pop = rasterio.open(pop_path)
         mtx_pop = ref_pop.read(1)
+        
         dest_meta = ref_pop.meta.copy()
         dest_meta.update({
             'dtype' : rasterio.float32,
@@ -227,7 +228,7 @@ class SimpleAreaWeighted(BaseDisaggregation):
         # export result
         out_path = self.get_file_path(f"DEMAND/pixel_population_count_{residential_class}.tif")
         with rasterio.open(out_path, "w", **dest_meta) as dest:
-            dest.write(mtx_per_pixel_population_count, 1)
+            dest.write(mtx_per_pixel_population_count.astype(np.float32), 1)
         
         del mtx_pixel_count
         del mtx_per_pixel_population_count   
