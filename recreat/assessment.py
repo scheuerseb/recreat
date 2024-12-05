@@ -46,6 +46,7 @@ from enum import Enum
 
 from .transformations import Transformations
 from .disaggregation import SimpleAreaWeighted, DasymetricMapping, DisaggregationMethod
+from .exceptions import MethodNotImplemented
 
 class Recreat:
 
@@ -470,29 +471,21 @@ class Recreat:
             print(Fore.WHITE + Back.RED + "ERR: Import Land-Use first" + Style.RESET_ALL)
 
 
-    def _aggregate_builtup_classes(self) -> None:
-        """ Aggregates specified built-up (i.e., potentially residential) classes into a single built-up layer. 
-        """
-        self.printStepInfo("Aggregating built-up land-use classes")
-        current_task = self._get_task("[white]Aggregating built-up", total=1)
-        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
-                       
-            mtx_builtup = self.lsm_mtx.copy()                        
-            builtup_mask = np.isin(mtx_builtup, self.lu_classes_builtup, invert=False)
-            mtx_builtup[builtup_mask] = 1
-            mtx_builtup[~builtup_mask] = 0         
-                            
-            # write built-up raster to disk
-            self.progress.update(current_task, advance=1)                 
-            self._write_dataset("MASKS/built-up.tif", mtx_builtup)
-            del mtx_builtup
-        
-        # done
-        self.printStepCompleteInfo()
+
 
 
     def disaggregation(self, population_grid: str, disaggregation_method: DisaggregationMethod, max_pixel_count: int, write_scaled_result: bool = True) -> None:
-        
+        """Disaggregates population to specified built-up (residential) classes. 
+
+        :param population_grid: Name of the population raster file to be used for disaggregation.
+        :type population_grid: str
+        :param disaggregation_method: Method to conduct disaggregation.
+        :type disaggregation_method: DisaggregationMethod
+        :param max_pixel_count: Number of built-up pixels per population raster. 
+        :type max_pixel_count: int
+        :param write_scaled_result: _description_, defaults to True
+        :type write_scaled_result: bool, optional
+        """
         # mask residential classes
         self.mask_landuses(lu_classes=self.lu_classes_builtup)
 
@@ -504,10 +497,11 @@ class Recreat:
                 residential_classes=self.lu_classes_builtup, 
                 max_pixel_count=max_pixel_count,
                 write_scaled_result=write_scaled_result)
+            
             disaggregation_engine.run()
 
         elif disaggregation_method is DisaggregationMethod.DasymetricMapping:
-            pass
+            raise(MethodNotImplemented)
 
 
 
