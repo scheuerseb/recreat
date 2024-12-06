@@ -9,7 +9,7 @@ from typing import List
 from rich.progress import Progress, TaskProgressColumn, TimeElapsedColumn, MofNCompleteColumn, TextColumn, BarColumn
 
 from .transformations import Transformations
-
+import os.path
 
 
 class DisaggregationMethod(Enum):
@@ -148,10 +148,11 @@ class SimpleAreaWeighted(BaseDisaggregation):
         # source raster = aggregated builtup area
         # template raster = population
         # target raster = builtup_count
-        source_filename = self.get_file_path(f"MASKS/mask_{residential_class}.tif")
-        template_filename = self.get_file_path(self.population_grid)
-        out_filename = self.get_file_path(f"DEMAND/pixel_count_{residential_class}.tif")
-        Transformations.match_rasters(source_filename, template_filename, out_filename, rasterio.enums.Resampling.sum)
+        out_filename = self.get_file_path(f"DEMAND/pixel_count_{residential_class}.tif") 
+        if not os.path.isfile(out_filename):
+            source_filename = self.get_file_path(f"MASKS/mask_{residential_class}.tif")
+            template_filename = self.get_file_path(self.population_grid)
+            Transformations.match_rasters(source_filename, template_filename, out_filename, rasterio.enums.Resampling.sum, np.float32)
 
 
     def determine_class_share(self, residential_class: int) -> None:
@@ -161,30 +162,32 @@ class SimpleAreaWeighted(BaseDisaggregation):
         :type residential_class: int
         """
 
-        residential_class_file_path = self.get_file_path(f"DEMAND/pixel_count_{residential_class}.tif")
-        ref_residential_pixel_count = rasterio.open(residential_class_file_path)
-        
-        dest_meta = ref_residential_pixel_count.meta.copy()        
-        dest_meta.update({
-            'dtype' : rasterio.float64,
-            'nodata' : -127.0
-        })
-               
-        mtx_residential_pixel_count = ref_residential_pixel_count.read(1)
+        out_filename = self.get_file_path(f"DEMAND/class_share{residential_class}.tif")
+        if not os.path.isfile(out_filename):
 
-        # create result matrix
-        mtx_pixel_share = np.zeros(mtx_residential_pixel_count.shape, dtype=np.float64)
+            residential_class_file_path = self.get_file_path(f"DEMAND/pixel_count_{residential_class}.tif")
+            ref_residential_pixel_count = rasterio.open(residential_class_file_path)
+            
+            dest_meta = ref_residential_pixel_count.meta.copy()        
+            dest_meta.update({
+                'dtype' : rasterio.float64,
+                'nodata' : -127.0
+            })
+                
+            mtx_residential_pixel_count = ref_residential_pixel_count.read(1)
 
-        # determine share
-        np.divide(mtx_residential_pixel_count.astype(np.float64), self.pixel_count, out=mtx_pixel_share, where=mtx_residential_pixel_count > 0)
+            # create result matrix
+            mtx_pixel_share = np.zeros(mtx_residential_pixel_count.shape, dtype=np.float64)
 
-        # export result
-        out_path = self.get_file_path(f"DEMAND/class_share{residential_class}.tif")
-        with rasterio.open(out_path, "w", **dest_meta) as dest:
-            dest.write(mtx_pixel_share, 1)
+            # determine share
+            np.divide(mtx_residential_pixel_count.astype(np.float64), self.pixel_count, out=mtx_pixel_share, where=mtx_residential_pixel_count > 0)
 
-        del mtx_pixel_share
-        del mtx_residential_pixel_count
+            # export result
+            with rasterio.open(out_filename, "w", **dest_meta) as dest:
+                dest.write(mtx_pixel_share, 1)
+
+            del mtx_pixel_share
+            del mtx_residential_pixel_count
 
 
     def determine_class_pixel_population(self, residential_class: int) -> None:
@@ -194,44 +197,46 @@ class SimpleAreaWeighted(BaseDisaggregation):
         :type residential_class: int
         """        
     
-        # get population
-        pop_path = self.get_file_path(self.population_grid)
-        ref_pop = rasterio.open(pop_path)
-        mtx_pop = ref_pop.read(1)
-        
-        dest_meta = ref_pop.meta.copy()
-        dest_meta.update({
-            'dtype' : rasterio.float32,
-            'nodata' : -127.0
-        })
+        out_filename = self.get_file_path(f"DEMAND/pixel_population_count_{residential_class}.tif")
+        if not os.path.isfile(out_filename):
 
-        # target matrix
-        mtx_per_pixel_population_count = np.zeros(mtx_pop.shape, dtype=np.float32)
-        
-        # get share matrix
-        mtx_share_path = self.get_file_path(f"DEMAND/class_share{residential_class}.tif")
-        mtx_share = rasterio.open(mtx_share_path).read(1)
+            # get population
+            pop_path = self.get_file_path(self.population_grid)
+            ref_pop = rasterio.open(pop_path)
+            mtx_pop = ref_pop.read(1)
+            
+            dest_meta = ref_pop.meta.copy()
+            dest_meta.update({
+                'dtype' : rasterio.float32,
+                'nodata' : -127.0
+            })
 
-        # make sure that a float dtype is set       
-        # first, multiply share of class with population, to determine actual pop to be distributed        
-        np.multiply(mtx_share.astype(np.float32), mtx_pop.astype(np.float32), out=mtx_per_pixel_population_count)   
-        del mtx_share
-        del mtx_pop
+            # target matrix
+            mtx_per_pixel_population_count = np.zeros(mtx_pop.shape, dtype=np.float32)
+            
+            # get share matrix
+            mtx_share_path = self.get_file_path(f"DEMAND/class_share{residential_class}.tif")
+            mtx_share = rasterio.open(mtx_share_path).read(1)
+
+            # make sure that a float dtype is set       
+            # first, multiply share of class with population, to determine actual pop to be distributed        
+            np.multiply(mtx_share.astype(np.float32), mtx_pop.astype(np.float32), out=mtx_per_pixel_population_count)   
+            del mtx_share
+            del mtx_pop
 
 
-        # second, divide population to be disaggregated by pixel count to determine per-pixel populationy figure
-        # get class pixel count per population grid cell
-        pixel_count_path = self.get_file_path(f"DEMAND/pixel_count_{residential_class}.tif")
-        mtx_pixel_count = rasterio.open(pixel_count_path).read(1)        
-        np.divide(mtx_per_pixel_population_count, mtx_pixel_count.astype(np.float32), out=mtx_per_pixel_population_count, where=mtx_pixel_count > 0)        
-        
-        # export result
-        out_path = self.get_file_path(f"DEMAND/pixel_population_count_{residential_class}.tif")
-        with rasterio.open(out_path, "w", **dest_meta) as dest:
-            dest.write(mtx_per_pixel_population_count.astype(np.float32), 1)
-        
-        del mtx_pixel_count
-        del mtx_per_pixel_population_count   
+            # second, divide population to be disaggregated by pixel count to determine per-pixel populationy figure
+            # get class pixel count per population grid cell
+            pixel_count_path = self.get_file_path(f"DEMAND/pixel_count_{residential_class}.tif")
+            mtx_pixel_count = rasterio.open(pixel_count_path).read(1)        
+            np.divide(mtx_per_pixel_population_count.astype(np.float32), mtx_pixel_count.astype(np.float32), out=mtx_per_pixel_population_count, where=mtx_pixel_count > 0)        
+            
+            # export result
+            with rasterio.open(out_filename, "w", **dest_meta) as dest:
+                dest.write(mtx_per_pixel_population_count.astype(np.float32), 1)
+            
+            del mtx_pixel_count
+            del mtx_per_pixel_population_count   
 
     def reproject_pixel_population_count_to_builtup(self, residential_class: int) -> None:
         """ Matches patch population and built-up rasters. It will write the reprojected dataset to disk.
@@ -243,60 +248,68 @@ class SimpleAreaWeighted(BaseDisaggregation):
         # source raster = patch_population
         # template raster = built-up area
         # target raster = reprojected_patch_population 
-        source_filename = self.get_file_path(f"DEMAND/pixel_population_count_{residential_class}.tif")
-        template_filename = self.get_file_path(f"MASKS/mask_{residential_class}.tif")
         out_filename = self.get_file_path(f"DEMAND/population_base_{residential_class}.tif")
-        Transformations.match_rasters(source_filename, template_filename, out_filename, rasterio.enums.Resampling.min)
+        if not os.path.isfile(out_filename):
+            source_filename = self.get_file_path(f"DEMAND/pixel_population_count_{residential_class}.tif")
+            template_filename = self.get_file_path(f"MASKS/mask_{residential_class}.tif")
+            Transformations.match_rasters(source_filename, template_filename, out_filename, rasterio.enums.Resampling.min, np.float32)
 
        
 
     def write_population(self, lu_classes: List[int], current_task = None) -> None:
-        
-        
-        dest_mtx = None
-        dest_meta = None
-        
 
-        for cls in lu_classes:
-            # add pop to final raster
-            class_mask_path = self.get_file_path(f"MASKS/mask_{cls}.tif")
-            ref_class_mask = rasterio.open(class_mask_path)
-            mtx_class_mask = ref_class_mask.read(1)
-            if dest_mtx is None:
-                # import raster reference
-                dest_mtx = np.zeros(ref_class_mask.shape, dtype=np.float32)
-                dest_meta = ref_class_mask.meta.copy()
-
-            class_pixel_population_path = self.get_file_path(f"DEMAND/population_base_{cls}.tif")
-            ref_class_pixel_population = rasterio.open(class_pixel_population_path)
-            mtx_class_pixel_population = ref_class_pixel_population.read(1)
+        out_filename = self.get_file_path('DEMAND/disaggregated_population.tif')
+        if not os.path.isfile(out_filename):
             
-            # intersect mask and per-pixel population count
-            mtx_class_mask = mtx_class_mask * mtx_class_pixel_population
+            dest_mtx = None
+            dest_meta = None
             
-            # add to dest_mtx
-            dest_mtx += mtx_class_mask
+            for cls in lu_classes:
+                # add pop to final raster
+                class_mask_path = self.get_file_path(f"MASKS/mask_{cls}.tif")
+                ref_class_mask = rasterio.open(class_mask_path)
+                mtx_class_mask = ref_class_mask.read(1)
+                if dest_mtx is None:
+                    # import raster reference
+                    dest_mtx = np.zeros(ref_class_mask.shape, dtype=np.float32)
+                    dest_meta = ref_class_mask.meta.copy()
+                    dest_meta.update({
+                        'dtype' : rasterio.float32
+                    })
 
-            # some clean-up
-            del mtx_class_mask
-            del mtx_class_pixel_population
+                class_pixel_population_path = self.get_file_path(f"DEMAND/population_base_{cls}.tif")
+                ref_class_pixel_population = rasterio.open(class_pixel_population_path)
+                mtx_class_pixel_population = ref_class_pixel_population.read(1)
+                
+                # intersect mask and per-pixel population count
+                mtx_class_mask = mtx_class_mask * mtx_class_pixel_population
+                
+                # add to dest_mtx
+                dest_mtx += mtx_class_mask
 
-            # update progress
+                # some clean-up
+                del mtx_class_mask
+                del mtx_class_pixel_population
+
+                # update progress
+                if current_task is not None:
+                    self.progress.update(current_task, advance=1)
+
+
+            with rasterio.open(out_filename, "w", **dest_meta) as dest:
+                dest.write(dest_mtx, 1)
+            
+            if self.write_scaled_result:
+                scaler = MinMaxScaler()
+                orig_shape = dest_mtx.shape
+                dest_mtx = scaler.fit_transform(dest_mtx.reshape([-1,1]))
+                out_filename = self.get_file_path('DEMAND/scaled_disaggregated_population.tif')
+                
+                with rasterio.open(out_filename, "w", **dest_meta) as dest:
+                    dest.write(dest_mtx.reshape(orig_shape), 1)
+
+            
+        else:
+
             if current_task is not None:
-                self.progress.update(current_task, advance=1)
-
-
-        out_path = self.get_file_path('DEMAND/disaggregated_population.tif')
-        with rasterio.open(out_path, "w", **dest_meta) as dest:
-            dest.write(dest_mtx, 1)
-         
-        if self.write_scaled_result:
-            scaler = MinMaxScaler()
-            orig_shape = dest_mtx.shape
-            dest_mtx = scaler.fit_transform(dest_mtx.reshape([-1,1]))
-            out_path = self.get_file_path('DEMAND/scaled_disaggregated_population.tif')
-            
-            with rasterio.open(out_path, "w", **dest_meta) as dest:
-                dest.write(dest_mtx.reshape(orig_shape), 1)
-
-            
+                self.progress.update(current_task, advance=len(lu_classes))

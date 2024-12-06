@@ -8,12 +8,15 @@ import numpy as np
 class Transformations:
 
     @staticmethod
-    def match_rasters(source_raster_filename: str, template_raster_filename: str, out_filename: str, resampling_method: rasterio.enums.Resampling ) -> None:
+    def match_rasters(source_raster_filename: str, template_raster_filename: str, out_filename: str, resampling_method: rasterio.enums.Resampling, dest_dtype ) -> None:
         
         ref_source = rasterio.open(source_raster_filename)
         
         ref_template = rasterio.open(template_raster_filename)
         template_meta = ref_template.meta.copy()
+        template_meta.update({
+            'dtype' : dest_dtype
+        })
 
         out_ref = rasterio.open(out_filename, 'w', **template_meta)
         rasterio.warp.reproject(
