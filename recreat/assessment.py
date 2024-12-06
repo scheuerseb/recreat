@@ -45,17 +45,15 @@ from typing import Tuple, List, Callable, Dict
 from enum import Enum
 
 from .transformations import Transformations
-from .disaggregation import SimpleAreaWeighted, DasymetricMapping, DisaggregationMethod
+from .disaggregation import SimpleAreaWeightedEngine, DasymetricMappingEngine, DisaggregationMethod
 from .exceptions import MethodNotImplemented
+from .base import RecreatBase
 
-class Recreat:
+
+class Recreat(RecreatBase):
 
     # some status variables
     verbose_reporting = False
-
-    # environment variables
-    data_path = None            # path to datasets
-    root_path = "current"       # path to a specific "scenario" to be assessed, i.e., subfolder in data_path
 
     # references to input data
     # this stores the lsm map as reference map
@@ -79,22 +77,18 @@ class Recreat:
     cost_thresholds = []
     ignore_edges_to_classes = []
     
-    # progress reporting
-    progress = None     
-    task_assess_map_units = None
-
     # shared library
     clib = None 
 
-    def __init__(self, data_path: str):
+    def __init__(self, data_path: str):        
         os.system('cls' if os.name == 'nt' else 'clear')
 
         if not os.path.exists(data_path) and os.access(data_path, os.W_OK):
             print(f"{Fore.RED}Error: data_path not found.{Style.RESET_ALL}")
             raise FileNotFoundError()
-        
+
         else:
-            self.data_path = data_path
+            super().__init__(data_path=data_path, root_path=None)
             print(Fore.WHITE + Style.BRIGHT + "recreat (C) 2024, Sebastian Scheuer" + Style.RESET_ALL)
             self.py_path = os.path.dirname(__file__)
 
@@ -121,25 +115,6 @@ class Recreat:
             if not os.path.exists(current_path):
                 os.makedirs(current_path)
 
-    def printStepInfo(self, msg):
-        print(Fore.CYAN + Style.BRIGHT + msg.upper() + Style.RESET_ALL)
-    
-    def printStepCompleteInfo(self, msg = "COMPLETED"):
-        print(Fore.GREEN + Style.BRIGHT + msg + Style.RESET_ALL)
-
-    def _new_progress(self, task_description, total):
-        self.progress = self.get_progress_bar()
-        task_new = self.progress.add_task(task_description, total=total)
-        return task_new
-
-    def get_progress_bar(self):
-        return Progress(
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TimeElapsedColumn(),
-            MofNCompleteColumn()
-        )
 
     def set_params(self, param_name: str, param_value: any) -> None:
         """Set processing parameters.
@@ -225,11 +200,9 @@ class Recreat:
 
         # mask classes of interest into a binary raster to indicate presence/absence of recreational potential
         # we require this for all classes relevant to processing: patch and edge recreational classes, built-up classes
-        self.printStepInfo("CREATING LAND-USE MASKS")
-        
+        self.printStepInfo("CREATING LAND-USE MASKS")        
         current_task = self._get_task('[white]Masking land-uses', total=len(classes_for_masking))
-        
-        with self.progress if self._runsAsStandalone() else nullcontext() as bar:        
+        with self.progress:
             for lu in classes_for_masking:
                 current_lu_mask = self.lsm_mtx.copy()
                 # make mask for relevant pixels
@@ -278,8 +251,7 @@ class Recreat:
 
             self.printStepInfo("Detecting edges")
             current_task = self._get_task("[white]Detecting edges", total=len(classes_to_assess))
-            
-            with self.progress if self._runsAsStandalone() else nullcontext() as bar:
+            with self.progress:
                 for lu in classes_to_assess:            
                     
                     if ignore_edges_to_class is None:                    
@@ -343,7 +315,7 @@ class Recreat:
         current_task = self._get_task("[white]Computing distance rasters", total=step_count)
 
         # iterate over classes and clumps
-        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
+        with self.progress:
             for lu in classes_for_proximity_calculation:
                 
                 # target raster
@@ -398,7 +370,7 @@ class Recreat:
             
             step_count = len(clump_slices)
             current_task = self._get_task("[white]Computing distance rasters", total=step_count)
-            with self.progress if self._runsAsStandalone() else nullcontext() as bar:
+            with self.progress:
                 
                 # target raster
                 lu_dr = self._get_value_matrix()
@@ -450,7 +422,7 @@ class Recreat:
             current_task = self._get_task("[white]Reclassification", total=len(mappings.keys()))
 
             # iterate over key-value combinations
-            with self.progress if self._runsAsStandalone() else nullcontext() as bar:
+            with self.progress:
                 
                 for (new_class_value, classes_to_aggregate) in mappings.items():
                     replacement_mask = np.isin(self.lsm_mtx, classes_to_aggregate, invert=False)
@@ -465,7 +437,7 @@ class Recreat:
                 self._write_dataset(export_filename, self.lsm_mtx)
 
             # done
-            self.printStepCompleteInfo()
+            self.taskProgressReportStepCompleted()
 
         else:
             print(Fore.WHITE + Back.RED + "ERR: Import Land-Use first" + Style.RESET_ALL)
@@ -490,7 +462,7 @@ class Recreat:
         self.mask_landuses(lu_classes=self.lu_classes_builtup)
 
         if disaggregation_method is DisaggregationMethod.SimpleAreaWeighted:            
-            disaggregation_engine = SimpleAreaWeighted(
+            disaggregation_engine = SimpleAreaWeightedEngine(
                 data_path=self.data_path, 
                 root_path=self.root_path,
                 population_grid=population_grid, 
@@ -502,86 +474,6 @@ class Recreat:
 
         elif disaggregation_method is DisaggregationMethod.DasymetricMapping:
             raise(MethodNotImplemented)
-
-
-
-
-    def disaggregate_population(self, population_grid: str, force_computing: bool = False, write_scaled_result: bool = True) -> None:
-        """Aggregates built-up land-use classes into a single raster of built-up areas, and intersects built-up with the scenario-specific population grid to provide disaggregated population.
-           The method currently implements a simple area-weighted disaggregation method. This method can currently account for gridded land-use and population featuring the same extent and resolution,
-           and for the gridded population to have a lower resolution than gridded land-use 
-
-        :param population_grid: Name of the population raster file to be used for disaggregation.
-        :type population_grid: str
-        :param force_computing: Force (re-)computation of intermediate products if they already exist, defaults to False.
-        :type force_computing: bool, optional
-        :param write_scaled_result: Export min-max scaled result, if set to True, defaults to True.
-        :type write_scaled_result: bool, optional
-        """        
-
-        self.printStepInfo("Disaggregating population to built-up")
-        
-        self.printStepInfo('Reprojecting built-up')
-        current_task = self._get_task("[white]Disaggregation", total=1)
-        
-        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
-
-            # cases to consider:
-            # A -- pop and built-up (hence, land use) have the same resolution and extent
-            # B -- pop has a lower resolution (and differing extent?) than built-up
-            # TODO: C -- built-up has a lower resolution than pop 
-            # TODO: Test if resolutions actually differ!
-
-            # disaggregation in multiple steps
-            # we require built-up to be available
-            if not os.path.isfile(f"{self.data_path}/{self.root_path}/MASKS/built-up.tif") or force_computing:
-                self._aggregate_builtup_classes()
-            else:
-                print(Style.DIM + "    Skip aggregation of built-up classes. File exists." + Style.RESET_ALL)
-
-            # first: Aggregate built-up pixels per population grid cell to determine patch count 
-            if not os.path.isfile("{}/{}/DEMAND/builtup_count.tif".format(self.data_path, self.root_path)) or force_computing:
-                self._reproject_builtup_to_population(population_grid=population_grid)
-            else:
-                print(Style.DIM + "    Skip reprojection of built-up. File exists." + Style.RESET_ALL)
-
-
-            # second: Determine patch population
-            if not os.path.isfile("{}/{}/DEMAND/patch_population.tif".format(self.data_path, self.root_path)) or force_computing:            
-                self._conduct_disaggregation(population_grid=population_grid)
-            else:
-                print(Style.DIM + "    Skip estimation of patch population. File exists." + Style.RESET_ALL)
-
-            # third: Reproject patch population to match built-up grid
-            if not os.path.isfile("{}/{}/DEMAND/reprojected_patch_population.tif".format(self.data_path, self.root_path)) or force_computing:
-                self._reproject_patch_population_to_builtup()
-            else:
-                print(Style.DIM + "    Skip reprojection of patch population. File exists." + Style.RESET_ALL)
-
-                                                
-            # fourth: intersect patch population with built-up patches
-            if not os.path.isfile("{}/{}/DEMAND/disaggregated_population.tif".format(self.data_path, self.root_path)) or force_computing:            
-                mtx_pop = self._read_band('DEMAND/reprojected_patch_population.tif')                             
-                mtx_builtup = self._read_band('MASKS/built-up.tif')
-                # intersect 
-                mtx_builtup = mtx_builtup * mtx_pop        
-                self._write_dataset("DEMAND/disaggregated_population.tif", mtx_builtup)
-            
-                if write_scaled_result:
-                    scaler = MinMaxScaler()
-                    mtx_builtup = scaler.fit_transform(mtx_builtup.reshape([-1,1]))
-                    self._write_dataset("DEMAND/scaled_disaggregated_population.tif", mtx_builtup.reshape(self.lsm_mtx.shape))
-            else:
-                print(Style.DIM + "    Skip disaggregation of patch population. File exists." + Style.RESET_ALL)
-
-        # done 
-        self.progress.update(current_task, advance=1)          
-        self.taskProgressReportStepCompleted()
-
-
-
-
-
 
 
         
@@ -597,7 +489,7 @@ class Recreat:
         step_count = len(self.cost_thresholds) * len(clump_slices)
         current_task = self._get_task("[white]Determining beneficiaries", total=step_count)
         
-        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
+        with self.progress:
 
             for c in self.cost_thresholds:
 
@@ -649,7 +541,7 @@ class Recreat:
         step_count = len(clump_slices) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
         current_task = self._get_task("[white]Determining clumped supply", total=step_count)
 
-        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
+        with self.progress:
             for c in self.cost_thresholds:                 
                 for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
                     # determine source of list
@@ -740,12 +632,7 @@ class Recreat:
         return lu_supply_mtx
     
 
-    def _get_task(self, task_description, total):
-        if self._runsAsStandalone():
-            current_task = self._new_progress(task_description, total=total)
-        else:
-            current_task = self.progress.add_task(task_description, total=total)
-        return current_task
+
     
 
 
@@ -834,7 +721,7 @@ class Recreat:
                 for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
                     
                     # determine source of list
-                    lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"   
+                    lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
                     mtx_lu = self._get_mask_for_lu(lu, lu_type)
                     mtx_res = mtx_lu * mtx_pop
                     
@@ -1615,14 +1502,7 @@ class Recreat:
     
 
 
-    def taskProgressReportStepCompleted(self):
-        if self.task_assess_map_units is not None:
-            self.progress.update(self.task_assess_map_units, advance=1)
-        else:
-            self.printStepCompleteInfo()
-
-    def _runsAsStandalone(self):
-        return True if self.task_assess_map_units is None else False
+    
 
     def clean_temporary_files(self):
         """Clean temporary files from the TMP folder.
@@ -1637,7 +1517,7 @@ class Recreat:
             os.remove(f)
             self.progress.update(current_task, advance=1)
         
-        self.printStepCompleteInfo(msg = "TEMPORARY FILES CLEANED")
+        self.taskProgressReportStepCompleted(msg = "TEMPORARY FILES CLEANED")
         
         
     

@@ -2,14 +2,14 @@ import numpy as np
 import numpy.ma as ma
 import rasterio
 import rasterio.enums
+import os.path
 from sklearn.preprocessing import MinMaxScaler
 from enum import Enum
 from typing import List
 
-from rich.progress import Progress, TaskProgressColumn, TimeElapsedColumn, MofNCompleteColumn, TextColumn, BarColumn
-
 from .transformations import Transformations
-import os.path
+from .base import RecreatBase
+
 
 
 class DisaggregationMethod(Enum):
@@ -20,25 +20,22 @@ class TransformationState(Enum):
     NotRequired = 'none'
     DownscalePopulation = 'downscale'
 
-class BaseDisaggregation:
+class DisaggregationBaseEngine(RecreatBase):
 
-    root_path: str = None
-    data_path: str = None
     population_grid: str = None
     residential_classes: List[int] = None
     pixel_count: int = None
     write_scaled_result: bool = True
     transformation_state: TransformationState = None
-    progress = None
 
 
     def __init__(self, data_path: str, root_path: str, population_grid: str, residential_classes: List[int], pixel_count: int, write_scaled_result: bool = True):
-        self.root_path = root_path
-        self.data_path = data_path
+        
+        super().__init__(data_path=data_path, root_path=root_path)
+
         self.population_grid = population_grid
         self.residential_classes = residential_classes
         self.write_scaled_result = write_scaled_result
-
 
         if pixel_count == 1:
             # 1-to-1 match between built-up and population
@@ -48,13 +45,6 @@ class BaseDisaggregation:
             # built-up resolution is higher than population
             self.transformation_state = TransformationState.DownscalePopulation
              
-        self.progress = Progress(
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TimeElapsedColumn(),
-            MofNCompleteColumn()
-        ) 
 
     def get_file_path(self, file_name: str):
         """Get the fully-qualified path to model file with specified filename.
@@ -65,7 +55,7 @@ class BaseDisaggregation:
         return f"{self.data_path}/{self.root_path}/{file_name}"
 
 
-class DasymetricMapping(BaseDisaggregation):
+class DasymetricMappingEngine(DisaggregationBaseEngine):
 
     samples = None
 
@@ -89,7 +79,7 @@ class DasymetricMapping(BaseDisaggregation):
         print(np.ma.sum(masked_pop))
 
 
-class SimpleAreaWeighted(BaseDisaggregation):
+class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
 
     def __init__(self, data_path, root_path, population_grid: str, residential_classes: List[int], max_pixel_count: int, write_scaled_result: bool = True):
         super().__init__(data_path=data_path, root_path=root_path, population_grid=population_grid, residential_classes=residential_classes, pixel_count=max_pixel_count, write_scaled_result=write_scaled_result)
@@ -97,7 +87,7 @@ class SimpleAreaWeighted(BaseDisaggregation):
 
     def run(self) -> None:        
         """Run simple area weighted disaggregation engine. 
-        """
+        """        
         self.determine_pixel_count_per_population_cell(self.residential_classes)                
         self.determine_class_share(self.residential_classes)        
         self.determine_class_pixel_population(self.residential_classes)
@@ -111,12 +101,14 @@ class SimpleAreaWeighted(BaseDisaggregation):
         :type residential_class: List[int]
         """        
         step_count = len(residential_classes)
-        current_task = self.progress.add_task("Determine pixel count", total=step_count)
+        current_task = self._get_task("[white]Determine pixel count", total=step_count)
         with self.progress:
             for cls in residential_classes:
                 self._determine_pixel_count_per_population_cell(cls)
                 self.progress.update(current_task, advance=1)
 
+        # done
+        self.taskProgressReportStepCompleted()
 
     def _determine_pixel_count_per_population_cell(self, residential_class: int) -> None:
        
@@ -136,11 +128,13 @@ class SimpleAreaWeighted(BaseDisaggregation):
         :type residential_class: List[int]
         """
         step_count = len(residential_classes)
-        current_task = self.progress.add_task("Determine class pixel share", total=step_count)
+        current_task = self._get_task("[white]Determine class pixel share", total=step_count)
         with self.progress:
             for cls in residential_classes:
                 self._determine_class_share(cls)
                 self.progress.update(current_task, advance=1)
+        # done
+        self.taskProgressReportStepCompleted()
 
     def _determine_class_share(self, residential_class: int) -> None:
 
@@ -180,11 +174,14 @@ class SimpleAreaWeighted(BaseDisaggregation):
         :type residential_class: List[int]
         """
         step_count = len(residential_classes)
-        current_task = self.progress.add_task("Determine per-pixel population", total=step_count)
+        current_task = self._get_task("[white]Determine per-pixel population", total=step_count)
         with self.progress:
             for cls in residential_classes:
                 self._determine_class_pixel_population(cls)
                 self.progress.update(current_task, advance=1)
+        
+        # done
+        self.taskProgressReportStepCompleted()
 
     def _determine_class_pixel_population(self, residential_class: int) -> None:
     
@@ -239,11 +236,14 @@ class SimpleAreaWeighted(BaseDisaggregation):
         :type residential_class: List[int]
         """
         step_count = len(residential_classes)
-        current_task = self.progress.add_task("Determine class population", total=step_count)
+        current_task = self._get_task("[white]Determine class population", total=step_count)
         with self.progress:
             for cls in self.residential_classes:
                 self._reproject_pixel_population_count_to_builtup(cls)
                 self.progress.update(current_task, advance=1)
+
+        # done
+        self.taskProgressReportStepCompleted()
 
 
     def _reproject_pixel_population_count_to_builtup(self, residential_class: int) -> None:
@@ -259,12 +259,13 @@ class SimpleAreaWeighted(BaseDisaggregation):
 
     def aggregate_class_population(self, residential_classes: List[int]) -> None:
         step_count = 1
-        current_task = self.progress.add_task("Determine class population", total=step_count)
+        current_task = self._get_task("[white]Determine class population", total=step_count)
         with self.progress:
             self._aggregate_class_population(residential_classes)
             self.progress.update(current_task, advance=1)
 
-
+        # done
+        self.taskProgressReportStepCompleted()
 
     def _aggregate_class_population(self, residential_classes: List[int], current_task = None) -> None:
 
