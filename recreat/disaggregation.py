@@ -29,6 +29,7 @@ class BaseDisaggregation:
     pixel_count: int = None
     write_scaled_result: bool = True
     transformation_state: TransformationState = None
+    progress = None
 
 
     def __init__(self, data_path: str, root_path: str, population_grid: str, residential_classes: List[int], pixel_count: int, write_scaled_result: bool = True):
@@ -47,7 +48,13 @@ class BaseDisaggregation:
             # built-up resolution is higher than population
             self.transformation_state = TransformationState.DownscalePopulation
              
-
+        self.progress = Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            MofNCompleteColumn()
+        ) 
 
     def get_file_path(self, file_name: str):
         """Get the fully-qualified path to model file with specified filename.
@@ -84,66 +91,34 @@ class DasymetricMapping(BaseDisaggregation):
 
 class SimpleAreaWeighted(BaseDisaggregation):
 
-    method_steps_count = 5
-    progress = None
-
     def __init__(self, data_path, root_path, population_grid: str, residential_classes: List[int], max_pixel_count: int, write_scaled_result: bool = True):
         super().__init__(data_path=data_path, root_path=root_path, population_grid=population_grid, residential_classes=residential_classes, pixel_count=max_pixel_count, write_scaled_result=write_scaled_result)
         self.pixel_count = max_pixel_count
 
-
-
-
     def run(self) -> None:        
-        
-        self.progress = Progress(
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TimeElapsedColumn(),
-            MofNCompleteColumn()
-        ) 
+        """Run simple area weighted disaggregation engine. 
+        """
+        self.determine_pixel_count_per_population_cell(self.residential_classes)                
+        self.determine_class_share(self.residential_classes)        
+        self.determine_class_pixel_population(self.residential_classes)
+        self.reproject_pixel_population_count_to_builtup(self.residential_classes)
+        self.aggregate_class_population(self.residential_classes)
 
-        step_count = len(self.residential_classes) * self.method_steps_count
-        current_task = self.progress.add_task("Disaggregation", total=step_count)
-
-
-        #meta_a = rasterio.open(self.get_file_path(population_grid)).meta
-        #meta_b = rasterio.open(self.get_file_path(f"MASKS/mask_{residential_classes[0]}.tif")).meta
-
-
-
-        with self.progress:
-
-            print('DETERMINING PIXEL COUNT PER POPULATION CELL')
-            for cls in self.residential_classes:
-                self.determine_pixel_count_per_population_cell(cls)
-                self.progress.update(current_task, advance=1)
-            
-            print('DETERMINING CLASS SHARES')
-            for cls in self.residential_classes:
-                self.determine_class_share(cls)
-                self.progress.update(current_task, advance=1)
-
-            print('DETERMINE PER-PIXEL POPULATION')
-            for cls in self.residential_classes:
-                self.determine_class_pixel_population(cls)
-                self.progress.update(current_task, advance=1)
-
-            print('REPROJECT PER-PIXEL POPULATION')
-            for cls in self.residential_classes:
-                self.reproject_pixel_population_count_to_builtup(cls)
-                self.progress.update(current_task, advance=1)
-
-            self.write_population(self.residential_classes, current_task=current_task)
-
-
-    def determine_pixel_count_per_population_cell(self, residential_class: int) -> None:
+    def determine_pixel_count_per_population_cell(self, residential_classes: List[int]) -> None:
         """Matches population and built-up rasters and sums built-up pixels within each cell of the population raster. It will write a raster of built-up pixel count.
 
-        :param residential_class: Class value of residential class.
-        :type population_grid: int
+        :param residential_classes: Residential class values to assess.
+        :type residential_class: List[int]
         """        
+        step_count = len(residential_classes)
+        current_task = self.progress.add_task("Determine pixel count", total=step_count)
+        with self.progress:
+            for cls in residential_classes:
+                self._determine_pixel_count_per_population_cell(cls)
+                self.progress.update(current_task, advance=1)
+
+
+    def _determine_pixel_count_per_population_cell(self, residential_class: int) -> None:
        
         # source raster = aggregated builtup area
         # template raster = population
@@ -154,13 +129,20 @@ class SimpleAreaWeighted(BaseDisaggregation):
             template_filename = self.get_file_path(self.population_grid)
             Transformations.match_rasters(source_filename, template_filename, out_filename, rasterio.enums.Resampling.sum, np.float32)
 
-
-    def determine_class_share(self, residential_class: int) -> None:
+    def determine_class_share(self, residential_classes: List[int]) -> None:
         """Determine the share of residential class within population raster cell
 
-        :param residential_class: Class value of residential class.
-        :type residential_class: int
+        :param residential_classes: Residential class values to assess.
+        :type residential_class: List[int]
         """
+        step_count = len(residential_classes)
+        current_task = self.progress.add_task("Determine class pixel share", total=step_count)
+        with self.progress:
+            for cls in residential_classes:
+                self._determine_class_share(cls)
+                self.progress.update(current_task, advance=1)
+
+    def _determine_class_share(self, residential_class: int) -> None:
 
         out_filename = self.get_file_path(f"DEMAND/class_share{residential_class}.tif")
         if not os.path.isfile(out_filename):
@@ -190,12 +172,21 @@ class SimpleAreaWeighted(BaseDisaggregation):
             del mtx_residential_pixel_count
 
 
-    def determine_class_pixel_population(self, residential_class: int) -> None:
+    
+    def determine_class_pixel_population(self, residential_classes: List[int]) -> None:
         """Applies disaggregation algorithm. At the moment, a simple area-weighted approach is implemented.
 
-        :param residential_class: Class value of residential class.
-        :type residential_class: int
-        """        
+        :param residential_classes: Residential class values to assess.
+        :type residential_class: List[int]
+        """
+        step_count = len(residential_classes)
+        current_task = self.progress.add_task("Determine per-pixel population", total=step_count)
+        with self.progress:
+            for cls in residential_classes:
+                self._determine_class_pixel_population(cls)
+                self.progress.update(current_task, advance=1)
+
+    def _determine_class_pixel_population(self, residential_class: int) -> None:
     
         out_filename = self.get_file_path(f"DEMAND/pixel_population_count_{residential_class}.tif")
         if not os.path.isfile(out_filename):
@@ -204,6 +195,9 @@ class SimpleAreaWeighted(BaseDisaggregation):
             pop_path = self.get_file_path(self.population_grid)
             ref_pop = rasterio.open(pop_path)
             mtx_pop = ref_pop.read(1)
+            # assert correct replacement of nodata values with 0
+            print(ref_pop.meta)
+            mtx_pop[mtx_pop == ref_pop.meta['nodata']] = 0
             
             dest_meta = ref_pop.meta.copy()
             dest_meta.update({
@@ -238,12 +232,21 @@ class SimpleAreaWeighted(BaseDisaggregation):
             del mtx_pixel_count
             del mtx_per_pixel_population_count   
 
-    def reproject_pixel_population_count_to_builtup(self, residential_class: int) -> None:
+    def reproject_pixel_population_count_to_builtup(self, residential_classes: List[int]) -> None:
         """ Matches patch population and built-up rasters. It will write the reprojected dataset to disk.
 
-        :param residential_class: Class value of residential class.
-        :type residential_class: int
+        :param residential_classes: Residential class values to assess.
+        :type residential_class: List[int]
         """
+        step_count = len(residential_classes)
+        current_task = self.progress.add_task("Determine class population", total=step_count)
+        with self.progress:
+            for cls in self.residential_classes:
+                self._reproject_pixel_population_count_to_builtup(cls)
+                self.progress.update(current_task, advance=1)
+
+
+    def _reproject_pixel_population_count_to_builtup(self, residential_class: int) -> None:
 
         # source raster = patch_population
         # template raster = built-up area
@@ -254,9 +257,16 @@ class SimpleAreaWeighted(BaseDisaggregation):
             template_filename = self.get_file_path(f"MASKS/mask_{residential_class}.tif")
             Transformations.match_rasters(source_filename, template_filename, out_filename, rasterio.enums.Resampling.min, np.float32)
 
-       
+    def aggregate_class_population(self, residential_classes: List[int]) -> None:
+        step_count = 1
+        current_task = self.progress.add_task("Determine class population", total=step_count)
+        with self.progress:
+            self._aggregate_class_population(residential_classes)
+            self.progress.update(current_task, advance=1)
 
-    def write_population(self, lu_classes: List[int], current_task = None) -> None:
+
+
+    def _aggregate_class_population(self, residential_classes: List[int], current_task = None) -> None:
 
         out_filename = self.get_file_path('DEMAND/disaggregated_population.tif')
         if not os.path.isfile(out_filename):
@@ -264,7 +274,7 @@ class SimpleAreaWeighted(BaseDisaggregation):
             dest_mtx = None
             dest_meta = None
             
-            for cls in lu_classes:
+            for cls in residential_classes:
                 # add pop to final raster
                 class_mask_path = self.get_file_path(f"MASKS/mask_{cls}.tif")
                 ref_class_mask = rasterio.open(class_mask_path)
@@ -308,8 +318,4 @@ class SimpleAreaWeighted(BaseDisaggregation):
                 with rasterio.open(out_filename, "w", **dest_meta) as dest:
                     dest.write(dest_mtx.reshape(orig_shape), 1)
 
-            
-        else:
-
-            if current_task is not None:
-                self.progress.update(current_task, advance=len(lu_classes))
+        
