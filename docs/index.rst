@@ -69,4 +69,5 @@ Broadly, recreat:
    :caption: API
 
    assessment <api/Recreat>
+   disaggregation <api/disaggregation>
    clustering <api/clustering>

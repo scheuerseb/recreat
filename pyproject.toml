@@ -1,6 +1,6 @@
 [project]
 name = "recreat"
-version = "0.1.2"
+version = "0.1.7"
 
 authors = [
   { name="Sebastian Scheuer", email="seb.scheuer@outlook.de" },
@@ -50,12 +50,6 @@ requires = [
     "setuptools>=60",
     "setuptools-scm>=8.0"]
 build-backend = "setuptools.build_meta"
-
-[tool.setuptools.packages.find]
-where = ["recreat"]
-
-[tool.setuptools.package-data]
-mypkg = ["*.dll", "*.so"]
 
 [project.urls]
 Homepage = "https://github.com/scheuerseb/recreat"
