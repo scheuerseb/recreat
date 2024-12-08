@@ -200,17 +200,21 @@ class Recreat(RecreatBase):
 
         # mask classes of interest into a binary raster to indicate presence/absence of recreational potential
         # we require this for all classes relevant to processing: patch and edge recreational classes, built-up classes
-        self.printStepInfo("CREATING LAND-USE MASKS")        
+        self.printStepInfo("CREATING LAND-USE MASKS")
         current_task = self._get_task('[white]Masking land-uses', total=len(classes_for_masking))
         with self.progress:
             for lu in classes_for_masking:
-                current_lu_mask = self.lsm_mtx.copy()
-                # make mask for relevant pixels
-                mask = np.isin(current_lu_mask, [lu], invert=False)
-                # mask with binary values 
-                current_lu_mask[mask] = 1
-                current_lu_mask[~mask] = 0
-                self._write_dataset("MASKS/mask_{}.tif".format(lu), current_lu_mask)
+                
+                out_filename = self._get_file_path("MASKS/mask_{}.tif")
+                if not os.path.isfile(out_filename):
+                    current_lu_mask = self.lsm_mtx.copy()
+                    # make mask for relevant pixels
+                    mask = np.isin(current_lu_mask, [lu], invert=False)
+                    # mask with binary values 
+                    current_lu_mask[mask] = 1
+                    current_lu_mask[~mask] = 0
+                    self._write_dataset(f"MASKS/mask_{lu}.tif", current_lu_mask)
+
                 self.progress.update(current_task, advance=1)
 
         # done    
@@ -446,7 +450,7 @@ class Recreat(RecreatBase):
 
 
 
-    def disaggregation(self, population_grid: str, disaggregation_method: DisaggregationMethod, max_pixel_count: int, write_scaled_result: bool = True) -> None:
+    def disaggregation(self, population_grid: str, disaggregation_method: DisaggregationMethod, max_pixel_count: int, write_scaled_result: bool = True, count_threshold: int = None, min_sample_size: int = None) -> None:
         """Disaggregates population to specified built-up (residential) classes. 
 
         :param population_grid: Name of the population raster file to be used for disaggregation.
@@ -457,6 +461,8 @@ class Recreat(RecreatBase):
         :type max_pixel_count: int
         :param write_scaled_result: _description_, defaults to True
         :type write_scaled_result: bool, optional
+        :param count_threshold: Sampling threshold.
+        :type count_threshold: int, optional
         """
         # mask residential classes
         self.mask_landuses(lu_classes=self.lu_classes_builtup)
@@ -468,13 +474,24 @@ class Recreat(RecreatBase):
                 population_grid=population_grid, 
                 residential_classes=self.lu_classes_builtup, 
                 max_pixel_count=max_pixel_count,
-                write_scaled_result=write_scaled_result)
+                write_scaled_result=write_scaled_result
+            )
             
             disaggregation_engine.run()
 
-        elif disaggregation_method is DisaggregationMethod.DasymetricMapping:
-            raise(MethodNotImplemented)
+        elif disaggregation_method is DisaggregationMethod.IntelligentDasymetricMapping:
+            disaggregation_engine = DasymetricMappingEngine(
+                data_path=self.data_path, 
+                root_path=self.root_path, 
+                population_grid=population_grid,
+                residential_classes=self.lu_classes_builtup, 
+                max_pixel_count=max_pixel_count,
+                count_threshold=count_threshold,
+                min_sample_size=min_sample_size,
+                write_scaled_result=write_scaled_result
+            )
 
+            disaggregation_engine.run()
 
         
     def beneficiaries_within_cost(self):        

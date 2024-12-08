@@ -63,6 +63,7 @@ Broadly, recreat:
    Average diversity <usage/average_diversity>
    Compute distance rasters <usage/proximity_rasters>
    Average cost <usage/average_cost>
+   Disaggregation <usage/disaggregation>
 
 .. toctree::
    :hidden:

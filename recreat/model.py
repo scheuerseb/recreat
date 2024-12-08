@@ -202,10 +202,10 @@ class Model():
     def validate(self):
         if not os.path.isdir(self.data_path):
             raise ModelValidationError('Data-path does not exist in path.')
-        if len(self.classes_patch + self.classes_edge) < 1:
-            raise ModelValidationError('No recreational classes defined in model.')
-        if self.costs is None or len(self.costs) < 1:
-            raise ModelValidationError('No costs defined in model.')    
+        #if len(self.classes_patch + self.classes_edge) < 1:
+        #    raise ModelValidationError('No recreational classes defined in model.')
+        #if self.costs is None or len(self.costs) < 1:
+        #    raise ModelValidationError('No costs defined in model.')    
         if self.tasks_require_landuse_import():
             if self.model_get(ModelEnvironment.Scenario) is None:
                 raise ModelValidationError('No land-use raster defined in model.')

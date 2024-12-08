@@ -14,7 +14,7 @@ from .base import RecreatBase
 
 class DisaggregationMethod(Enum):
     SimpleAreaWeighted = 'saw'
-    DasymetricMapping = 'idm'
+    IntelligentDasymetricMapping = 'idm'
 
 class TransformationState(Enum):
     NotRequired = 'none'
@@ -28,6 +28,8 @@ class DisaggregationBaseEngine(RecreatBase):
     write_scaled_result: bool = True
     transformation_state: TransformationState = None
 
+    nodata_value = -127.0
+
 
     def __init__(self, data_path: str, root_path: str, population_grid: str, residential_classes: List[int], pixel_count: int, write_scaled_result: bool = True):
         
@@ -36,6 +38,7 @@ class DisaggregationBaseEngine(RecreatBase):
         self.population_grid = population_grid
         self.residential_classes = residential_classes
         self.write_scaled_result = write_scaled_result
+        self.pixel_count = pixel_count
 
         if pixel_count == 1:
             # 1-to-1 match between built-up and population
@@ -54,36 +57,79 @@ class DisaggregationBaseEngine(RecreatBase):
         """
         return f"{self.data_path}/{self.root_path}/{file_name}"
 
+    @staticmethod
+    def determine_pixel_count_per_population_cell(source_filename: str, template_filename: str, out_filename: str) -> None:
+       
+        # source raster = aggregated builtup area
+        # template raster = population
+        # target raster = builtup_count
+        if not os.path.isfile(out_filename):
+            Transformations.match_rasters(source_filename, template_filename, out_filename, rasterio.enums.Resampling.sum, np.float32)
+
+
 
 class DasymetricMappingEngine(DisaggregationBaseEngine):
 
     samples = None
+    sampling_threshold = None
+    minimum_sample_size = None
 
-    def __init__(self, data_path, root_path, population_grid: str, residential_classes: List[int], write_scaled_result: bool = True):
-        super().__init__(data_path=data_path, root_path=root_path, population_grid=population_grid, residential_classes=residential_classes, write_scaled_result=write_scaled_result)
+    def __init__(self, data_path: str, root_path: str, population_grid: str, residential_classes: List[int], max_pixel_count: int, count_threshold: int, min_sample_size: int, write_scaled_result: bool = True):
+        super().__init__(data_path=data_path, root_path=root_path, population_grid=population_grid, residential_classes=residential_classes, pixel_count=max_pixel_count, write_scaled_result=write_scaled_result)
 
         self.samples = {}
+        self.sampling_threshold = count_threshold
+        self.minimum_sample_size = min_sample_size
 
-    def sample_class(self, rst_residential_count: np.ndarray, rst_population: np.ndarray, threshold_count: int, min_sample_size: int = 3):                
+    def run(self):
 
-        mask_residential = rst_residential_count >= threshold_count
+        self.determine_pixel_count_per_population_cell(self.residential_classes)
+        self.sample_classes(self.residential_classes)
+    
+    def determine_pixel_count_per_population_cell(self, residential_classes: List[int]):
+        for cls in residential_classes:
+
+            out_filename = self.get_file_path(f"DEMAND/pixel_count_{cls}.tif") 
+            source_filename = self.get_file_path(f"MASKS/mask_{cls}.tif")
+            template_filename = self.get_file_path(self.population_grid)
+            
+            DisaggregationBaseEngine.determine_pixel_count_per_population_cell(source_filename, template_filename, out_filename)
+
+
+    def sample_classes(self, residential_classes: List[int]):
         
-        masked_residential = ma.array(rst_residential_count, mask=mask_residential)
-        masked_pop = ma.array(rst_population, mask=mask_residential)
+        # import data we re-use
+        # population 
+        rst_population = rasterio.open(self.get_file_path(self.population_grid)).read(1).flatten()                
+        
 
-        print(np.sum(rst_residential_count))
-        print(np.sum(rst_population))
+        for cls in residential_classes:
+            self._sample_class(rst_population, cls)
+    
+    def _sample_class(self, rst_population: np.ndarray, residential_class: int):
+        
+        print(self.sampling_threshold)
 
-        print('masked')
-        print(np.ma.sum(masked_residential))
-        print(np.ma.sum(masked_pop))
+
+        # import residential pixel count
+        rst_residential_count = rasterio.open(self.get_file_path(f"DEMAND/pixel_count_{residential_class}.tif")).read(1).flatten()
+
+
+        class_mask = rst_residential_count >= self.sampling_threshold        
+        masked_pop = ma.array(rst_population, mask=class_mask)
+        
+        masked_residential = ma.array(rst_residential_count, mask=class_mask)
+        print(np.ma.mean(masked_residential))
+        print(f"{rst_residential_count.shape} <> {masked_residential.count()}")
+
+        #if masked_residential.count()
+
 
 
 class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
 
     def __init__(self, data_path, root_path, population_grid: str, residential_classes: List[int], max_pixel_count: int, write_scaled_result: bool = True):
         super().__init__(data_path=data_path, root_path=root_path, population_grid=population_grid, residential_classes=residential_classes, pixel_count=max_pixel_count, write_scaled_result=write_scaled_result)
-        self.pixel_count = max_pixel_count
 
     def run(self) -> None:        
         """Run simple area weighted disaggregation engine. 
@@ -104,22 +150,18 @@ class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
         current_task = self._get_task("[white]Determine pixel count", total=step_count)
         with self.progress:
             for cls in residential_classes:
-                self._determine_pixel_count_per_population_cell(cls)
+
+                out_filename = self.get_file_path(f"DEMAND/pixel_count_{cls}.tif") 
+                source_filename = self.get_file_path(f"MASKS/mask_{cls}.tif")
+                template_filename = self.get_file_path(self.population_grid)
+
+                DisaggregationBaseEngine.determine_pixel_count_per_population_cell(source_filename, template_filename, out_filename)
                 self.progress.update(current_task, advance=1)
 
         # done
         self.taskProgressReportStepCompleted()
 
-    def _determine_pixel_count_per_population_cell(self, residential_class: int) -> None:
-       
-        # source raster = aggregated builtup area
-        # template raster = population
-        # target raster = builtup_count
-        out_filename = self.get_file_path(f"DEMAND/pixel_count_{residential_class}.tif") 
-        if not os.path.isfile(out_filename):
-            source_filename = self.get_file_path(f"MASKS/mask_{residential_class}.tif")
-            template_filename = self.get_file_path(self.population_grid)
-            Transformations.match_rasters(source_filename, template_filename, out_filename, rasterio.enums.Resampling.sum, np.float32)
+    
 
     def determine_class_share(self, residential_classes: List[int]) -> None:
         """Determine the share of residential class within population raster cell
@@ -147,7 +189,7 @@ class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
             dest_meta = ref_residential_pixel_count.meta.copy()        
             dest_meta.update({
                 'dtype' : rasterio.float64,
-                'nodata' : -127.0
+                'nodata' : self.nodata_value
             })
                 
             mtx_residential_pixel_count = ref_residential_pixel_count.read(1)
@@ -193,13 +235,12 @@ class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
             ref_pop = rasterio.open(pop_path)
             mtx_pop = ref_pop.read(1)
             # assert correct replacement of nodata values with 0
-            print(ref_pop.meta)
             mtx_pop[mtx_pop == ref_pop.meta['nodata']] = 0
             
             dest_meta = ref_pop.meta.copy()
             dest_meta.update({
                 'dtype' : rasterio.float32,
-                'nodata' : -127.0
+                'nodata' : self.nodata_value
             })
 
             # target matrix

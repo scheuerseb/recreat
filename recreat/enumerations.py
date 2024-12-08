@@ -41,7 +41,7 @@ class CoreTask(RecreatBaseEnum):
     AverageTotalSupplyAcrossCost = 'average-total-supply', 'average_total_supply_across_cost'
     ClassDiversity = 'class-diversity', 'class_diversity'
     AverageDiversityAcrossCost = 'average-diversity', 'average_diversity_across_cost'
-    Disaggregation = 'disaggregate-population', 'disaggregate_population'
+    Disaggregation = 'disaggregate-population', 'disaggregation'
     ClassFlow = 'class-flow', 'class_flow'
     ComputeDistanceRasters = 'proximities', 'compute_distance_rasters'
     CostToClosest = 'average-cost', 'cost_to_closest'
@@ -94,7 +94,9 @@ class ParameterNames:
 
     class Disaggregation(RecreatBaseEnum):
         PopulationRaster = 'population raster filename', 'population_grid'
-        ForceComputing = 'force (re-)computation', 'force_computing'
+        DisaggregationMethod = 'disaggregation method', 'disaggregation_method'
+        ResidentialPixelToPopulationPixelCount = 'pixel count', 'max_pixel_count'
         WriteScaledResult = 'write scaled results', 'write_scaled_result'
-
-    
+        MinimumSampleSize = 'sample size', 'min_sample_size'
+        ClassSampleThreshold = 'sample threshold', 'count_threshold' 
+      

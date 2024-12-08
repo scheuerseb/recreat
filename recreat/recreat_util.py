@@ -4,9 +4,11 @@
 
 
 from .model import Model, ModelParameter, ModelEnvironment, ScenarioParameters, CoreTask, ClusteringTask, ClassType
+
 from .Configuration import Configuration
 from .enumerations import ParameterNames
 from .exceptions import ModelValidationError
+from .disaggregation import DisaggregationMethod
 
 import click
 import pathlib
@@ -183,15 +185,21 @@ def proximities(mode, include_builtup):
     new_task_config.add_arg(ParameterNames.ComputeDistanceRasters.AssessBuiltUp, include_builtup)
     cli_model.add_task(new_task_config)
 
-@recreat_util.command(help="Disaggregate population to built-up.")
+@recreat_util.command(help="Disaggregate population.")
 @click.option('-s', '--exclude-scaled', is_flag=True, default=True, type=bool, help="Exclude export of scaled result(s).")
-@click.option('-f', '--force', is_flag=True, default=False, type=bool, help="Force recomputation of intermediate products.")
-@click.argument('pop')
-def disaggregate_population(pop, exclude_scaled, force):
+@click.option('-m', '--method', default='saw', type=click.Choice(['saw', 'idm'], case_sensitive=True), help="Disaggregation method, either saw or idm, by default, saw.")
+@click.option('-c', '--pixel-count', default=None, type=int, help="Number of built-up pixels per population raster cell.")
+@click.option('-t', '--threshold', default=None, type=int, help="Mininmum class share per source unit (for idm only).")
+@click.option('-n', '--sample-size', default=None, type=int, help="Mininmum sample size (for idm only).")
+@click.argument('population-grid')
+def disaggregate(population_grid, method, pixel_count, exclude_scaled, threshold, sample_size):
     new_task_config = Configuration(CoreTask.Disaggregation)
-    new_task_config.add_arg(ParameterNames.Disaggregation.PopulationRaster, pop)
-    new_task_config.add_arg(ParameterNames.Disaggregation.ForceComputing, force)
+    new_task_config.add_arg(ParameterNames.Disaggregation.PopulationRaster, population_grid)
+    new_task_config.add_arg(ParameterNames.Disaggregation.DisaggregationMethod, DisaggregationMethod(method))
+    new_task_config.add_arg(ParameterNames.Disaggregation.ResidentialPixelToPopulationPixelCount, int(pixel_count))
     new_task_config.add_arg(ParameterNames.Disaggregation.WriteScaledResult, exclude_scaled)
+    new_task_config.add_arg(ParameterNames.Disaggregation.ClassSampleThreshold, int(threshold))
+    new_task_config.add_arg(ParameterNames.Disaggregation.MinimumSampleSize, sample_size)
     cli_model.add_task(new_task_config)
     
 @recreat_util.command(help="Determine (average) cost to closest.")
