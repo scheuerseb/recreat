@@ -5,11 +5,11 @@ import rasterio.enums
 import os.path
 from sklearn.preprocessing import MinMaxScaler
 from enum import Enum
-from typing import List
+from typing import List, Tuple
 
 from .transformations import Transformations
 from .base import RecreatBase
-
+from .exceptions import DisaggregationError
 
 
 class DisaggregationMethod(Enum):
@@ -48,6 +48,18 @@ class DisaggregationBaseEngine(RecreatBase):
             # built-up resolution is higher than population
             self.transformation_state = TransformationState.DownscalePopulation
              
+
+    def get_population_data(self) -> Tuple[rasterio.DatasetReader, np.ndarray]:
+        
+        # get population
+        pop_path = self.get_file_path(self.population_grid)
+        ref_pop = rasterio.open(pop_path)
+        mtx_pop = ref_pop.read(1)
+        
+        # assert correct replacement of nodata values with 0
+        mtx_pop[mtx_pop == ref_pop.meta['nodata']] = 0
+
+        return ref_pop, mtx_pop
 
     def get_file_path(self, file_name: str):
         """Get the fully-qualified path to model file with specified filename.
@@ -100,29 +112,39 @@ class DasymetricMappingEngine(DisaggregationBaseEngine):
         
         # import data we re-use
         # population 
-        rst_population = rasterio.open(self.get_file_path(self.population_grid)).read(1).flatten()                
-        
+        ref_pop, mtx_pop = self.get_population_data()                
+        mtx_pop = mtx_pop.flatten()
 
         for cls in residential_classes:
-            self._sample_class(rst_population, cls)
+            self._sample_class(mtx_pop, cls)
     
-    def _sample_class(self, rst_population: np.ndarray, residential_class: int):
+    def _sample_class(self, mtx_population: np.ndarray, residential_class: int):
         
-        print(self.sampling_threshold)
-
-
         # import residential pixel count
-        rst_residential_count = rasterio.open(self.get_file_path(f"DEMAND/pixel_count_{residential_class}.tif")).read(1).flatten()
+        mtx_residential_count = rasterio.open(self.get_file_path(f"DEMAND/pixel_count_{residential_class}.tif")).read(1).flatten()
+       
+        # mask pixels with count >= sampling threshold
+        current_mask = mtx_residential_count < self.sampling_threshold      
+        masked_population = ma.array(mtx_population, mask=current_mask)
+        masked_pixel_count = ma.array(mtx_residential_count, mask=current_mask)
 
+        # determine if the retrieved pixel count is >= min sample size 
+        if masked_pixel_count.count() >= self.minimum_sample_size:
+            # this sampling of a class is valid and successful
+            pass
+        else:
+            # this sampling of a class has failed. 
+            raise(DisaggregationError(f"The sampling of class {residential_class} failed.")) 
 
-        class_mask = rst_residential_count >= self.sampling_threshold        
-        masked_pop = ma.array(rst_population, mask=class_mask)
+        # debug purposes
+        print(f"Sum of population in total: {np.sum(mtx_population)}")
+        print(f"Sum of masked population: {np.ma.sum(masked_population)}")
         
-        masked_residential = ma.array(rst_residential_count, mask=class_mask)
-        print(np.ma.mean(masked_residential))
-        print(f"{rst_residential_count.shape} <> {masked_residential.count()}")
+        print(f"Mean of share: {np.mean(mtx_residential_count)}")
+        print(f"Count of masked share: {masked_pixel_count.count()}")
 
-        #if masked_residential.count()
+
+        #data = data[data.mask == False]
 
 
 
@@ -230,13 +252,7 @@ class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
         out_filename = self.get_file_path(f"DEMAND/pixel_population_count_{residential_class}.tif")
         if not os.path.isfile(out_filename):
 
-            # get population
-            pop_path = self.get_file_path(self.population_grid)
-            ref_pop = rasterio.open(pop_path)
-            mtx_pop = ref_pop.read(1)
-            # assert correct replacement of nodata values with 0
-            mtx_pop[mtx_pop == ref_pop.meta['nodata']] = 0
-            
+            ref_pop, mtx_pop = self.get_population_data()
             dest_meta = ref_pop.meta.copy()
             dest_meta.update({
                 'dtype' : rasterio.float32,
