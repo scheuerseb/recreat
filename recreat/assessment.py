@@ -494,50 +494,41 @@ class Recreat(RecreatBase):
             disaggregation_engine.run()
 
         
-    def beneficiaries_within_cost(self):        
+    def beneficiaries_within_cost(self, mode: str = 'ocv_filter2d') -> None:  
+        """Determine number of beneficiaries within cost windows.
+
+        :param mode: Method to perform sliding window operation. One of 'generic_filter', 'convolve', or 'ocv_filter2d'. Defaults to 'ocv_filter2d', defaults to 'ocv_filter2d'
+        :type mode: str, optional
+        """      
         self.printStepInfo("Determining beneficiaries within costs")
 
-        # get relevant input data
         mtx_disaggregated_population = self._read_band("DEMAND/disaggregated_population.tif")        
-        # also beneficiaries need to be clumped
-        rst_clumps = self._read_band("MASKS/clumps.tif")
-        clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))        
+        mtx_clumps = self._read_band("MASKS/clumps.tif")
+        clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))        
         
         step_count = len(self.cost_thresholds) * len(clump_slices)
         current_task = self._get_task("[white]Determining beneficiaries", total=step_count)
         
+        # this is actually constant per cost window
+        infile_name = "DEMAND/disaggregated_population.tif" 
+        
         with self.progress:
-
             for c in self.cost_thresholds:
 
-                mtx_pop_within_cost = self._get_value_matrix()
+                mtx_pop_within_cost = self.sum_values_in_kernel(
+                    source_path=infile_name, 
+                    mtx_clumps=mtx_clumps,
+                    clump_slices=clump_slices,
+                    cost=c,
+                    mode=mode,
+                    progress_task=current_task,
+                    dest_datatype=np.float32
+                )
 
-                # now operate over clumps, in order to safe some computational time
-                for patch_idx in range(len(clump_slices)):
-                    obj_slice = clump_slices[patch_idx]
-                    obj_label = patch_idx + 1
-
-                    # get slice from land-use mask
-                    sliced_pop_mtx = mtx_disaggregated_population[obj_slice].copy() 
-                    sliced_clump_mtx = rst_clumps[obj_slice]
-
-                    # properly mask out current object
-                    obj_mask = np.isin(sliced_clump_mtx, [obj_label], invert=False)
-                    sliced_pop_mtx[~obj_mask] = 0
-
-                    # now all pixels outside of clump should be zeroed, and we can determine total supply within sliding window
-                    sliding_pop = self._moving_window_generic(sliced_pop_mtx, self._kernel_sum, c)
-                    sliding_pop[~obj_mask] = 0
-                    mtx_pop_within_cost[obj_slice] += sliding_pop
-                    
-                    del sliding_pop
-                    del sliced_pop_mtx
-                    # progress reporting
-                    self.progress.update(current_task, advance=1)
-
-                self._write_dataset("DEMAND/beneficiaries_within_cost_{}.tif".format(c), mtx_pop_within_cost)
+                # export current beneficiaries within cost
+                self._write_dataset(f"DEMAND/beneficiaries_within_cost_{c}.tif", mtx_pop_within_cost)
                 del mtx_pop_within_cost
-
+                
         # done
         self.taskProgressReportStepCompleted()
 
@@ -554,37 +545,54 @@ class Recreat(RecreatBase):
         self.printStepInfo("Determining clumped supply per class")
         # clumps are required to properly mask islands
         rst_clumps = self._read_band("MASKS/clumps.tif")
-        clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))        
+        clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))
         step_count = len(clump_slices) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
         current_task = self._get_task("[white]Determining clumped supply", total=step_count)
 
         with self.progress:
-            for c in self.cost_thresholds:                 
-                for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
+            for c in self.cost_thresholds: 
+                for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):    
                     # determine source of list
                     lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
 
-                    infile_name = "MASKS/mask_{}.tif".format(lu) if lu_type == "patch" else "MASKS/edges_{}.tif".format(lu)
-                    outfile_name = "SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, c) if lu_type == "patch" else "SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, c)
+                    infile_name = (
+                        f"MASKS/mask_{lu}.tif"
+                        if lu_type == "patch"
+                        else f"MASKS/edges_{lu}.tif"
+                    )
+                    outfile_name = (
+                        f"SUPPLY/totalsupply_class_{lu}_cost_{c}_clumped.tif"
+                        if lu_type == "patch"
+                        else f"SUPPLY/totalsupply_edge_class_{lu}_cost_{c}_clumped.tif"
+                    )
 
                     # get result of windowed operation
-                    lu_supply_mtx = self._class_total_supply_for_lu_and_cost(mask_path=infile_name, rst_clumps=rst_clumps, clump_slices=clump_slices, cost=c, mode=mode, progress_task=current_task)                            
+                    lu_supply_mtx = self.sum_values_in_kernel(
+                        source_path=infile_name, 
+                        mtx_clumps=rst_clumps, 
+                        clump_slices=clump_slices, 
+                        cost=c, 
+                        mode=mode, 
+                        progress_task=current_task,
+                        dest_datatype=np.int32
+                    )
+
                     # export current cost
-                    self._write_dataset(outfile_name, lu_supply_mtx)     
+                    self._write_dataset(outfile_name, lu_supply_mtx)
                     del lu_supply_mtx           
-                    
+
 
         # done
         self.taskProgressReportStepCompleted()
 
 
-    def _class_total_supply_for_lu_and_cost(self, mask_path: str, rst_clumps: np.ndarray, clump_slices: List[any], cost: float, mode: str, progress_task: any = None) -> np.ndarray:
-        """Compute supply of land-use within a given cost.
+    def sum_values_in_kernel(self, source_path: str, mtx_clumps: np.ndarray, clump_slices: List[any], cost: float, mode: str, progress_task: any = None, dest_datatype = np.int32) -> np.ndarray:
+        """Compute total (sum) of values in source raster within a given cost.
 
-        :param mask_path: Path to land-use mask.
-        :type mask_path: str
-        :param rst_clumps: Array of clumps.
-        :type rst_clumps: np.ndarray
+        :param source_path: Path to source raster.
+        :type source_path: str
+        :param mtx_clumps: Array of clumps.
+        :type mtx_clumps: np.ndarray
         :param clump_slices: List of clump slices.
         :type clump_slices: List[any]
         :param cost: Cost threshold.
@@ -593,14 +601,17 @@ class Recreat(RecreatBase):
         :type mode: str
         :param progress_task: Progress task, defaults to None
         :type progress_task: any, optional
+        :param dest_datatype: Datatype of target raster. By default, np.int32.
+        :type dest_datatype: Numpy datatype.
         :return: Class supply for given land-use class within given cost.
         :rtype: np.ndarray
         """        
 
-        # grid to store lu supply 
-        lu_supply_mtx = self._get_value_matrix().astype(np.int32)
-        # get land-use current mask
-        full_lu_mtx = self._read_band(mask_path)
+        # grid to store summed values in kernel 
+        mtx_result = self._get_value_matrix(dest_datatype=dest_datatype)
+        
+        # get source raster for which values should be summe din kernel
+        mtx_source = self._read_band(source_path)
 
         # use lowlevelcallable to speed up moving window operation               
         if mode == 'generic_filter':
@@ -619,34 +630,34 @@ class Recreat(RecreatBase):
             obj_label = patch_idx + 1
 
             # get slice from land-use mask
-            sliced_lu_mtx = full_lu_mtx[obj_slice].copy() 
-            sliced_clump_mtx = rst_clumps[obj_slice]
+            sliced_mtx_source = mtx_source[obj_slice].copy() 
+            sliced_mtx_clumps = mtx_clumps[obj_slice]
 
             # properly mask out current object
-            obj_mask = np.isin(sliced_clump_mtx, [obj_label], invert=False)
-            sliced_lu_mtx[~obj_mask] = 0
+            obj_mask = np.isin(sliced_mtx_clumps, [obj_label], invert=False)
+            sliced_mtx_source[~obj_mask] = 0
 
             # now all pixels outside of clump should be zeroed, and we can determine total supply within sliding window
             if mode == 'convolve':            
-                sliding_supply = self._moving_window_convolution(sliced_lu_mtx, cost)
+                sliding_supply = self._moving_window_convolution(sliced_mtx_source, cost)
             elif mode == 'generic_filter':                 
-                sliding_supply = self._moving_window_generic(sliced_lu_mtx, sum_filter, cost)
+                sliding_supply = self._moving_window_generic(sliced_mtx_source, sum_filter, cost)
             elif mode == 'ocv_filter2d':
-                sliding_supply = self._moving_window_filter2d(sliced_lu_mtx, cost)
+                sliding_supply = self._moving_window_filter2d(sliced_mtx_source, cost)
 
            
             sliding_supply[~obj_mask] = 0
-            lu_supply_mtx[obj_slice] += sliding_supply.astype(np.int32)
+            mtx_result[obj_slice] += sliding_supply.astype(dest_datatype)
             
             del sliding_supply
-            del sliced_lu_mtx
+            del sliced_mtx_source
 
             if progress_task is not None:
                 self.progress.update(progress_task, advance=1)
         
         # done with current iterations. return result
-        del full_lu_mtx
-        return lu_supply_mtx
+        del mtx_source
+        return mtx_result
     
 
 
