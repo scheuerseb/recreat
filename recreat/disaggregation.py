@@ -6,6 +6,11 @@ import os.path
 from sklearn.preprocessing import MinMaxScaler
 from enum import Enum
 from typing import List, Tuple
+from string import Template
+import uuid
+
+from rich.console import Console
+from rich.table import Table
 
 from .transformations import Transformations
 from .base import RecreatBase
@@ -49,10 +54,10 @@ class DisaggregationBaseEngine(RecreatBase):
             self.transformation_state = TransformationState.DownscalePopulation
              
 
-    def get_population_data(self) -> Tuple[rasterio.DatasetReader, np.ndarray]:
+    def get_population_data(self, population_grid: str = None) -> Tuple[rasterio.DatasetReader, np.ndarray]:
         
         # get population
-        pop_path = self.get_file_path(self.population_grid)
+        pop_path = self.get_file_path(population_grid)
         ref_pop = rasterio.open(pop_path)
         mtx_pop = ref_pop.read(1)
         
@@ -69,12 +74,31 @@ class DisaggregationBaseEngine(RecreatBase):
         """
         return f"{self.data_path}/{self.root_path}/{file_name}"
 
-    @staticmethod
-    def determine_pixel_count_per_population_cell(source_filename: str, template_filename: str, out_filename: str) -> None:
+    def determine_pixel_count_per_population_cell(self, residential_classes: List[int]) -> None:
+        """Matches population and built-up rasters and sums built-up pixels within each cell of the population raster. It will write a raster of built-up pixel count.
+
+        :param residential_classes: Residential class values to assess.
+        :type residential_class: List[int]
+        """        
+        step_count = len(residential_classes)
+        current_task = self._get_task("[white]Determine pixel count", total=step_count)
+        with self.progress:
+            for cls in residential_classes:               
+                self._determine_pixel_count_per_population_cell(cls)
+                self.progress.update(current_task, advance=1)
+
+        # done
+        self.taskProgressReportStepCompleted()
+
+    def _determine_pixel_count_per_population_cell(self, residential_class: int) -> None:
        
         # source raster = aggregated builtup area
         # template raster = population
-        # target raster = builtup_count
+        # target raster = builtup_count        
+        out_filename = self.get_file_path(f"DEMAND/pixel_count_{residential_class}.tif") 
+        source_filename = self.get_file_path(f"MASKS/mask_{residential_class}.tif")
+        template_filename = self.get_file_path(self.population_grid)
+        
         if not os.path.isfile(out_filename):
             Transformations.match_rasters(source_filename, template_filename, out_filename, rasterio.enums.Resampling.sum, np.float32)
 
@@ -97,28 +121,38 @@ class DasymetricMappingEngine(DisaggregationBaseEngine):
 
         self.determine_pixel_count_per_population_cell(self.residential_classes)
         self.sample_classes(self.residential_classes)
-    
-    def determine_pixel_count_per_population_cell(self, residential_classes: List[int]):
-        for cls in residential_classes:
-
-            out_filename = self.get_file_path(f"DEMAND/pixel_count_{cls}.tif") 
-            source_filename = self.get_file_path(f"MASKS/mask_{cls}.tif")
-            template_filename = self.get_file_path(self.population_grid)
-            
-            DisaggregationBaseEngine.determine_pixel_count_per_population_cell(source_filename, template_filename, out_filename)
-
+        self.match_class_related_sources_to_built_up(self.residential_classes, Template("DEMAND/pixel_count_${residential_class}.tif"), Template("DEMAND/reprojected_pixel_count_${residential_class}.tif"))
+        self.match_population_to_built_up()
+        self.determine_sum_of_target_zones(self.residential_classes)        
+        
+        self.disaggregate(self.residential_classes)
 
     def sample_classes(self, residential_classes: List[int]):
         
         # import data we re-use
         # population 
-        ref_pop, mtx_pop = self.get_population_data()                
+        ref_pop, mtx_pop = self.get_population_data(self.population_grid)                
         mtx_pop = mtx_pop.flatten()
 
         for cls in residential_classes:
-            self._sample_class(mtx_pop, cls)
+            self._sample_class_absolute(mtx_pop, cls)
     
-    def _sample_class(self, mtx_population: np.ndarray, residential_class: int):
+        # print a confirmation table
+        table = Table(title="Relative class densities")
+
+        table.add_column("Class", justify="left", style="cyan", no_wrap=True)
+        table.add_column("Population", justify="right")
+        table.add_column("Relative density", justify="right")
+
+        for k,v in self.samples.items():
+            table.add_row( f"{k}", f"{v['population']}", f"{v['density']}" )
+        
+        console = Console()
+        console.print(table)
+
+        del mtx_pop
+
+    def _sample_class_absolute(self, mtx_population: np.ndarray, residential_class: int):
         
         # import residential pixel count
         mtx_residential_count = rasterio.open(self.get_file_path(f"DEMAND/pixel_count_{residential_class}.tif")).read(1).flatten()
@@ -131,21 +165,158 @@ class DasymetricMappingEngine(DisaggregationBaseEngine):
         # determine if the retrieved pixel count is >= min sample size 
         if masked_pixel_count.count() >= self.minimum_sample_size:
             # this sampling of a class is valid and successful
-            pass
+            # determine total population of this class
+            sum_of_pop = np.ma.sum(masked_population)
+            cnt_of_pixel = masked_pixel_count.count() 
+            sum_of_pixel = np.ma.sum(masked_pixel_count)
+
+            class_density = sum_of_pop/sum_of_pixel
+            class_density_from_count = sum_of_pop/cnt_of_pixel
+            # insert into class samples
+            self.samples[residential_class] = {
+                'population' : sum_of_pop,
+                'pixel_count' : cnt_of_pixel,
+                'pixel_sum' : sum_of_pixel,
+                'density' : class_density,
+                'count_density' : class_density_from_count
+            }
+
+            del mtx_residential_count
+            del masked_population
+            del masked_pixel_count
+            del current_mask
+
         else:
             # this sampling of a class has failed. 
-            raise(DisaggregationError(f"The sampling of class {residential_class} failed.")) 
+            raise(DisaggregationError(f"The sampling of class {residential_class} failed with count {masked_pixel_count.count()} < minimum sampling size of {self.minimum_sample_size}.")) 
 
-        # debug purposes
-        print(f"Sum of population in total: {np.sum(mtx_population)}")
-        print(f"Sum of masked population: {np.ma.sum(masked_population)}")
+    def match_class_related_sources_to_built_up(self, residential_classes: List[int], source_template: Template, out_template: Template) -> None:
+        """ Matches pixel count and built-up rasters. It will write the reprojected dataset to disk.
+
+        :param residential_classes: Residential class values to assess.
+        :type residential_class: List[int]
+        """
+        step_count = len(residential_classes)
+        current_task = self._get_task("[white]Reprojecting raster", total=step_count)
+                        
+        with self.progress:
+            for cls in self.residential_classes:
+                source_filename = source_template.safe_substitute(residential_class=cls)
+                template_filename = f"MASKS/mask_{cls}.tif"
+                out_filename = out_template.safe_substitute(residential_class=cls)
+
+                self._match_source_to_built_up(source_filename, template_filename, out_filename)
+                self.progress.update(current_task, advance=1)
+
+        # done
+        self.taskProgressReportStepCompleted()
+
+    def match_population_to_built_up(self):
+        source_filename = self.population_grid
+        template_filename = "MASKS/clumps.tif"
+        out_filename = "DEMAND/reprojected_population.tif"
+        self._match_source_to_built_up(source_filename, template_filename, out_filename)
+    
+    def _match_source_to_built_up(self, source_filename, template_filename, out_filename, resampling_method: rasterio.enums.Resampling = rasterio.enums.Resampling.min) -> None:
+
+        out_filename = self.get_file_path(out_filename)
+        if not os.path.isfile(out_filename):
+            source_filename = self.get_file_path(source_filename)
+            template_filename = self.get_file_path(template_filename)
+            Transformations.match_rasters(source_filename, template_filename, out_filename, resampling_method, np.float32)
+
+    def determine_sum_of_target_zones(self, residential_classes: List[int]) -> None:
         
-        print(f"Mean of share: {np.mean(mtx_residential_count)}")
-        print(f"Count of masked share: {masked_pixel_count.count()}")
+        out_mtx = None
+        dest_meta = None
 
+        for cls in residential_classes:
+            class_density = self.samples[cls]['density']
+            ref_class_count = rasterio.open(self.get_file_path(f"DEMAND/reprojected_pixel_count_{cls}.tif"))
+            mtx_class_count = ref_class_count.read(1)
+            
+            if out_mtx is None:
+                out_mtx = np.zeros(mtx_class_count.shape, dtype=np.float32)
+                dest_meta = ref_class_count.meta.copy()
+                dest_meta.update({
+                    'nodata' : self.nodata_value,
+                    'dtype' : np.float32
+                })
 
-        #data = data[data.mask == False]
+            out_mtx += np.multiply(class_density, mtx_class_count)
+            del mtx_class_count
 
+        # export result
+        out_filename = self.get_file_path("DEMAND/sum_atdc.tif")
+        with rasterio.open(out_filename, "w", **dest_meta) as dest:
+                dest.write(out_mtx, 1)
+        self.taskProgressReportStepCompleted()
+
+    def disaggregate_class_population(self, residential_classes: List[int], mtx_pop: np.ndarray) -> None:
+        
+        step_count = len(residential_classes)
+        current_task = self._get_task("[white]Disaggregating class", total=step_count)
+                
+        mtx_sum_of_targets = rasterio.open(self.get_file_path("DEMAND/sum_atdc.tif")).read(1)       
+
+        with self.progress:            
+            for cls in residential_classes:
+                
+                out_filename = self.get_file_path(f"DEMAND/disaggregated_population_class_{cls}.tif")
+                if not os.path.isfile(out_filename):
+                    ref_class_count = rasterio.open(self.get_file_path(f"DEMAND/reprojected_pixel_count_{cls}.tif"))
+                    mtx_class_count = ref_class_count.read(1)
+
+                    mtx_class_builtup = rasterio.open(self.get_file_path(f"MASKS/mask_{cls}.tif")).read(1)            
+                    class_density = self.samples[cls]['density']
+
+                    mtx_out = np.zeros(mtx_class_count.shape, dtype=np.float32)
+                    np.divide( (mtx_class_builtup * class_density), mtx_sum_of_targets, out=mtx_out, where=mtx_sum_of_targets > 0)  #* mtx_pop
+                    mtx_out = mtx_out * mtx_pop
+
+                    dest_meta = ref_class_count.meta.copy()
+                    dest_meta.update({
+                        'nodata' : self.nodata_value,
+                        'dtype' : np.float32
+                    })
+                    # export result
+                    with rasterio.open(out_filename, "w", **dest_meta) as dest:
+                            dest.write(mtx_out, 1)
+
+                    del mtx_out
+                    del mtx_class_count
+                    del mtx_class_builtup
+
+                self.progress.update(current_task, advance=1)
+
+        del mtx_sum_of_targets
+
+    def disaggregate(self, residential_classes: List[int]) -> None:
+        
+        # reprojected_population = population of source zone yt
+        ref_pop, mtx_pop = self.get_population_data("DEMAND/reprojected_population.tif")
+        self.disaggregate_class_population(residential_classes, mtx_pop)
+        
+        step_count = len(residential_classes)
+        current_task = self._get_task("[white]Finalizing", total=step_count)
+        mtx_out_population = np.zeros(mtx_pop.shape, dtype=np.float32)
+
+        with self.progress:
+            for cls in residential_classes:
+                mtx_class_pop = rasterio.open(self.get_file_path(f"DEMAND/disaggregated_population_class_{cls}.tif")).read(1)
+                mtx_out_population = np.add(mtx_out_population.astype(np.float32), mtx_class_pop.astype(np.float32))
+                self.progress.update(current_task, advance=1)
+            
+        dest_meta = ref_pop.meta.copy()
+        dest_meta.update({
+            'nodata' : self.nodata_value,
+            'dtype' : np.float32
+        })
+
+        # export result
+        out_filename = self.get_file_path("DEMAND/disaggregated_population_idw.tif")
+        with rasterio.open(out_filename, "w", **dest_meta) as dest:
+                dest.write(mtx_out_population, 1)
 
 
 class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
@@ -162,26 +333,7 @@ class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
         self.reproject_pixel_population_count_to_builtup(self.residential_classes)
         self.aggregate_class_population(self.residential_classes)
 
-    def determine_pixel_count_per_population_cell(self, residential_classes: List[int]) -> None:
-        """Matches population and built-up rasters and sums built-up pixels within each cell of the population raster. It will write a raster of built-up pixel count.
-
-        :param residential_classes: Residential class values to assess.
-        :type residential_class: List[int]
-        """        
-        step_count = len(residential_classes)
-        current_task = self._get_task("[white]Determine pixel count", total=step_count)
-        with self.progress:
-            for cls in residential_classes:
-
-                out_filename = self.get_file_path(f"DEMAND/pixel_count_{cls}.tif") 
-                source_filename = self.get_file_path(f"MASKS/mask_{cls}.tif")
-                template_filename = self.get_file_path(self.population_grid)
-
-                DisaggregationBaseEngine.determine_pixel_count_per_population_cell(source_filename, template_filename, out_filename)
-                self.progress.update(current_task, advance=1)
-
-        # done
-        self.taskProgressReportStepCompleted()
+    
 
     
 
@@ -252,7 +404,7 @@ class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
         out_filename = self.get_file_path(f"DEMAND/pixel_population_count_{residential_class}.tif")
         if not os.path.isfile(out_filename):
 
-            ref_pop, mtx_pop = self.get_population_data()
+            ref_pop, mtx_pop = self.get_population_data(self.population_grid)
             dest_meta = ref_pop.meta.copy()
             dest_meta.update({
                 'dtype' : rasterio.float32,

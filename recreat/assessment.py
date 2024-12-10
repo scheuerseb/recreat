@@ -205,7 +205,7 @@ class Recreat(RecreatBase):
         with self.progress:
             for lu in classes_for_masking:
                 
-                out_filename = self._get_file_path("MASKS/mask_{}.tif")
+                out_filename = self._get_file_path(f"MASKS/mask_{lu}.tif")
                 if not os.path.isfile(out_filename):
                     current_lu_mask = self.lsm_mtx.copy()
                     # make mask for relevant pixels

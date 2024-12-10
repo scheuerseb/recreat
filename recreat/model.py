@@ -239,7 +239,6 @@ class Model():
 
         rc = Recreat(self.data_path)
         for attrib in self.getargs_model_params():
-            print(attrib)
             rc.set_params(**attrib)
                 
         if self.tasks_require_landuse_import():
