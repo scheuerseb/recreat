@@ -1,11 +1,8 @@
 spatial disaggregation
 ======================
 
-.. automodule:: recreat.disaggregation
-   :members:
-
-.. autoclass:: recreat.disaggregation.SimpleAreaWeighted
+.. autoclass:: recreat.disaggregation.SimpleAreaWeightedEngine
     :members:
 
-.. autoclass:: recreat.disaggregation.DasymetricMapping
+.. autoclass:: recreat.disaggregation.DasymetricMappingEngine
     :members:

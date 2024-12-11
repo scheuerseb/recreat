@@ -4,12 +4,11 @@
 from datetime import datetime
 import os
 import sys
-
-sys.path.insert(0, os.path.abspath('../recreat'))
+sys.path.insert(0, os.path.abspath('..'))
 
 project = "recreat"
 author = "Sebastian Scheuer"
-version = "0.0.8"
+version = "0.2.5"
 release = version
 
 now = datetime.now()
