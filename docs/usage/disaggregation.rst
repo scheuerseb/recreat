@@ -12,7 +12,6 @@ demand and (class-based) flow(s).
 
 Disaggregation methods
 
-
 Spatial disaggregation of population refers to the spatial allocation of the population of a given source zone, e.g., a census tract, neighbourhood, 
 or district, to relevant target zones, i.e., residential land-uses within the source zone in question. Here, referring to raster data, a source zone typically 
 corresponds to a pixel of a population raster, whereas target zones correspond to pixels of relevant residential land-use classes. 
