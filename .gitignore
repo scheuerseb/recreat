@@ -1,0 +1,46 @@
+# exclude all files and folders 
+*
+
+# except the files included specifially below
+!__init__.py
+!assessment.py
+!base.py
+!clustering.py
+!Configuration.py
+!disaggregation.py
+!enumerations.py
+!exceptions.py
+!LowLevelGenericFilters.c
+!LowLevelGenericFilters.dll
+!LowLevelGenericFilters.so
+!model.py
+!recreat_util.py
+!transformations.py
+!.readthedocs.yaml
+!LICENSE
+!README.md
+!pyproject.toml
+!.gitignore
+
+
+# except folders included specifically below and their content
+!docs/
+!docs/*
+
+!recreat/
+!recreat/*
+
+!tests/
+!tests/*
+
+!docs/quickstart
+!docs/quickstart/*
+
+!docs/fundamentals
+!docs/fundamentals/*
+
+!docs/usage
+!docs/usage/*
+
+!docs/resources
+!docs/resources/*
