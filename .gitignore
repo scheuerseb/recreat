@@ -24,8 +24,6 @@
 
 
 # except folders included specifically below and their content
-!docs/
-!docs/*
 
 !recreat/
 !recreat/*
@@ -33,14 +31,16 @@
 !tests/
 !tests/*
 
+# documentation 
+!docs/
+!docs/*
 !docs/quickstart
 !docs/quickstart/*
-
 !docs/fundamentals
 !docs/fundamentals/*
-
 !docs/usage
 !docs/usage/*
-
+!docs/api
+!docs/api/*
 !docs/resources
 !docs/resources/*

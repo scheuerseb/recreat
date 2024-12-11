@@ -10,6 +10,29 @@ demand and (class-based) flow(s).
     Disaggregated population, as well as intermediate outputs, will be written to disk in the DEMAND folder.
 
 
+Disaggregation methods
+
+
+Spatial disaggregation of population refers to the spatial allocation of the population of a given source zone, e.g., a census tract, neighbourhood, 
+or district, to relevant target zones, i.e., residential land-uses within the source zone in question. Here, referring to raster data, a source zone typically 
+corresponds to a pixel of a population raster, whereas target zones correspond to pixels of relevant residential land-use classes. 
+There are various methods to conduct such disaggregation. The recreat package currently implements two distinct spatial disaggregation methods: 
+(i) Simple Area Weighting; and (ii) Intelligent Dasymetric Mapping. 
+
+Simple Area Weighting
+
+Using this method, population of a source zone is proportionally distributed to target zones within the source zone solely as a function of each 
+source zone's area. In this case, area refers to the respective numbers of pixels of each relevant land-use class within a given source zone. 
+Therefore, despite methodologically considering distinct residential land-use classes in the disaggregation, all residential land-use classes are 
+considered equal in terms of population density. 
+
+Intelligent Dasymetric Mapping
+
+Using this method, population of a source zone is disaggregated to relevant target zones as a function of area as well as relative density of 
+residential land-use classes. This relative density is estimated from provided data, considering a user-defined sampling 
+threshold and a minimum sample size. 
+
+
 Using recreat_util from the CLI
 -------------------------------
 
