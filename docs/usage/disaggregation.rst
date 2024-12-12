@@ -32,13 +32,25 @@ Intelligent Dasymetric Mapping
 
 Using this method, population of a source zone is disaggregated to relevant target zones as a function of area as well as relative density of 
 residential land-use classes. This relative density is estimated from provided data, considering a user-defined sampling 
-threshold and a minimum sample size. Population is then estimated for each target zone as:
+threshold and a minimum sample size:
+
+.. math::
+    D_{c} = 
+    \begin{cases}
+       \frac{\sum\limits_{s=1}^{n} y_{s}}{ \sum\limits_{s=1}^{n} A_{s,c} } & \text{if $n > n_{min}$ and for $A_{s,c} > A_{min}$},\\
+       \\
+       0 & \text{otherwise}
+    \end{cases}
+
+
+Population is then estimated for each target zone as:
 
 .. math::
     \hat{y}_{t} =
     \begin{cases}
-        \frac{y_{s} D_{c,t}}{1} & \text{if $D_{c,t} > 0$},\\
-    0 & \text{otherwise}
+        y_{s} \left( \frac{D_{c,t}}{\sum\limits_{t=1}^{n} A_{t} D_{c,t} } \right) & \text{if $D_{c,t} > 0$},\\
+        \\
+        0 & \text{otherwise}
     \end{cases}
 
 Using recreat_util from the CLI
