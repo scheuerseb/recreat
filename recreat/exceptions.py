@@ -1,3 +1,7 @@
+###############################################################################
+# (C) 2024 Sebastian Scheuer (seb.scheuer@outlook.de)                         #
+###############################################################################
+
 class ModelValidationError(Exception):
     def __init__(self, message):            
         # Call the base class constructor with the parameters it needs

@@ -1,3 +1,7 @@
+###############################################################################
+# (C) 2024 Sebastian Scheuer (seb.scheuer@outlook.de)                         #
+###############################################################################
+
 import numpy as np
 import numpy.ma as ma
 import rasterio

@@ -1,3 +1,7 @@
+###############################################################################
+# (C) 2024 Sebastian Scheuer (seb.scheuer@outlook.de)                         #
+###############################################################################
+
 from colorama import init as colorama_init
 from colorama import Fore, Back, Style, just_fix_windows_console
 from rich.progress import Progress, TaskProgressColumn, TimeElapsedColumn, MofNCompleteColumn, TextColumn, BarColumn

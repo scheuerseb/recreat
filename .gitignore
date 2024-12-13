@@ -15,6 +15,7 @@
 !LowLevelGenericFilters.so
 !model.py
 !recreat_util.py
+!scalers.py
 !transformations.py
 !.readthedocs.yaml
 !LICENSE
