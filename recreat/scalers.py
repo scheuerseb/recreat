@@ -17,7 +17,7 @@ class Scaler(RecreatBase):
 
     @staticmethod
     def scale(filename: str, mode : ScalingMethod) -> None:
-        RecreatBase.printStepInfo(msg = "SCALING...")
+        RecreatBase.printStepInfo(msg = f"SCALING {filename}")
         # read input and input properties
         rst = rasterio.open(filename)
         rst_meta = rst.meta.copy()
