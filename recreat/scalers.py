@@ -4,7 +4,7 @@
 
 import rasterio
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler, RobustScaler
+from sklearn.preprocessing import MinMaxScaler, RobustScaler, QuantileTransformer
 from enum import Enum
 import os
 from .base import RecreatBase
@@ -12,12 +12,13 @@ from .base import RecreatBase
 class ScalingMethod(Enum):
     MinMaxNormalization = 'min-max'
     RobustScaling = 'robust'
+    QuantileTransform = 'qtransform'
 
 class Scaler(RecreatBase):
 
     @staticmethod
     def scale(filename: str, mode : ScalingMethod) -> None:
-        RecreatBase.printStepInfo(msg = f"SCALING {filename}")
+        RecreatBase.printStepInfo(msg = "SCALING...")
         # read input and input properties
         rst = rasterio.open(filename)
         rst_meta = rst.meta.copy()
@@ -46,6 +47,9 @@ class Scaler(RecreatBase):
             scaler = MinMaxScaler()
         elif mode is ScalingMethod.RobustScaling:
             scaler = RobustScaler()        
+        elif mode is ScalingMethod.QuantileTransform:
+            scaler = QuantileTransformer()
+
         mtx = scaler.fit_transform(mtx.reshape([-1,1]))
 
         # return result reshaped to original shape
