@@ -18,15 +18,26 @@ class RecreatBase:
         self.data_path = data_path
         self.root_path = root_path
     
+    # support static methods
     def printStepInfo(self, msg):
+        RecreatBase.printStepInfo(msg)
+    @staticmethod 
+    def printStepInfo(msg):
         print(Fore.CYAN + Style.BRIGHT + msg.upper() + Style.RESET_ALL)
     
     def printStepCompleteInfo(self, msg = "COMPLETED"):
+        RecreatBase.printStepCompleteInfo(msg)
+    @staticmethod
+    def printStepCompleteInfo(msg = "COMPLETED"):
         print(Fore.GREEN + Style.BRIGHT + msg + Style.RESET_ALL)
 
     def taskProgressReportStepCompleted(self, msg = "COMPLETED"):
-        self.printStepCompleteInfo(msg = msg)
+        RecreatBase.taskProgressReportStepCompleted(msg)
+    @staticmethod
+    def taskProgressReportStepCompleted(msg = "COMPLETED"):
+        RecreatBase.printStepCompleteInfo(msg = msg)
 
+    # task progress not supporting static methods at this time
     def _new_progress(self, task_description, total):
         self.progress = self.get_progress_bar()
         return self.progress.add_task(f"{task_description:<40}", total=total)
