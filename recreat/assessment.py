@@ -1164,27 +1164,46 @@ class Recreat(RecreatBase):
         self.taskProgressReportStepCompleted()
 
 
-    def minimum_cost_to_closest(self, write_scaled_result: bool = True) -> None:
-        self.printStepCompleteInfo("Assessing minimum cost to closest")
+    def minimum_cost_to_closest(self, lu_classes = None, nodata_value: int = -9999, write_scaled_result: bool = True) -> None:
         
-        included_lu_classes = self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
+        self.printStepCompleteInfo("Assessing minimum cost to closest")
+
+        included_lu_classes = lu_classes if lu_classes is not None else self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
+        
         step_count = len(included_lu_classes)
         current_task = self.get_task("[white]Assessing minimum cost to closest", total=step_count)
 
         # make result layer
-        mtx_min_cost = self._get_value_matrix(fill_value=9999, dest_datatype=np.float32)
+        high_val = 9999999
+        mtx_min_cost = self._get_value_matrix(fill_value = high_val, dest_datatype=np.float32)
+        # replace nodata with a high value
+        mtx_min_cost[mtx_min_cost == nodata_value] = high_val
 
         with self.progress as p:
             for lu in included_lu_classes:
 
-                mtx_proximity = self._read_band(f"PROX/dr_{lu}.tif")
-                mtx_min_cost[mtx_proximity < mtx_]
+                mtx_proximity = self._read_band(f'COSTS/minimum_cost_{lu}.tif')
+                # in mtx_proximity, we have any form of actual distance as values >= 0, and
+                # all other pixels as nodata_value (by default, -9999)
+
+                mtx_min_cost[mtx_proximity < mtx_min_cost] = mtx_proximity[mtx_proximity < mtx_min_cost]
+                #output_array = np.where( mtx_proximity < mtx_min_cost, mtx_min_cost, mtx_proximity)
+
+            mtx_min_cost[mtx_min_cost == high_val] = nodata_value
+            self._write_dataset('INDICATORS/non_weighted_minimum_cost.tif', mtx_min_cost, mask_nodata=False)
 
         # done
         self.taskProgressReportStepCompleted()
 
     def cost_to_closest(self, lu_classes = None, nodata_value: int = -9999) -> None:
         
+        # several assumptions need to be considered when computing costs:
+        # the output of distances is...
+        #   0 outside of clumps, as these are nodata areas (=nodata)
+        # > 0 inside of clumps, when lu within clump (=proximity)
+        #   0 inside of clumps, within lu of interest (=presence)
+        #   0 inside of clumps, if lu not within clump (=nodata)  
+
         self.printStepInfo("Assessing cost to closest")
         included_lu_classes = lu_classes if lu_classes is not None else self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
 
@@ -1251,32 +1270,19 @@ class Recreat(RecreatBase):
                 np.subtract(mtx_out, 1, out=mtx_out, where=mtx_out > 0)
 
                 # export mtx_out for current lu
-                self._write_dataset(f'COSTS/minimum_cost_{lu}.tif', mtx_out)
+                self._write_dataset(f'COSTS/minimum_cost_{lu}.tif', mtx_out, mask_nodata=False)
 
         # done
         self.taskProgressReportStepCompleted()
 
 
-    def average_cost_to_closest(self, lu_classes = None, distance_threshold: float = -1, out_of_distance_value: float = None, write_scaled_result: bool = True) -> None:
-
-        # several assumptions need to be considered when computing costs:
-        # the output of distances is...
-        #   0 outside of clumps, as these are nodata areas (=nodata)
-        # > 0 inside of clumps, when lu within clump (=proximity)
-        #   0 inside of clumps, within lu of interest (=presence)
-        #   0 inside of clumps, if lu not within clump (=nodata)  
+    def average_cost_to_closest(self, lu_classes = None, nodata_value: int = -9999, distance_threshold: float = -1, out_of_distance_value: float = None, write_scaled_result: bool = True) -> None:
 
         self.printStepInfo("Assessing average cost to closest")
         included_lu_classes = lu_classes if lu_classes is not None else self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
-
-        # we require clumps for masking
-        mtx_clumps = self._read_band("MASKS/clumps.tif")        
-        clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))
-        
-        step_count = len(included_lu_classes) * len(clump_slices)
-        current_task = self.get_task("[white]Assessing cost to closest", total=step_count)
-
-        mask_value = self.nodata_value if out_of_distance_value is None else out_of_distance_value
+                
+        step_count = len(included_lu_classes)
+        current_task = self.get_task("[white]Averaging cost to closest", total=step_count)
 
         # raster for average result
         mtx_average_cost = self._get_value_matrix(dest_datatype=np.float32)
@@ -1285,77 +1291,48 @@ class Recreat(RecreatBase):
         with self.progress as p:
 
             # get built-up layer 
-            if distance_threshold > 0:
-                print(Fore.YELLOW + Style.BRIGHT + "APPLYING THRESHOLD MASKING" + Style.RESET_ALL)
+            #if distance_threshold > 0:
+            #    print(Fore.YELLOW + Style.BRIGHT + "APPLYING THRESHOLD MASKING" + Style.RESET_ALL)
 
             # now operate over clumps, in order to safe some computational time
             for lu in included_lu_classes:
                 
                 # get relevant lu-specific datasets
                 # complete cost raster
-                mtx_lu_prox = self._read_band(f'PROX/dr_{lu}.tif')
-                # complete mask raster
-                lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
-                mtx_lu_mask = self._get_mask_for_lu(lu, lu_type=lu_type)
+                mtx_lu_prox = self._read_band(f'COSTS/minimum_cost_{lu}.tif')
+                
+                # the mtx_lu_prox raster contains values of nodata if no lu in clump/outside of clump, 
+                # or >= 0 when cost is within or towards lu
+                # by default, the nodata value is -9999 and it can be used for masking of the raster
+                # or, we may resort to using >= 0
 
-                # iterate over patches, and for each patch, determine whether um of mask is 0 (then all 0 costs are nodata)
-                # or whether sum of mask > 0, then 0 are actual within-lu costs, and remaining values should be > 0 for the current lu
-                for patch_idx in range(len(clump_slices)):
-                    
-                    obj_slice = clump_slices[patch_idx]
-                    obj_label = patch_idx + 1
-
-                    # get slice from land-use mask
-                    sliced_lu_mask = mtx_lu_mask[obj_slice].copy() 
-                    sliced_mtx_clumps = mtx_clumps[obj_slice]
-
-                    # properly mask out current object
-                    obj_mask = np.isin(sliced_mtx_clumps, [obj_label], invert=False)
-                    sliced_lu_mask[~obj_mask] = 0
-
-                    # now the sliced mask is 0 outside of the clump, and 0 or 1 within the clump
-                    # hence, if the sum of sliced mask is now >0, we need to continue 
-                    # with proximities. Otherwise, proximities = 0 are equal to nodata 
-                    # as lu not within clump. in that case, it does not count toward the average 
-                    if np.sum(sliced_lu_mask) > 0:
-                        # write out proximities
-                        sliced_lu_prox = mtx_lu_prox[obj_slice].copy()
-                        np.add(sliced_lu_prox, 1, out=sliced_lu_prox)
-                        
-                        sliced_lu_prox[~obj_mask] = 0                      
-                        mtx_average_cost[obj_slice] += sliced_lu_prox
-
-                        # make mask of 1 to add to count mtx
-                        sliced_lu_mask[obj_mask] = 1
-                        mtx_lu_cost_count_considered[obj_slice] += sliced_lu_mask
-
-                    else:
-                        sliced_lu_mask[obj_mask] = 0                    
-                        mtx_lu_cost_count_considered[obj_slice] += sliced_lu_mask
+                np.add(mtx_average_cost, mtx_lu_prox, out=mtx_average_cost, where=mtx_lu_prox >= 0)
+                np.add(mtx_lu_cost_count_considered, 1, out=mtx_lu_cost_count_considered, where=mtx_lu_prox >= 0)
            
+                p.update(current_task, advance=1)
 
-                    p.update(current_task, advance=1)
-
-                del mtx_lu_mask
                 del mtx_lu_prox
 
 
         # export average cost grid
         # prior, determine actual average. here, consider per each pixel the number of grids added.
-        #mtx_average_cost[mtx_clumps <= 0] = -9999 
         self._write_dataset('COSTS/raw_sum_of_cost.tif', mtx_average_cost)
         self._write_dataset('COSTS/cost_count.tif', mtx_lu_cost_count_considered)
                 
-        # np.divide(mtx_average_cost, mtx_lu_cost_count_considered, out=mtx_average_cost, where=mtx_lu_cost_count_considered > 0)        
-        # self._write_dataset('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost)
-        
-        # if write_scaled_result:
-        #     # apply min-max scaling
-        #     scaler = MinMaxScaler()
-        #     mtx_average_cost = 1-scaler.fit_transform(mtx_average_cost.reshape([-1,1]))
-        #     self._write_dataset('INDICATORS/scaled_non_weighted_avg_cost.tif', mtx_average_cost.reshape(self.lsm_mtx.shape))
+        np.divide(mtx_average_cost, mtx_lu_cost_count_considered, out=mtx_average_cost, where=mtx_lu_cost_count_considered > 0)     
+        # we should now also be able to reset cells with nodata values to the actual nodata_value
+        mtx_average_cost[mtx_lu_cost_count_considered <= 0] = nodata_value
 
-        # del mtx_average_cost
+        self._write_dataset('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost, mask_nodata=False)
+        
+        if write_scaled_result:
+            # apply min-max scaling
+            scaler = MinMaxScaler()
+            mtx_average_cost = 1-scaler.fit_transform(mtx_average_cost.reshape([-1,1]))
+            self._write_dataset('INDICATORS/scaled_non_weighted_avg_cost.tif', mtx_average_cost.reshape(self.lsm_mtx.shape), mask_nodata=False)
+
+        del mtx_average_cost
+        del mtx_lu_cost_count_considered
 
         # done
         self.taskProgressReportStepCompleted()
