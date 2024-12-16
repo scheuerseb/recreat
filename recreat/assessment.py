@@ -1183,6 +1183,80 @@ class Recreat(RecreatBase):
         # done
         self.taskProgressReportStepCompleted()
 
+    def cost_to_closest(self, lu_classes = None, nodata_value: int = -9999) -> None:
+        
+        self.printStepInfo("Assessing cost to closest")
+        included_lu_classes = lu_classes if lu_classes is not None else self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
+
+        # we require clumps for masking
+        mtx_clumps = self._read_band("MASKS/clumps.tif")        
+        clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))
+        
+        step_count = len(included_lu_classes) * len(clump_slices)
+        current_task = self.get_task("[white]Assessing cost to closest", total=step_count)
+
+        with self.progress as p:
+            
+
+            # iterate over land-uses
+            for lu in included_lu_classes:
+                
+                # store final result
+                mtx_out = self._get_value_matrix(dest_datatype=np.float32)
+                
+                # get relevant lu-specific datasets
+                # complete cost raster
+                mtx_lu_prox = self._read_band(f'PROX/dr_{lu}.tif')
+                # complete mask raster
+                lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
+                mtx_lu_mask = self._get_mask_for_lu(lu, lu_type=lu_type)
+
+                # iterate over patches, and for each patch, determine whether um of mask is 0 (then all 0 costs are nodata)
+                # or whether sum of mask > 0, then 0 are actual within-lu costs, and remaining values should be > 0 for the current lu
+                for patch_idx in range(len(clump_slices)):
+                    
+                    obj_slice = clump_slices[patch_idx]
+                    obj_label = patch_idx + 1
+
+                    # get slice from land-use mask
+                    sliced_lu_mask = mtx_lu_mask[obj_slice].copy() 
+                    sliced_mtx_clumps = mtx_clumps[obj_slice]
+
+                    # properly mask out current object
+                    obj_mask = np.isin(sliced_mtx_clumps, [obj_label], invert=False)
+                    sliced_lu_mask[~obj_mask] = 0
+
+                    # now the sliced mask is 0 outside of the clump, and 0 or 1 within the clump
+                    # hence, if the sum of sliced mask is now >0, we need to continue 
+                    # with proximities. Otherwise, proximities = 0 are equal to nodata 
+                    # as lu not within clump. in that case, it does not count toward the average 
+                    if np.sum(sliced_lu_mask) > 0:
+                        
+                        # write out proximities
+                        sliced_lu_prox = mtx_lu_prox[obj_slice].copy()
+                        np.add(sliced_lu_prox, 1, out=sliced_lu_prox)                        
+                        sliced_lu_prox[~obj_mask] = 0                      
+                        mtx_out[obj_slice] += sliced_lu_prox
+
+                    p.update(current_task, advance=1)
+
+                # done iterating over patches
+
+                del mtx_lu_mask
+                del mtx_lu_prox
+
+
+                # now apply nodata value to all values that are 0, as we shifted all proximities by +1
+                mtx_out[mtx_out <= 0] = nodata_value
+                np.subtract(mtx_out, 1, out=mtx_out, where=mtx_out > 0)
+
+                # export mtx_out for current lu
+                self._write_dataset(f'COSTS/minimum_cost_{lu}.tif', mtx_out)
+
+        # done
+        self.taskProgressReportStepCompleted()
+
+
     def average_cost_to_closest(self, lu_classes = None, distance_threshold: float = -1, out_of_distance_value: float = None, write_scaled_result: bool = True) -> None:
 
         # several assumptions need to be considered when computing costs:
@@ -1246,6 +1320,8 @@ class Recreat(RecreatBase):
                     if np.sum(sliced_lu_mask) > 0:
                         # write out proximities
                         sliced_lu_prox = mtx_lu_prox[obj_slice].copy()
+                        np.add(sliced_lu_prox, 1, out=sliced_lu_prox)
+                        
                         sliced_lu_prox[~obj_mask] = 0                      
                         mtx_average_cost[obj_slice] += sliced_lu_prox
 
