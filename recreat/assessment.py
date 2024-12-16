@@ -1277,6 +1277,8 @@ class Recreat(RecreatBase):
 
 
     def average_cost_to_closest(self, lu_classes = None, nodata_value: int = -9999, distance_threshold: float = -1, write_scaled_result: bool = True) -> None:
+        
+        # TODO: Add lu-based weighting
 
         self.printStepInfo("Assessing average cost to closest")
         included_lu_classes = lu_classes if lu_classes is not None else self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
