@@ -201,7 +201,7 @@ class Recreat(RecreatBase):
         # mask classes of interest into a binary raster to indicate presence/absence of recreational potential
         # we require this for all classes relevant to processing: patch and edge recreational classes, built-up classes
         self.printStepInfo("CREATING LAND-USE MASKS")
-        current_task = self._get_task('[white]Masking land-uses', total=len(classes_for_masking))
+        current_task = self.get_task('[white]Masking land-uses', total=len(classes_for_masking))
         with self.progress:
             for lu in classes_for_masking:
                 
@@ -254,7 +254,7 @@ class Recreat(RecreatBase):
                 )
 
             self.printStepInfo("Detecting edges")
-            current_task = self._get_task("[white]Detecting edges", total=len(classes_to_assess))
+            current_task = self.get_task("[white]Detecting edges", total=len(classes_to_assess))
             with self.progress:
                 for lu in classes_to_assess:            
                     
@@ -316,7 +316,7 @@ class Recreat(RecreatBase):
         step_count = len(classes_for_proximity_calculation) * len(clump_slices)
 
         # if standalone, create new progress bar, otherwise use existing bar, and create task
-        current_task = self._get_task("[white]Computing distance rasters", total=step_count)
+        current_task = self.get_task("[white]Computing distance rasters", total=step_count)
 
         # iterate over classes and clumps
         with self.progress:
@@ -373,7 +373,7 @@ class Recreat(RecreatBase):
         if assess_builtup:
             
             step_count = len(clump_slices)
-            current_task = self._get_task("[white]Computing distance rasters", total=step_count)
+            current_task = self.get_task("[white]Computing distance rasters", total=step_count)
             with self.progress:
                 
                 # target raster
@@ -423,7 +423,7 @@ class Recreat(RecreatBase):
         self.printStepInfo("Recategorizing classes")
         if self.lsm_mtx is not None:
             
-            current_task = self._get_task("[white]Reclassification", total=len(mappings.keys()))
+            current_task = self.get_task("[white]Reclassification", total=len(mappings.keys()))
 
             # iterate over key-value combinations
             with self.progress:
@@ -507,7 +507,7 @@ class Recreat(RecreatBase):
         clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))        
         
         step_count = len(self.cost_thresholds) * len(clump_slices)
-        current_task = self._get_task("[white]Determining beneficiaries", total=step_count)
+        current_task = self.get_task("[white]Determining beneficiaries", total=step_count)
         
         # this is actually constant per cost window
         infile_name = "DEMAND/disaggregated_population.tif" 
@@ -547,7 +547,7 @@ class Recreat(RecreatBase):
         rst_clumps = self._read_band("MASKS/clumps.tif")
         clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))
         step_count = len(clump_slices) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
-        current_task = self._get_task("[white]Determining clumped supply", total=step_count)
+        current_task = self.get_task("[white]Determining clumped supply", total=step_count)
 
         with self.progress:
             for c in self.cost_thresholds: 
@@ -683,7 +683,7 @@ class Recreat(RecreatBase):
 
         # progress reporting        
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))                
-        current_task = self._get_task("[white]Aggregating clumped supply", total=step_count)
+        current_task = self.get_task("[white]Aggregating clumped supply", total=step_count)
 
         with self.progress if self._runsAsStandalone() else nullcontext() as bar:
             for c in self.cost_thresholds:
@@ -709,7 +709,7 @@ class Recreat(RecreatBase):
         self.printStepInfo("Determining class diversity within costs")        
         
         step_count = (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)        
-        current_task = self._get_task("[white]Determining class diversity", total=step_count)
+        current_task = self.get_task("[white]Determining class diversity", total=step_count)
 
         with self.progress as p:
             for c in self.cost_thresholds:            
@@ -740,7 +740,7 @@ class Recreat(RecreatBase):
         """
         self.printStepInfo("Determine class flow")        
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch))
-        current_task = self._get_task("[white]Determine class-based flows within cost", step_count)
+        current_task = self.get_task("[white]Determine class-based flows within cost", step_count)
 
         with self.progress as p:            
             for c in self.cost_thresholds:
@@ -789,7 +789,7 @@ class Recreat(RecreatBase):
 
         self.printStepInfo("Averaging supply across costs")
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))
-        current_task = self._get_task("[white]Averaging supply", total=step_count)
+        current_task = self.get_task("[white]Averaging supply", total=step_count)
 
         # make result rasters
         # consider the following combinations
@@ -892,7 +892,7 @@ class Recreat(RecreatBase):
 
         self.printStepInfo("Averaging diversity across costs")
         step_count = len(self.cost_thresholds)
-        current_task = self._get_task("[white]Averaging diversity", total=step_count)
+        current_task = self.get_task("[white]Averaging diversity", total=step_count)
 
         with self.progress as p:
 
@@ -948,7 +948,7 @@ class Recreat(RecreatBase):
 
         self.printStepInfo("Averaging beneficiaries across costs")
         step_count = len(self.cost_thresholds)
-        current_task = self._get_task("[white]Averaging beneficiaries", total=step_count)
+        current_task = self.get_task("[white]Averaging beneficiaries", total=step_count)
 
         with self.progress as p:
 
@@ -1005,7 +1005,7 @@ class Recreat(RecreatBase):
 
         self.printStepInfo("Averaging flow across costs")        
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)) 
-        current_task = self._get_task("[white]Averaging flow across costs", total=step_count)
+        current_task = self.get_task("[white]Averaging flow across costs", total=step_count)
 
         with self.progress as p:
 
@@ -1079,7 +1079,7 @@ class Recreat(RecreatBase):
         
         self.printStepInfo("Determining per-capita opportunity area")
         step_count = len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)
-        lu_progress = self._get_task("[white]Per-capita assessment", total=step_count)
+        lu_progress = self.get_task("[white]Per-capita assessment", total=step_count)
 
         # get average flow for all lu patches as basis for average per-capita area
         mtx_average_flows = self._read_band("FLOWS/integrated_avg_flow.tif")
@@ -1164,59 +1164,102 @@ class Recreat(RecreatBase):
         self.taskProgressReportStepCompleted()
 
 
-
-
-    def cost_to_closest(self, distance_threshold: float = -1, builtup_masking: bool = False, write_scaled_result: bool = True) -> None:
-        """Determines cost to closest entities of each land-use class, and determines averaged cost to closest.
-
-        :param distance_threshold: Maximum cost value used for masking of cost rasters. If set to a negative value, do not mask areas with costs higher than maximum cost, defaults to -1
-        :type distance_threshold: float, optional
-        :param builtup_masking: Indicates whether outputs will be restricted to built-up land-use classes, defaults to False
-        :type builtup_masking: bool, optional
-        :param write_scaled_result: Indicates if min-max-scaled values should be written as separate outputs, defaults to True
-        :type write_scaled_result: bool, optional
-        """        
-
-        self.printStepInfo("Assessing cost to closest")
+    def minimum_cost_to_closest(self, write_scaled_result: bool = True) -> None:
+        self.printStepCompleteInfo("Assessing minimum cost to closest")
+        
         included_lu_classes = self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
-        step_count = len(included_lu_classes)         
-        current_task = self._get_task("[white]Assessing cost to closest", total=step_count)
+        step_count = len(included_lu_classes)
+        current_task = self.get_task("[white]Assessing minimum cost to closest", total=step_count)
+
+        # make result layer
+        mtx_min_cost = self._get_value_matrix(fill_value=9999, dest_datatype=np.float32)
 
         with self.progress as p:
+            for lu in included_lu_classes:
+
+                mtx_proximity = self._read_band(f"PROX/dr_{lu}.tif")
+                mtx_min_cost[mtx_proximity < mtx_]
+
+        # done
+        self.taskProgressReportStepCompleted()
+
+    def average_cost_to_closest(self, distance_threshold: float = -1, out_of_distance_value: float = None, write_scaled_result: bool = True) -> None:
+
+
+
+        # several assumptions need to be considered when computing costs:
+        # the output of distances is...
+        #   0 outside of clumps, as these are nodata areas (=nodata)
+        # > 0 inside of clumps, when lu within clump (=proximity)
+        #   0 inside of clumps, within lu of interest (=presence)
+        #   0 inside of clumps, if lu not within clump (=nodata)  
+
+        self.printStepInfo("Assessing average cost to closest")
+        included_lu_classes = self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
+        step_count = len(included_lu_classes)
+        current_task = self.get_task("[white]Assessing cost to closest", total=step_count)
+
+        # we require clumps for masking
+        mtx_clumps = self._read_band("MASKS/clumps.tif")
+        clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))
+        
+        mask_value = self.nodata_value if out_of_distance_value is None else out_of_distance_value
+
+        # raster for average result
+        mtx_average_cost = self._get_value_matrix(dest_datatype=np.float32)
+        mtx_lu_cost_count_considered = self._get_value_matrix(dest_datatype=np.float32)    
+        
+        with self.progress as p:
+
             # get built-up layer 
             if distance_threshold > 0:
                 print(Fore.YELLOW + Style.BRIGHT + "APPLYING THRESHOLD MASKING" + Style.RESET_ALL)
 
-            if builtup_masking:
-                mtx_builtup = self._read_band('MASKS/built-up.tif')
-
-            # raster for average result
-            mtx_average_cost = self._get_value_matrix()
-            mtx_lu_cost_count_considered = self._get_value_matrix()
-
+            # now operate over clumps, in order to safe some computational time
             for lu in included_lu_classes:
-                # import pre-computed proximity raster
-                mtx_proximity = self._read_band("PROX/dr_{}.tif".format(lu))
-                # mask out values that are greater than upper_threshold as they are considered irrelevant, if requested by user
-                if distance_threshold > 0:
-                    # fill higher values with upper threshold
-                    mtx_proximity[mtx_proximity > distance_threshold] = 0 # here, 0 is equal to the lsm nodata value
                 
-                if builtup_masking:
-                    # intersect with built-up to determine closest costs
-                    # a simple multiplication should result in                     
-                    mtx_proximity = mtx_proximity * mtx_builtup
-                               
-                # write result to disk
-                self._write_dataset('COSTS/minimum_cost_{}.tif'.format(lu), mtx_proximity)
-                # add to result
-                mtx_average_cost += mtx_proximity
+                # get relevant lu-specific datasets
+                # complete cost raster
+                mtx_lu_prox = self._read_band(f'PROX/dr_{lu}.tif')
+                # complete mask raster
+                lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
+                mtx_lu_mask = self._get_mask_for_lu(lu, lu_type=lu_type)
 
-                # now mask values that are not 0 with 1, to determine for each pixel the number of costs considered
-                mtx_proximity[mtx_proximity != 0] = 1
-                mtx_lu_cost_count_considered += mtx_proximity
-                
-                p.update(current_task, advance=1)
+                # iterate over patches, and for each patch, determine whether um of mask is 0 (then all 0 costs are nodata)
+                # or whether sum of mask > 0, then 0 are actual within-lu costs, and remaining values should be > 0 for the current lu
+                for patch_idx in range(len(clump_slices)):
+                    
+                    obj_slice = clump_slices[patch_idx]
+                    obj_label = patch_idx + 1
+
+                    # get slice from land-use mask
+                    sliced_lu_mask = mtx_lu_mask[obj_slice].copy() 
+                    sliced_mtx_clumps = mtx_clumps[obj_slice]
+
+                    # properly mask out current object
+                    obj_mask = np.isin(sliced_mtx_clumps, [obj_label], invert=False)
+                    sliced_lu_mask[~obj_mask] = 0
+
+                    # now the sliced mask is 0 outside of the clump, and 0 or 1 within the clump
+                    # hence, if the sum of sliced mask is now >0, we need to continue 
+                    # with proximities. Otherwise, proximities = 0 are equal to nodata 
+                    # as lu not within clump. in that case, it does not count toward the average 
+                    if np.sum(sliced_lu_mask) > 0:
+                        # write out proximities
+                        sliced_lu_prox = mtx_lu_prox[obj_slice].copy()
+                        sliced_lu_prox[~obj_mask] = 0 # TODO test if really 0 is best here. should be same fill value as default avg value                        
+                        mtx_average_cost[obj_slice] += sliced_lu_prox
+
+                        # make mask of 1 to add to count mtx
+                        sliced_lu_mask[obj_mask] = 1
+                        mtx_lu_cost_count_considered[obj_slice] = sliced_lu_mask
+                                    
+
+                    p.update(current_task, advance=1)
+
+                del mtx_lu_mask
+                del mtx_lu_prox
+
 
         # export average cost grid
         # prior, determine actual average. here, consider per each pixel the number of grids added.
@@ -1232,6 +1275,8 @@ class Recreat(RecreatBase):
 
         # done
         self.taskProgressReportStepCompleted()
+
+
 
 
 
@@ -1539,7 +1584,7 @@ class Recreat(RecreatBase):
         tmp_files = [os.path.join(self.data_path, self.root_path, 'TMP', f) for f in listdir(tmp_path) if isfile(join(tmp_path, f))]
         
         step_count = len(tmp_files)
-        current_task = self._get_task('[red]Removing temporary files', total=step_count)
+        current_task = self.get_task('[red]Removing temporary files', total=step_count)
         
         for f in tmp_files:
             os.remove(f)

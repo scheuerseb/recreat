@@ -51,5 +51,5 @@ class RecreatBase:
             MofNCompleteColumn()
         )
     
-    def _get_task(self, task_description, total):
+    def get_task(self, task_description, total):
         return self._new_progress(task_description, total=total)
