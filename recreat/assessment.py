@@ -1196,7 +1196,7 @@ class Recreat(RecreatBase):
         included_lu_classes = lu_classes if lu_classes is not None else self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
 
         # we require clumps for masking
-        mtx_clumps = self._read_band("MASKS/clumps.tif")
+        mtx_clumps = self._read_band("MASKS/clumps.tif")        
         clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))
         
         step_count = len(included_lu_classes) * len(clump_slices)
@@ -1251,15 +1251,12 @@ class Recreat(RecreatBase):
 
                         # make mask of 1 to add to count mtx
                         sliced_lu_mask[obj_mask] = 1
-                        mtx_lu_cost_count_considered[obj_slice] = sliced_lu_mask
+                        mtx_lu_cost_count_considered[obj_slice] += sliced_lu_mask
 
                     else:
                         sliced_lu_mask[obj_mask] = -9999                    
-                        mtx_lu_cost_count_considered[obj_slice] = sliced_lu_mask
-
-
-
-                                    
+                        mtx_lu_cost_count_considered[obj_slice] += sliced_lu_mask
+           
 
                     p.update(current_task, advance=1)
 
@@ -1269,8 +1266,11 @@ class Recreat(RecreatBase):
 
         # export average cost grid
         # prior, determine actual average. here, consider per each pixel the number of grids added.
-        mtx_average_cost = np.divide(mtx_average_cost, mtx_lu_cost_count_considered, where=mtx_lu_cost_count_considered > 0)
+        mtx_average_cost[mtx_clumps <= 0] = -9999 
+        self._write_dataset('COSTS/raw_sum_of_cost.tif', mtx_average_cost)
         self._write_dataset('COSTS/cost_count.tif', mtx_lu_cost_count_considered)
+                
+        np.divide(mtx_average_cost, mtx_lu_cost_count_considered, out=mtx_average_cost, where=mtx_lu_cost_count_considered > 0)        
         self._write_dataset('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost)
         
         if write_scaled_result:
