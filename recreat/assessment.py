@@ -1183,9 +1183,7 @@ class Recreat(RecreatBase):
         # done
         self.taskProgressReportStepCompleted()
 
-    def average_cost_to_closest(self, distance_threshold: float = -1, out_of_distance_value: float = None, write_scaled_result: bool = True) -> None:
-
-
+    def average_cost_to_closest(self, lu_classes = None, distance_threshold: float = -1, out_of_distance_value: float = None, write_scaled_result: bool = True) -> None:
 
         # several assumptions need to be considered when computing costs:
         # the output of distances is...
@@ -1195,7 +1193,7 @@ class Recreat(RecreatBase):
         #   0 inside of clumps, if lu not within clump (=nodata)  
 
         self.printStepInfo("Assessing average cost to closest")
-        included_lu_classes = self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
+        included_lu_classes = lu_classes if lu_classes is not None else self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
 
         # we require clumps for masking
         mtx_clumps = self._read_band("MASKS/clumps.tif")
@@ -1248,12 +1246,19 @@ class Recreat(RecreatBase):
                     if np.sum(sliced_lu_mask) > 0:
                         # write out proximities
                         sliced_lu_prox = mtx_lu_prox[obj_slice].copy()
-                        sliced_lu_prox[~obj_mask] = 0 # TODO test if really 0 is best here. should be same fill value as default avg value                        
+                        sliced_lu_prox[~obj_mask] = 0                      
                         mtx_average_cost[obj_slice] += sliced_lu_prox
 
                         # make mask of 1 to add to count mtx
                         sliced_lu_mask[obj_mask] = 1
                         mtx_lu_cost_count_considered[obj_slice] = sliced_lu_mask
+
+                    else:
+                        sliced_lu_mask[obj_mask] = -9999                    
+                        mtx_lu_cost_count_considered[obj_slice] = sliced_lu_mask
+
+
+
                                     
 
                     p.update(current_task, advance=1)
