@@ -1254,7 +1254,7 @@ class Recreat(RecreatBase):
                         mtx_lu_cost_count_considered[obj_slice] += sliced_lu_mask
 
                     else:
-                        sliced_lu_mask[obj_mask] = -9999                    
+                        sliced_lu_mask[obj_mask] = 0                    
                         mtx_lu_cost_count_considered[obj_slice] += sliced_lu_mask
            
 
@@ -1266,20 +1266,20 @@ class Recreat(RecreatBase):
 
         # export average cost grid
         # prior, determine actual average. here, consider per each pixel the number of grids added.
-        mtx_average_cost[mtx_clumps <= 0] = -9999 
+        #mtx_average_cost[mtx_clumps <= 0] = -9999 
         self._write_dataset('COSTS/raw_sum_of_cost.tif', mtx_average_cost)
         self._write_dataset('COSTS/cost_count.tif', mtx_lu_cost_count_considered)
                 
-        np.divide(mtx_average_cost, mtx_lu_cost_count_considered, out=mtx_average_cost, where=mtx_lu_cost_count_considered > 0)        
-        self._write_dataset('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost)
+        # np.divide(mtx_average_cost, mtx_lu_cost_count_considered, out=mtx_average_cost, where=mtx_lu_cost_count_considered > 0)        
+        # self._write_dataset('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost)
         
-        if write_scaled_result:
-            # apply min-max scaling
-            scaler = MinMaxScaler()
-            mtx_average_cost = 1-scaler.fit_transform(mtx_average_cost.reshape([-1,1]))
-            self._write_dataset('INDICATORS/scaled_non_weighted_avg_cost.tif', mtx_average_cost.reshape(self.lsm_mtx.shape))
+        # if write_scaled_result:
+        #     # apply min-max scaling
+        #     scaler = MinMaxScaler()
+        #     mtx_average_cost = 1-scaler.fit_transform(mtx_average_cost.reshape([-1,1]))
+        #     self._write_dataset('INDICATORS/scaled_non_weighted_avg_cost.tif', mtx_average_cost.reshape(self.lsm_mtx.shape))
 
-        del mtx_average_cost
+        # del mtx_average_cost
 
         # done
         self.taskProgressReportStepCompleted()
