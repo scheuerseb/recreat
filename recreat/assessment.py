@@ -1201,8 +1201,8 @@ class Recreat(RecreatBase):
         mtx_clumps = self._read_band("MASKS/clumps.tif")
         clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))
         
-        current_task = self.get_task("[white]Assessing cost to closest", total=step_count)
         step_count = len(included_lu_classes) * len(clump_slices)
+        current_task = self.get_task("[white]Assessing cost to closest", total=step_count)
 
         mask_value = self.nodata_value if out_of_distance_value is None else out_of_distance_value
 
