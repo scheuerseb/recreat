@@ -1270,7 +1270,9 @@ class Recreat(RecreatBase):
         # export average cost grid
         # prior, determine actual average. here, consider per each pixel the number of grids added.
         mtx_average_cost = np.divide(mtx_average_cost, mtx_lu_cost_count_considered, where=mtx_lu_cost_count_considered > 0)
+        self._write_dataset('COSTS/cost_count.tif', mtx_lu_cost_count_considered)
         self._write_dataset('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost)
+        
         if write_scaled_result:
             # apply min-max scaling
             scaler = MinMaxScaler()
