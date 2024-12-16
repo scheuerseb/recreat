@@ -1276,7 +1276,7 @@ class Recreat(RecreatBase):
         self.taskProgressReportStepCompleted()
 
 
-    def average_cost_to_closest(self, lu_classes = None, nodata_value: int = -9999, distance_threshold: float = -1, out_of_distance_value: float = None, write_scaled_result: bool = True) -> None:
+    def average_cost_to_closest(self, lu_classes = None, nodata_value: int = -9999, distance_threshold: float = -1, write_scaled_result: bool = True) -> None:
 
         self.printStepInfo("Assessing average cost to closest")
         included_lu_classes = lu_classes if lu_classes is not None else self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
@@ -1288,11 +1288,10 @@ class Recreat(RecreatBase):
         mtx_average_cost = self._get_value_matrix(dest_datatype=np.float32)
         mtx_lu_cost_count_considered = self._get_value_matrix(dest_datatype=np.float32)    
         
+        if distance_threshold > 0:
+            print(f"{Fore.YELLOW}{Style.BRIGHT}Masking costs > {distance_threshold} units{Style.RESET_ALL}")
+        
         with self.progress as p:
-
-            # get built-up layer 
-            #if distance_threshold > 0:
-            #    print(Fore.YELLOW + Style.BRIGHT + "APPLYING THRESHOLD MASKING" + Style.RESET_ALL)
 
             # now operate over clumps, in order to safe some computational time
             for lu in included_lu_classes:
@@ -1305,9 +1304,14 @@ class Recreat(RecreatBase):
                 # or >= 0 when cost is within or towards lu
                 # by default, the nodata value is -9999 and it can be used for masking of the raster
                 # or, we may resort to using >= 0
+                
+                # if we require cost masking by distance thresholds > 0, 
+                # mask inputs here
+                if distance_threshold > 0:
+                    mtx_lu_prox[mtx_lu_prox > distance_threshold] = nodata_value
 
-                np.add(mtx_average_cost, mtx_lu_prox, out=mtx_average_cost, where=mtx_lu_prox >= 0)
-                np.add(mtx_lu_cost_count_considered, 1, out=mtx_lu_cost_count_considered, where=mtx_lu_prox >= 0)
+                np.add(mtx_average_cost, mtx_lu_prox, out=mtx_average_cost, where=mtx_lu_prox != nodata_value)
+                np.add(mtx_lu_cost_count_considered, 1, out=mtx_lu_cost_count_considered, where=mtx_lu_prox != nodata_value)
            
                 p.update(current_task, advance=1)
 
