@@ -5,6 +5,7 @@
 from colorama import init as colorama_init
 from colorama import Fore, Back, Style, just_fix_windows_console
 from rich.progress import Progress, TaskProgressColumn, TimeElapsedColumn, MofNCompleteColumn, TextColumn, BarColumn
+import numpy as np
 
 class RecreatBase:
     # environment variables
@@ -53,3 +54,7 @@ class RecreatBase:
     
     def get_task(self, task_description, total):
         return self._new_progress(task_description, total=total)
+
+    @staticmethod
+    def write_output(out_filename: str, out_mtx: np.ndarray, out_meta) -> None:
+        pass

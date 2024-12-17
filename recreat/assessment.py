@@ -659,16 +659,6 @@ class Recreat(RecreatBase):
         del mtx_source
         return mtx_result
     
-
-
-    
-
-
-    #
-    # 
-    # 
-    # 
-    # The following functions are meant to be used / would be considered public methods.
     
     def aggregate_class_total_supply(self, lu_weights: Dict[any,float] = None, write_non_weighted_result: bool = True) -> None:
         """Aggregate total supply of land-use classes within each specified cost threshold. A weighting schema may be supplied, in which case a weighted average is determined as the sum of weighted class supply divided by the sum of all weights.
