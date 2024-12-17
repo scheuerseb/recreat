@@ -1466,7 +1466,7 @@ class Recreat(RecreatBase):
             custom_nodata_mask = custom_nodata_mask if custom_nodata_mask is not None else self.lsm_nodata_mask
             outdata[custom_nodata_mask] = self.nodata_value    
 
-        with rasterio.open(path, "w", driver="GTiff", **custom_metadata) as dest:
+        with rasterio.open(path, "w", **custom_metadata) as dest:
             dest.write(outdata, 1)
 
         # with rasterio.open(
