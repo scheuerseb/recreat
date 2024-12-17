@@ -1317,7 +1317,7 @@ class Recreat(RecreatBase):
 
         # export average cost grid
         # prior, determine actual average. here, consider per each pixel the number of grids added.
-        self._write_dataset('COSTS/raw_sum_of_cost.tif', mtx_average_cost, mask_nodata=False, custom_metadata=custom_meta)
+        # self._write_dataset('COSTS/raw_sum_of_cost.tif', mtx_average_cost, mask_nodata=False, custom_metadata=custom_meta)
         self._write_dataset('COSTS/cost_count.tif', mtx_lu_cost_count_considered, mask_nodata=False, custom_metadata=custom_meta)
                 
         np.divide(mtx_average_cost, mtx_lu_cost_count_considered, out=mtx_average_cost, where=mtx_lu_cost_count_considered > 0)     
