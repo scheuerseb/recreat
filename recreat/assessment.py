@@ -1468,19 +1468,6 @@ class Recreat(RecreatBase):
 
         with rasterio.open(path, "w", **custom_metadata) as dest:
             dest.write(outdata, 1)
-
-        # with rasterio.open(
-        #     path,
-        #     mode="w",
-        #     driver="GTiff",
-        #     height=outdata.shape[0],
-        #     width=outdata.shape[1],
-        #     count=1,
-        #     dtype=outdata.dtype,
-        #     crs=custom_metadata['crs'],
-        #     transform=custom_metadata['transform']
-        # ) as new_dataset:
-        #     new_dataset.write(outdata, 1)
     
     def _get_supply_for_lu_and_cost(self, lu, lu_type, cost):        
         # make filename
