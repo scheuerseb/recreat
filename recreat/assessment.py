@@ -1166,8 +1166,6 @@ class Recreat(RecreatBase):
         # make result layer
         high_val = 9999999
         mtx_min_cost = self._get_value_matrix(fill_value = high_val, dest_datatype=np.float32)
-        # replace nodata with a high value
-        mtx_min_cost[mtx_min_cost == nodata_value] = high_val
 
         with self.progress as p:
             for lu in included_lu_classes:
@@ -1176,7 +1174,7 @@ class Recreat(RecreatBase):
                 # in mtx_proximity, we have any form of actual distance as values >= 0, and
                 # all other pixels as nodata_value (by default, -9999)
 
-                mtx_min_cost[mtx_proximity < mtx_min_cost] = mtx_proximity[mtx_proximity < mtx_min_cost]
+                mtx_min_cost[(mtx_proximity < mtx_min_cost) & (mtx_proximity != nodata_value)] = mtx_proximity[(mtx_proximity < mtx_min_cost) & (mtx_proximity != nodata_value)]
                 #output_array = np.where( mtx_proximity < mtx_min_cost, mtx_min_cost, mtx_proximity)
 
             mtx_min_cost[mtx_min_cost == high_val] = nodata_value
@@ -1283,6 +1281,12 @@ class Recreat(RecreatBase):
         if distance_threshold > 0:
             print(f"{Fore.YELLOW}{Style.BRIGHT}Masking costs > {distance_threshold} units{Style.RESET_ALL}")
         
+        custom_meta = self.lsm_rst.meta.copy()
+        custom_meta.update({
+            'dtype' : np.float32,
+            'nodata' : nodata_value
+        })
+
         with self.progress as p:
 
             # now operate over clumps, in order to safe some computational time
@@ -1309,17 +1313,18 @@ class Recreat(RecreatBase):
 
                 del mtx_lu_prox
 
+        
 
         # export average cost grid
         # prior, determine actual average. here, consider per each pixel the number of grids added.
-        self._write_dataset('COSTS/raw_sum_of_cost.tif', mtx_average_cost)
-        self._write_dataset('COSTS/cost_count.tif', mtx_lu_cost_count_considered)
+        self._write_dataset('COSTS/raw_sum_of_cost.tif', mtx_average_cost, mask_nodata=False, custom_metadata=custom_meta)
+        self._write_dataset('COSTS/cost_count.tif', mtx_lu_cost_count_considered, mask_nodata=False, custom_metadata=custom_meta)
                 
         np.divide(mtx_average_cost, mtx_lu_cost_count_considered, out=mtx_average_cost, where=mtx_lu_cost_count_considered > 0)     
         # we should now also be able to reset cells with nodata values to the actual nodata_value
         mtx_average_cost[mtx_lu_cost_count_considered <= 0] = nodata_value
 
-        self._write_dataset('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost, mask_nodata=False)
+        self._write_dataset('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost, mask_nodata=False, custom_metadata=custom_meta)
         
         if write_scaled_result:
             # apply min-max scaling
@@ -1451,7 +1456,7 @@ class Recreat(RecreatBase):
         :type custom_nodata_mask: np.ndarray, optional
         """        
 
-        custom_metadata = custom_metadata if custom_metadata is not None else self.lsm_rst.meta
+        custom_metadata = custom_metadata if custom_metadata is not None else self.lsm_rst.meta.copy()
 
         path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
         if self.verbose_reporting:
@@ -1461,18 +1466,21 @@ class Recreat(RecreatBase):
             custom_nodata_mask = custom_nodata_mask if custom_nodata_mask is not None else self.lsm_nodata_mask
             outdata[custom_nodata_mask] = self.nodata_value    
 
-        with rasterio.open(
-            path,
-            mode="w",
-            driver="GTiff",
-            height=outdata.shape[0],
-            width=outdata.shape[1],
-            count=1,
-            dtype=outdata.dtype,
-            crs=custom_metadata['crs'],
-            transform=custom_metadata['transform']
-        ) as new_dataset:
-            new_dataset.write(outdata, 1)
+        with rasterio.open(path, "w", driver="GTiff", **custom_metadata) as dest:
+            dest.write(outdata, 1)
+
+        # with rasterio.open(
+        #     path,
+        #     mode="w",
+        #     driver="GTiff",
+        #     height=outdata.shape[0],
+        #     width=outdata.shape[1],
+        #     count=1,
+        #     dtype=outdata.dtype,
+        #     crs=custom_metadata['crs'],
+        #     transform=custom_metadata['transform']
+        # ) as new_dataset:
+        #     new_dataset.write(outdata, 1)
     
     def _get_supply_for_lu_and_cost(self, lu, lu_type, cost):        
         # make filename
