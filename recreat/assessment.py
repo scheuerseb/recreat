@@ -1060,6 +1060,55 @@ class Recreat(RecreatBase):
         self.taskProgressReportStepCompleted()
 
 
+    def determine_clump_area(self, lu: int, pixel_area_sqm: float, ):
+        
+        self.printStepInfo("Determine clump area from mask")
+
+        # define a queen contiguity
+        clump_connectivity = np.full((3,3), 1)
+                
+        # get lu mask as basis to determine clump total area
+        lu_type = 'patch' if lu in self.lu_classes_recreation_patch else 'edge'
+        mtx_lu_mask = self._get_mask_for_lu(lu, lu_type)
+        
+        mtx_current_lu_clumps = self._get_value_matrix()
+        mtx_current_lu_clump_size = self._get_value_matrix()
+
+        nr_clumps = ndimage.label(mtx_lu_mask, structure=clump_connectivity, output=mtx_current_lu_clumps)
+        print(f"{Fore.YELLOW}{Style.BRIGHT}{nr_clumps}CLUMPS FOUND")
+
+        current_lu_clump_slices = ndimage.find_objects(mtx_current_lu_clumps.astype(np.int64)) 
+
+        # iterate over clumps of current lu and determine clump sizes
+        clump_progress = self.get_task("[white]Iterate clumps", total=len(current_lu_clump_slices))
+        
+        with self.progress as p:
+            
+            for patch_idx in range(len(current_lu_clump_slices)):
+                obj_slice = current_lu_clump_slices[patch_idx]
+                obj_label = patch_idx + 1
+
+                # get slice from mask
+                # mask
+                clump_slice = mtx_current_lu_clumps[obj_slice]
+                obj_mask = np.isin(clump_slice, [obj_label], invert=False)
+
+                mask_slice = mtx_lu_mask[obj_slice].copy()
+                mask_slice[obj_mask] = 1
+                mask_slice[~obj_mask] = 0       
+
+                # now that we have zeroed all non-clump pixels, the area in sqm of current clump is equal to the number of pixels * user-specified resolution
+                val_clump_size = np.sum(mask_slice) * pixel_area_sqm                   
+                
+                # replace presence/absence in mask with size of clump in sqm 
+                mask_slice[obj_mask] = val_clump_size
+                
+                mtx_current_lu_clump_size[obj_slice] += mask_slice
+                p.update(clump_progress, advance=1)
+
+        # write outputs
+        self._write_dataset(f"CLUMPS_LU/clump_area_{lu}.tif", mtx_current_lu_clump_size)
+
     # 
     # Clump detection in land-uses to determine size of patches and edges
     # To determine per-capita recreational area

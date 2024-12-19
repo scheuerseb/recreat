@@ -57,4 +57,5 @@ class RecreatBase:
 
     @staticmethod
     def write_output(out_filename: str, out_mtx: np.ndarray, out_meta) -> None:
+        # TODO implement method
         pass
