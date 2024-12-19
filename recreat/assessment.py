@@ -1171,14 +1171,22 @@ class Recreat(RecreatBase):
             for lu in included_lu_classes:
 
                 mtx_proximity = self._read_band(f'COSTS/minimum_cost_{lu}.tif')
+                
                 # in mtx_proximity, we have any form of actual distance as values >= 0, and
                 # all other pixels as nodata_value (by default, -9999)
 
                 mtx_min_cost[(mtx_proximity < mtx_min_cost) & (mtx_proximity != nodata_value)] = mtx_proximity[(mtx_proximity < mtx_min_cost) & (mtx_proximity != nodata_value)]
                 #output_array = np.where( mtx_proximity < mtx_min_cost, mtx_min_cost, mtx_proximity)
 
+                p.update(current_task, advance=1)
+
             mtx_min_cost[mtx_min_cost == high_val] = nodata_value
-            self._write_dataset('INDICATORS/non_weighted_minimum_cost.tif', mtx_min_cost, mask_nodata=False)
+            custom_meta = self.lsm_rst.meta.copy()
+            custom_meta.update({
+                'nodata' : nodata_value,
+                'dtype' : np.float32
+            })
+            self._write_dataset('INDICATORS/non_weighted_minimum_cost.tif', mtx_min_cost, mask_nodata=False, custom_metadata=custom_meta)
 
         # done
         self.taskProgressReportStepCompleted()
@@ -1204,7 +1212,6 @@ class Recreat(RecreatBase):
 
         with self.progress as p:
             
-
             # iterate over land-uses
             for lu in included_lu_classes:
                 
@@ -1214,6 +1221,7 @@ class Recreat(RecreatBase):
                 # get relevant lu-specific datasets
                 # complete cost raster
                 mtx_lu_prox = self._read_band(f'PROX/dr_{lu}.tif')
+                
                 # complete mask raster
                 lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
                 mtx_lu_mask = self._get_mask_for_lu(lu, lu_type=lu_type)
@@ -1247,11 +1255,10 @@ class Recreat(RecreatBase):
 
                     p.update(current_task, advance=1)
 
-                # done iterating over patches
 
+                # done iterating over patches
                 del mtx_lu_mask
                 del mtx_lu_prox
-
 
                 # now apply nodata value to all values that are 0, as we shifted all proximities by +1
                 mtx_out[mtx_out <= 0] = nodata_value
