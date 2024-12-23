@@ -1060,7 +1060,7 @@ class Recreat(RecreatBase):
         self.taskProgressReportStepCompleted()
 
 
-    def determine_clump_area(self, lu: int, pixel_area_sqm: float, ):
+    def determine_clump_area(self, lu: int, pixel_area_sqm: float, nodata_value: float = -9999):
         
         self.printStepInfo("Determine clump area from mask")
 
@@ -1071,8 +1071,8 @@ class Recreat(RecreatBase):
         lu_type = 'patch' if lu in self.lu_classes_recreation_patch else 'edge'
         mtx_lu_mask = self._get_mask_for_lu(lu, lu_type)
         
-        mtx_current_lu_clumps = self._get_value_matrix()
-        mtx_current_lu_clump_size = self._get_value_matrix()
+        mtx_current_lu_clumps = self._get_value_matrix(dest_datatype=np.int64)
+        mtx_current_lu_clump_size = self._get_value_matrix(dest_datatype=np.float32)
 
         nr_clumps = ndimage.label(mtx_lu_mask, structure=clump_connectivity, output=mtx_current_lu_clumps)
         print(f"{Fore.YELLOW}{Style.BRIGHT}{nr_clumps}CLUMPS FOUND")
@@ -1101,13 +1101,20 @@ class Recreat(RecreatBase):
                 val_clump_size = np.sum(mask_slice) * pixel_area_sqm                   
                 
                 # replace presence/absence in mask with size of clump in sqm 
-                mask_slice[obj_mask] = val_clump_size
-                
-                mtx_current_lu_clump_size[obj_slice] += mask_slice
+                clump_size_as_mtx = val_clump_size * mask_slice
+                mtx_current_lu_clump_size[obj_slice] += clump_size_as_mtx
                 p.update(clump_progress, advance=1)
 
+
         # write outputs
-        self._write_dataset(f"CLUMPS_LU/clump_area_{lu}.tif", mtx_current_lu_clump_size)
+        mtx_current_lu_clump_size[mtx_current_lu_clump_size == 0] = nodata_value
+        rst_meta = self.lsm_rst.meta.copy()
+        rst_meta.update({
+            'dtype' : np.float32,
+            'npdata' : nodata_value
+        })
+
+        self._write_dataset(f"CLUMPS_LU/clump_area_{lu}.tif", mtx_current_lu_clump_size.astype(np.float32), mask_nodata=False, custom_metadata=rst_meta)
 
     # 
     # Clump detection in land-uses to determine size of patches and edges
