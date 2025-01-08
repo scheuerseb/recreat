@@ -697,12 +697,12 @@ class Recreat(RecreatBase):
         """Determine the diversity of land-use classes within cost thresholds. 
         """
         self.printStepInfo("Determining class diversity within costs")        
-        
-        step_count = (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)        
+
+        step_count = (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
         current_task = self.get_task("[white]Determining class diversity", total=step_count)
 
         with self.progress as p:
-            for c in self.cost_thresholds:            
+            for c in self.cost_thresholds:    
                 mtx_diversity_at_cost = self._get_value_matrix(dest_datatype=np.int16)
 
                 for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
@@ -710,11 +710,11 @@ class Recreat(RecreatBase):
                     lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"                    
                     mtx_supply = self._get_supply_for_lu_and_cost(lu, lu_type, c)                   
                     mtx_supply[mtx_supply > 0] = 1
-                    mtx_diversity_at_cost += mtx_supply
+                    mtx_diversity_at_cost += mtx_supply.astype(np.int16)
                     p.update(current_task, advance=1)
-                
+
                 # export current cost diversity
-                self._write_dataset("DIVERSITY/diversity_cost_{}.tif".format(c), mtx_diversity_at_cost) 
+                self._write_dataset(f"DIVERSITY/diversity_cost_{c}.tif", mtx_diversity_at_cost)
                 del mtx_diversity_at_cost
 
         # done
