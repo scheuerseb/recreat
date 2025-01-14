@@ -177,15 +177,15 @@ class Recreat(RecreatBase):
 
         self.printStepInfo("Detecting clumps")
         clump_connectivity = np.full((3,3), 1)
-        rst_clumps = self._get_value_matrix()
+        out_clumps, out_meta = self._get_new_matrix(fill_value=0, shape=self.lsm_mtx.shape, dtype=np.int32)
 
         indata = self.lsm_mtx.copy()
         barriers_mask = np.isin(indata, barrier_classes, invert=False)
         indata[barriers_mask] = 0
 
-        nr_clumps = ndimage.label(indata, structure=clump_connectivity, output=rst_clumps)
-        print(Fore.YELLOW + Style.BRIGHT + "{} CLUMPS FOUND".format(nr_clumps) + Style.RESET_ALL)
-        self._write_dataset("MASKS/clumps.tif", rst_clumps)        
+        nr_clumps = ndimage.label(indata, structure=clump_connectivity, output=out_clumps)
+        print(f"{Fore.YELLOW}{Style.BRIGHT} {nr_clumps} CLUMPS FOUND{Style.RESET_ALL}")
+        self._write_dataset("MASKS/clumps.tif", out_clumps, custom_metadata=out_meta)        
         
         # done
         self.taskProgressReportStepCompleted()
@@ -207,13 +207,19 @@ class Recreat(RecreatBase):
                 
                 out_filename = self._get_file_path(f"MASKS/mask_{lu}.tif")
                 if not os.path.isfile(out_filename):
-                    current_lu_mask = self.lsm_mtx.copy()
+                    
+
+                    
+                    #current_lu_mask = self.lsm_mtx.copy()
+                    current_lu_mask, out_meta = self._get_new_matrix(0, self.lsm_mtx.shape, np.int8)
+
                     # make mask for relevant pixels
-                    mask = np.isin(current_lu_mask, [lu], invert=False)
+                    mask = np.isin(self.lsm_mtx, [lu], invert=False)
+                    
                     # mask with binary values 
                     current_lu_mask[mask] = 1
                     current_lu_mask[~mask] = 0
-                    self._write_dataset(f"MASKS/mask_{lu}.tif", current_lu_mask)
+                    self._write_dataset(f"MASKS/mask_{lu}.tif", current_lu_mask, custom_metadata=out_meta)
 
                 self.progress.update(current_task, advance=1)
 
@@ -232,9 +238,9 @@ class Recreat(RecreatBase):
         """        
 
         # determine edge pixels of edge-only classes such as water opportunities
-        
+
         classes_to_assess = lu_classes if lu_classes is not None else self.lu_classes_recreation_edge
-        if(len(classes_to_assess) > 0):
+        if (len(classes_to_assess) > 0):
             
             if ignore_edges_to_class is None:
                 self.clib.div_filter.restype = ctypes.c_int
@@ -255,8 +261,9 @@ class Recreat(RecreatBase):
 
             self.printStepInfo("Detecting edges")
             current_task = self.get_task("[white]Detecting edges", total=len(classes_to_assess))
+
             with self.progress:
-                for lu in classes_to_assess:            
+                for lu in classes_to_assess:
                     
                     if ignore_edges_to_class is None:                    
                         user_data = ctypes.c_double(lu)
@@ -269,25 +276,31 @@ class Recreat(RecreatBase):
                         div_filter = LowLevelCallable(self.clib.div_filter_ignore_class, user_data=ptr, signature="int (double *, intptr_t, double *, void *)")              
 
                     # read masking raster
-                    mtx_mask = self._read_band("MASKS/mask_{}.tif".format(lu)) 
-                    
+                    mtx_mask = self._read_band(f"MASKS/mask_{lu}.tif") 
+
                     # apply a 3x3 rectangular sliding window to determine pixel value diversity in window
-                    rst_edgePixelDiversity = self._moving_window_generic(data_mtx=self.lsm_mtx, kernel_func=div_filter, kernel_size=3, kernel_shape='rect', dest_datatype=np.int16) 
+                    rst_edgePixelDiversity = self._moving_window_generic(data_mtx=self.lsm_mtx, kernel_func=div_filter, kernel_size=3, kernel_shape='rect', dest_datatype=np.int16)
                     rst_edgePixelDiversity = rst_edgePixelDiversity - 1
                     rst_edgePixelDiversity[rst_edgePixelDiversity > 1] = 1                
-                    
+
+                    out_meta = self.lsm_rst.meta.copy()
+                    out_meta.update({
+                        'nodata' : 0,
+                        'dtype' : np.int16
+                    })
+
                     # depending on whether to grow edge or not, intersect with land-use mask to have edge within land-use, or
                     # extending outside.
-                    if not lu in buffer_edges:
-                        mtx_mask = mtx_mask * rst_edgePixelDiversity
-                        self._write_dataset("MASKS/edges_{}.tif".format(lu), mtx_mask)
+                    if lu in buffer_edges:
+                        self._write_dataset(f"MASKS/edges_{lu}.tif", rst_edgePixelDiversity.astype(np.int16), custom_metadata=out_meta)    
                     else:
-                        self._write_dataset("MASKS/edges_{}.tif".format(lu), rst_edgePixelDiversity)    
+                        mtx_mask = mtx_mask * rst_edgePixelDiversity
+                        self._write_dataset(f"MASKS/edges_{lu}.tif", mtx_mask.astype(np.int16), custom_metadata=out_meta)
 
                     # some cleaning
                     del mtx_mask
                     del rst_edgePixelDiversity
-        
+
                     self.progress.update(current_task, advance=1)
 
             # done
@@ -518,6 +531,12 @@ class Recreat(RecreatBase):
         step_count = len(self.cost_thresholds) * len(clump_slices)
         current_task = self.get_task("[white]Determining beneficiaries", total=step_count)
         
+        custom_meta = self.lsm_rst.meta.copy()
+        custom_meta.update({
+            'nodata' : 0,
+            'dtype' : np.int32
+        })
+
         # this is constant and required for all cost windows
         infile_name = "DEMAND/disaggregated_population.tif" 
         
@@ -531,11 +550,11 @@ class Recreat(RecreatBase):
                     cost=c,
                     mode=mode,
                     progress_task=current_task,
-                    dest_datatype=np.float32
+                    dest_datatype=np.int32
                 )
 
                 # export current beneficiaries within cost
-                self._write_dataset(f"DEMAND/beneficiaries_within_cost_{c}.tif", mtx_pop_within_cost)
+                self._write_dataset(f"DEMAND/beneficiaries_within_cost_{c}.tif", mtx_pop_within_cost, custom_metadata=custom_meta)
                 del mtx_pop_within_cost
                 
         
@@ -554,16 +573,19 @@ class Recreat(RecreatBase):
             
             # write lowest range directly
             mtx_lower_range = self._read_band(f"DEMAND/beneficiaries_within_cost_{sorted_costs[0]}.tif")
-            self._write_dataset(f"DEMAND/beneficiaries_within_cost_range_{sorted_costs[0]}.tif", mtx_lower_range)
+            self._write_dataset(f"DEMAND/beneficiaries_within_cost_range_{sorted_costs[0]}.tif", mtx_lower_range, custom_metadata=custom_meta)
                         
             for i in range(1,len(sorted_costs)):
                 
                 mtx_lower_range = self._read_band(f"DEMAND/beneficiaries_within_cost_{sorted_costs[i-1]}.tif")  
                 mtx_current_cost = self._read_band(f"DEMAND/beneficiaries_within_cost_{sorted_costs[i]}.tif")  
 
-                mtx_beneficiaries_in_cost_range = self._get_value_matrix()
+                mtx_beneficiaries_in_cost_range = self._get_value_matrix(dest_datatype=np.float64)
                 np.subtract(mtx_current_cost, mtx_lower_range, out=mtx_beneficiaries_in_cost_range)
-                self._write_dataset(f"DEMAND/beneficiaries_within_cost_range_{sorted_costs[i]}.tif", mtx_beneficiaries_in_cost_range)
+
+                # it should not happen to have values < 0 in this exercise
+
+                self._write_dataset(f"DEMAND/beneficiaries_within_cost_range_{sorted_costs[i]}.tif", mtx_beneficiaries_in_cost_range, custom_metadata=custom_meta)
                 self.progress.update(current_task, advance=1)
 
 
@@ -648,7 +670,7 @@ class Recreat(RecreatBase):
         # grid to store summed values in kernel 
         mtx_result = self._get_value_matrix(dest_datatype=dest_datatype)
         
-        # get source raster for which values should be summe din kernel
+        # get source raster for which values should be summed in kernel
         mtx_source = self._read_band(source_path)
 
         # use lowlevelcallable to speed up moving window operation               
@@ -710,21 +732,21 @@ class Recreat(RecreatBase):
         self.printStepInfo('Determining clumped total supply')
 
         # progress reporting        
-        step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))                
+        step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))
         current_task = self.get_task("[white]Aggregating clumped supply", total=step_count)
 
         with self.progress if self._runsAsStandalone() else nullcontext() as bar:
             for c in self.cost_thresholds:
                 # get aggregation for current cost threshold
                 current_total_supply_at_cost, current_weighted_total_supply_at_cost = self._get_aggregate_class_total_supply_for_cost(cost=c, lu_weights=lu_weights, write_non_weighted_result=write_non_weighted_result, task_progress=current_task)                                           
-                
+
                 # export total for costs, if requested
-                if write_non_weighted_result:                
-                    self._write_dataset("INDICATORS/totalsupply_cost_{}.tif".format(c), current_total_supply_at_cost)                
+                if write_non_weighted_result:    
+                    self._write_dataset(f"INDICATORS/totalsupply_cost_{c}.tif", current_total_supply_at_cost)
                 # export weighted total, if applicable
                 if lu_weights is not None:                    
-                    self._write_dataset("INDICATORS/weighted_totalsupply_cost_{}.tif".format(c), current_weighted_total_supply_at_cost)
-                    
+                    self._write_dataset(f"INDICATORS/weighted_totalsupply_cost_{c}.tif", current_weighted_total_supply_at_cost)
+
         # done
         self.taskProgressReportStepCompleted()
 
@@ -826,6 +848,8 @@ class Recreat(RecreatBase):
         # non-weighted lu +     weighted cost (computed in addition to def. case if weights supplied)
         #     weighted lu + non-weighted cost (if weights applied only to previous step)
         #     weighted lu +     weighted cost
+
+        
 
         with self.progress as p:
 
@@ -978,6 +1002,11 @@ class Recreat(RecreatBase):
         step_count = len(self.cost_thresholds)
         current_task = self.get_task("[white]Averaging beneficiaries", total=step_count)
 
+        custom_meta = self.lsm_rst.meta.copy()
+        custom_meta.update({
+            'nodata' : 0.0
+        })
+
         with self.progress as p:
 
             # result raster
@@ -988,26 +1017,26 @@ class Recreat(RecreatBase):
 
             # iterate over cost thresholds and aggregate cost-specific beneficiaries into result
             for c in self.cost_thresholds:
-                mtx_current_pop = self._read_band("DEMAND/beneficiaries_within_cost_{}.tif".format(c)) 
+                mtx_current_pop = self._read_band(f"DEMAND/beneficiaries_within_cost_range_{c}.tif")
                 if write_non_weighted_result:
                     average_pop += mtx_current_pop
                 if cost_weights is not None:
                     cost_weighted_average_pop += (mtx_current_pop * cost_weights[c])
                 p.update(current_task, advance=1)
-            
+
             # export averaged diversity grids
             if write_non_weighted_result:
                 average_pop = average_pop / len(self.cost_thresholds)
-                self._write_dataset("INDICATORS/non_weighted_avg_population.tif", average_pop)
+                self._write_dataset("INDICATORS/non_weighted_avg_population.tif", average_pop, custom_metadata=custom_meta)
                 if write_scaled_result:
                     # apply min-max scaling
                     scaler = MinMaxScaler()
                     average_pop = scaler.fit_transform(average_pop.reshape([-1,1]))
                     self._write_dataset('INDICATORS/scaled_non_weighted_avg_population.tif', average_pop.reshape(self.lsm_mtx.shape))
-            
+
             if cost_weights is not None:
                 cost_weighted_average_pop = cost_weighted_average_pop / sum(cost_weights.values())
-                self._write_dataset("INDICATORS/cost_weighted_avg_population.tif", cost_weighted_average_pop)
+                self._write_dataset("INDICATORS/cost_weighted_avg_population.tif", cost_weighted_average_pop, custom_metadata=custom_meta)
                 if write_scaled_result:
                     # apply min-max scaling
                     scaler = MinMaxScaler()
@@ -1544,7 +1573,7 @@ class Recreat(RecreatBase):
         rst_ref, band_data, nodata_mask = self._read_dataset(file_name=file_name, band=band, is_scenario_specific=is_scenario_specific, is_lazy_load=False)
         return band_data
     
-    def _write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True, custom_metadata: Dict[str,any] = None, custom_nodata_mask: np.ndarray = None) -> None:        
+    def _write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True, custom_metadata: Dict[str,any] = None, custom_nodata_mask: np.ndarray = None) -> None:
         """Write a dataset to disk.
 
 
@@ -1564,7 +1593,12 @@ class Recreat(RecreatBase):
 
         custom_metadata = custom_metadata if custom_metadata is not None else self.lsm_rst.meta.copy()
 
-        path = "{}/{}".format(self.data_path, file_name) if not is_scenario_specific else "{}/{}/{}".format(self.data_path, self.root_path, file_name)
+        path = (
+            f"{self.data_path}/{file_name}"
+            if not is_scenario_specific
+            else f"{self.data_path}/{self.root_path}/{file_name}"
+        )
+
         if self.verbose_reporting:
             print(Fore.WHITE + Style.DIM + "    WRITING {}".format(path) + Style.RESET_ALL)
 
@@ -1572,8 +1606,7 @@ class Recreat(RecreatBase):
             custom_nodata_mask = custom_nodata_mask if custom_nodata_mask is not None else self.lsm_nodata_mask
             outdata[custom_nodata_mask] = self.nodata_value    
 
-        with rasterio.open(path, "w", **custom_metadata) as dest:
-            dest.write(outdata, 1)
+        RecreatBase.write_output(path, outdata, custom_metadata)
     
     def _get_supply_for_lu_and_cost(self, lu, lu_type, cost):        
         # make filename
@@ -1590,6 +1623,17 @@ class Recreat(RecreatBase):
         lu_mask = self._read_band(filename) 
         # return mask
         return lu_mask
+
+
+    def _get_new_matrix(self, fill_value: float, shape: Tuple[int,int], dtype: any) -> Tuple[np.ndarray,any]:
+        out_rst = np.full(shape=shape, fill_value=fill_value, dtype=dtype)
+        out_meta = self.lsm_rst.meta.copy()
+        out_meta.update({
+            'dtype' : dtype,
+            'nodata' : 0 if (dtype is np.int32 or dtype is np.int64) else 0.0 
+        })
+        return out_rst, out_meta
+
 
     def _get_value_matrix(self, fill_value: float = 0, shape: Tuple[int, int] = None, dest_datatype: any = None) -> np.ndarray:
         """Return array with specified fill value. 
@@ -1692,7 +1736,7 @@ class Recreat(RecreatBase):
         kernel = self._get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
         # make sure that input is padded, as this determines border values
         data_mtx = np.pad(data_mtx, radius, mode='constant')
-        mtx_res = cv.filter2D(data_mtx.astype(np.float32), -1, kernel)
+        mtx_res = cv.filter2D(data_mtx, -1, kernel) # used float32 beforehand, will now use the input dtype
 
         return mtx_res[radius:-radius,radius:-radius]
     
