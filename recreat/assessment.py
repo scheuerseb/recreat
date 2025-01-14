@@ -325,8 +325,17 @@ class Recreat(RecreatBase):
                 # target raster
                 lu_dr = self._get_value_matrix()
 
+                # for proximities, edge or patch does not matter basically - if within boundaries of edge class, proximity should still be 0, as distance to edge only matters from outside.
+                # however, as prox are determined at clump level, we need to add edge to mask in order to have potential buffered edges included, so that in case of barrier classes,
+                # we get a proper depiction of prox
+                
                 lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
-                src_lu_mtx = self._read_band('MASKS/mask_{}.tif'.format(lu) if lu_type == "patch" else 'MASKS/edges_{}.tif'.format(lu))
+                src_lu_mtx = self._read_band(f'MASKS/mask_{lu}.tif')
+                
+                if lu_type == "edge":                    
+                    mtx_edge = self._read_band(f'MASKS/edges_{lu}.tif')
+                    src_lu_mtx[mtx_edge == 1] = 1
+                
                 
                 # add here support for clumping, i.e., determine proximities only to available opportunities within each clump
                 # check how to integrate that into the dr raster in the end
@@ -1210,29 +1219,33 @@ class Recreat(RecreatBase):
         self.taskProgressReportStepCompleted()
 
 
+
     def minimum_cost_to_closest(self, lu_classes = None, nodata_value: int = -9999, write_scaled_result: bool = True) -> None:
         
         self.printStepCompleteInfo("Assessing minimum cost to closest")
 
-        included_lu_classes = lu_classes if lu_classes is not None else self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
+        included_lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
         
         step_count = len(included_lu_classes)
         current_task = self.get_task("[white]Assessing minimum cost to closest", total=step_count)
 
         # make result layer
         high_val = 9999999
+        
         mtx_min_cost = self._get_value_matrix(fill_value = high_val, dest_datatype=np.float32)
+        mtx_min_type = self._get_value_matrix(fill_value = 0, dest_datatype=np.float32)
 
         with self.progress as p:
             for lu in included_lu_classes:
 
-                mtx_proximity = self._read_band(f'COSTS/minimum_cost_{lu}.tif')
+                mtx_proximity = self._read_band(f'COSTS/minimum_cost_{lu}.tif')   
                 
                 # in mtx_proximity, we have any form of actual distance as values >= 0, and
                 # all other pixels as nodata_value (by default, -9999)
+                condition = ((mtx_proximity < mtx_min_cost) & (mtx_proximity != nodata_value))
 
-                mtx_min_cost[(mtx_proximity < mtx_min_cost) & (mtx_proximity != nodata_value)] = mtx_proximity[(mtx_proximity < mtx_min_cost) & (mtx_proximity != nodata_value)]
-                #output_array = np.where( mtx_proximity < mtx_min_cost, mtx_min_cost, mtx_proximity)
+                mtx_min_cost[condition] = mtx_proximity[condition]                
+                mtx_min_type = np.where(condition, lu, mtx_min_type)
 
                 p.update(current_task, advance=1)
 
@@ -1243,6 +1256,7 @@ class Recreat(RecreatBase):
                 'dtype' : np.float32
             })
             self._write_dataset('INDICATORS/non_weighted_minimum_cost.tif', mtx_min_cost, mask_nodata=False, custom_metadata=custom_meta)
+            self._write_dataset('INDICATORS/minimum_opportunity_type.tif', mtx_min_type, mask_nodata=False, custom_metadata=custom_meta)
 
         # done
         self.taskProgressReportStepCompleted()
