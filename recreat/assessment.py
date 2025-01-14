@@ -511,14 +511,14 @@ class Recreat(RecreatBase):
         """      
         self.printStepInfo("Determining beneficiaries within costs")
 
-        mtx_disaggregated_population = self._read_band("DEMAND/disaggregated_population.tif")        
+        # mtx_disaggregated_population = self._read_band("DEMAND/disaggregated_population.tif")        
         mtx_clumps = self._read_band("MASKS/clumps.tif")
         clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))        
         
         step_count = len(self.cost_thresholds) * len(clump_slices)
         current_task = self.get_task("[white]Determining beneficiaries", total=step_count)
         
-        # this is actually constant per cost window
+        # this is constant and required for all cost windows
         infile_name = "DEMAND/disaggregated_population.tif" 
         
         with self.progress:
@@ -538,6 +538,35 @@ class Recreat(RecreatBase):
                 self._write_dataset(f"DEMAND/beneficiaries_within_cost_{c}.tif", mtx_pop_within_cost)
                 del mtx_pop_within_cost
                 
+        
+        # subsequently, we need to order costs and subtract from the larger cost windows the population in the smaller cost windows
+        # this is to create layers for population within a specific cost-interval, in order to avoid a double counting of population.
+        # before, averaging beneficiaries within cost overestimated population, as larger cost windows included the pop of smaller cost windows, 
+        # hence double-counting pop within closer range
+        # this should be avoided.
+
+        step_count = len(self.cost_thresholds)
+        current_task = self.get_task("[white]Normalizing beneficiaries in cost ranges", total=step_count)
+        with self.progress:
+            # assert order from lowest to highest cost
+            sorted_costs = sorted(self.cost_thresholds)
+            self.progress.update(current_task, advance=1)
+            
+            # write lowest range directly
+            mtx_lower_range = self._read_band(f"DEMAND/beneficiaries_within_cost_{sorted_costs[0]}.tif")
+            self._write_dataset(f"DEMAND/beneficiaries_within_cost_range_{sorted_costs[0]}.tif", mtx_lower_range)
+                        
+            for i in range(1,len(sorted_costs)):
+                
+                mtx_lower_range = self._read_band(f"DEMAND/beneficiaries_within_cost_{sorted_costs[i-1]}.tif")  
+                mtx_current_cost = self._read_band(f"DEMAND/beneficiaries_within_cost_{sorted_costs[i]}.tif")  
+
+                mtx_beneficiaries_in_cost_range = self._get_value_matrix()
+                np.subtract(mtx_current_cost, mtx_lower_range, out=mtx_beneficiaries_in_cost_range)
+                self._write_dataset(f"DEMAND/beneficiaries_within_cost_range_{sorted_costs[i]}.tif", mtx_beneficiaries_in_cost_range)
+                self.progress.update(current_task, advance=1)
+
+
         # done
         self.taskProgressReportStepCompleted()
 
