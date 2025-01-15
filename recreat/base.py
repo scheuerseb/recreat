@@ -22,7 +22,7 @@ class RecreatBase:
     
     # support static methods
     def printStepInfo(self, msg):
-        RecreatBase.printStepInfo(msg)
+        RecreatBase.printStepInfo(msg.upper())
     @staticmethod 
     def printStepInfo(msg):
         print(Fore.CYAN + Style.BRIGHT + msg.upper() + Style.RESET_ALL)
@@ -43,6 +43,21 @@ class RecreatBase:
     def _new_progress(self, task_description, total):
         self.progress = self.get_progress_bar()
         return self.progress.add_task(f"{task_description:<40}", total=total)
+
+
+    def get_file_path(self, file_name: str, relative_to_root_path: bool = True):
+        """Get the fully-qualified path to model file with specified filename.
+
+        :param file_name: Model file for which the fully qualified path should be generated. 
+        :type file_name: str
+        :param is_scenario_specific: Indicates if the specified datasource located in a scenario-specific root-path (True) or at the data-path  (False), defaults to True.
+        :type is_scenario_specific: bool, optional       
+        """
+        return (
+            f"{self.data_path}/{file_name}"
+            if not relative_to_root_path
+            else f"{self.data_path}/{self.root_path}/{file_name}"
+        )
 
     def get_progress_bar(self):
         return Progress(
