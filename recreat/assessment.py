@@ -1467,19 +1467,19 @@ class Recreat(RecreatBase):
             # export integrated grids
             if write_non_weighted_result:
                 self._write_dataset("FLOWS/integrated_avg_flow.tif", integrated_average_flow)
-                if write_scaled_result:
-                    # apply min-max scaling
-                    scaler = MinMaxScaler()
-                    integrated_average_flow = scaler.fit_transform(integrated_average_flow.reshape([-1,1]))
-                    self._write_dataset('FLOWS/scaled_integrated_avg_flow.tif', integrated_average_flow.reshape(self.lsm_mtx.shape))
+                # if write_scaled_result:
+                #     # apply min-max scaling
+                #     scaler = MinMaxScaler()
+                #     integrated_average_flow = scaler.fit_transform(integrated_average_flow.reshape([-1,1]))
+                #     self._write_dataset('FLOWS/scaled_integrated_avg_flow.tif', integrated_average_flow.reshape(self.lsm_mtx.shape))
             
             if cost_weights is not None:
                 self._write_dataset("FLOWS/integrated_cost_weighted_avg_flow.tif", integrated_cost_weighted_average_flow)
-                if write_scaled_result:
-                    # apply min-max scaling
-                    scaler = MinMaxScaler()
-                    integrated_cost_weighted_average_flow = scaler.fit_transform(integrated_cost_weighted_average_flow.reshape([-1,1]))
-                    self._write_dataset('FLOWS/scaled_integrated_cost_weighted_avg_flow.tif', integrated_cost_weighted_average_flow.reshape(self.lsm_mtx.shape))
+                # if write_scaled_result:
+                #     # apply min-max scaling
+                #     scaler = MinMaxScaler()
+                #     integrated_cost_weighted_average_flow = scaler.fit_transform(integrated_cost_weighted_average_flow.reshape([-1,1]))
+                #     self._write_dataset('FLOWS/scaled_integrated_cost_weighted_avg_flow.tif', integrated_cost_weighted_average_flow.reshape(self.lsm_mtx.shape))
 
         self.taskProgressReportStepCompleted()
 
