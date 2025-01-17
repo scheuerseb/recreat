@@ -37,10 +37,10 @@ class DisaggregationBaseEngine(RecreatBase):
     write_scaled_result: bool = True
     transformation_state: TransformationState = None
 
-    nodata_value = -127.0
+    nodata_value = -9999.0
 
 
-    def __init__(self, data_path: str, root_path: str, population_grid: str, residential_classes: List[int], pixel_count: int, write_scaled_result: bool = True):
+    def __init__(self, data_path: str, root_path: str, population_grid: str, residential_classes: List[int], pixel_count: int, nodata_value: any, write_scaled_result: bool = True):
         
         super().__init__(data_path=data_path, root_path=root_path)
 
@@ -48,6 +48,7 @@ class DisaggregationBaseEngine(RecreatBase):
         self.residential_classes = residential_classes
         self.write_scaled_result = write_scaled_result
         self.pixel_count = pixel_count
+        self.nodata_value = nodata_value
 
         if pixel_count == 1:
             # 1-to-1 match between built-up and population
@@ -114,8 +115,8 @@ class DasymetricMappingEngine(DisaggregationBaseEngine):
     sampling_threshold = None
     minimum_sample_size = None
 
-    def __init__(self, data_path: str, root_path: str, population_grid: str, residential_classes: List[int], max_pixel_count: int, count_threshold: int, min_sample_size: int, write_scaled_result: bool = True):
-        super().__init__(data_path=data_path, root_path=root_path, population_grid=population_grid, residential_classes=residential_classes, pixel_count=max_pixel_count, write_scaled_result=write_scaled_result)
+    def __init__(self, data_path: str, root_path: str, population_grid: str, residential_classes: List[int], max_pixel_count: int, count_threshold: int, min_sample_size: int, nodata_value: any, write_scaled_result: bool = True):
+        super().__init__(data_path=data_path, root_path=root_path, population_grid=population_grid, residential_classes=residential_classes, pixel_count=max_pixel_count, nodata_value=nodata_value, write_scaled_result=write_scaled_result)
 
         self.samples = {}
         self.sampling_threshold = count_threshold
@@ -217,7 +218,7 @@ class DasymetricMappingEngine(DisaggregationBaseEngine):
 
     def match_population_to_built_up(self):
         source_filename = self.population_grid
-        template_filename = "MASKS/clumps.tif"
+        template_filename = "BASE/clumps.tif"
         out_filename = "DEMAND/reprojected_population.tif"
         self._match_source_to_built_up(source_filename, template_filename, out_filename)
     
@@ -303,30 +304,38 @@ class DasymetricMappingEngine(DisaggregationBaseEngine):
         
         step_count = len(residential_classes)
         current_task = self.get_task("[white]Finalizing", total=step_count)
-        mtx_out_population = np.zeros(mtx_pop.shape, dtype=np.float32)
+        mtx_out_population = np.zeros(mtx_pop.shape, dtype=np.float64)
 
         with self.progress:
             for cls in residential_classes:
                 mtx_class_pop = rasterio.open(self.get_file_path(f"DEMAND/disaggregated_population_class_{cls}.tif")).read(1)
-                mtx_out_population = np.add(mtx_out_population.astype(np.float32), mtx_class_pop.astype(np.float32))
+                mtx_out_population = np.add(mtx_out_population.astype(np.float64), mtx_class_pop.astype(np.float64))
                 self.progress.update(current_task, advance=1)
             
         dest_meta = ref_pop.meta.copy()
         dest_meta.update({
             'nodata' : self.nodata_value,
-            'dtype' : np.float32
+            'dtype' : np.float64
         })
 
+        # proper masking
+        clump_data = rasterio.open(self.get_file_path('BASE/clumps.tif'), 'r').read(1)
+        clump_nodata_mask = np.insin(clump_data, [self.nodata_value], invert=False)
+        mtx_out_population[clump_nodata_mask] = self.nodata_value
+
         # export result
-        out_filename = self.get_file_path("DEMAND/disaggregated_population_idw.tif")
+        out_filename = self.get_file_path("DEMAND/disaggregated_population.tif")
         with rasterio.open(out_filename, "w", **dest_meta) as dest:
                 dest.write(mtx_out_population, 1)
+
+        # TODO: Add scaled export of pop
+        
 
 
 class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
 
-    def __init__(self, data_path, root_path, population_grid: str, residential_classes: List[int], max_pixel_count: int, write_scaled_result: bool = True):
-        super().__init__(data_path=data_path, root_path=root_path, population_grid=population_grid, residential_classes=residential_classes, pixel_count=max_pixel_count, write_scaled_result=write_scaled_result)
+    def __init__(self, data_path, root_path, population_grid: str, residential_classes: List[int], max_pixel_count: int, nodata_value: any, write_scaled_result: bool = True):
+        super().__init__(data_path=data_path, root_path=root_path, population_grid=population_grid, residential_classes=residential_classes, pixel_count=max_pixel_count, nodata_value=nodata_value, write_scaled_result=write_scaled_result)
 
     def run(self) -> None:        
         """Run simple area weighted disaggregation engine. 
@@ -434,7 +443,7 @@ class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
             pixel_count_path = self.get_file_path(f"DEMAND/pixel_count_{residential_class}.tif")
             mtx_pixel_count = rasterio.open(pixel_count_path).read(1)        
             np.divide(mtx_per_pixel_population_count.astype(np.float32), mtx_pixel_count.astype(np.float32), out=mtx_per_pixel_population_count, where=mtx_pixel_count > 0)        
-            
+
             # export result
             with rasterio.open(out_filename, "w", **dest_meta) as dest:
                 dest.write(mtx_per_pixel_population_count.astype(np.float32), 1)
@@ -484,21 +493,24 @@ class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
 
         out_filename = self.get_file_path('DEMAND/disaggregated_population.tif')
         if not os.path.isfile(out_filename):
-            
+
             dest_mtx = None
             dest_meta = None
             
             for cls in residential_classes:
+                
                 # add pop to final raster
                 class_mask_path = self.get_file_path(f"MASKS/mask_{cls}.tif")
                 ref_class_mask = rasterio.open(class_mask_path)
                 mtx_class_mask = ref_class_mask.read(1)
                 if dest_mtx is None:
+                    
                     # import raster reference
-                    dest_mtx = np.zeros(ref_class_mask.shape, dtype=np.float32)
+                    dest_mtx = np.zeros(ref_class_mask.shape, dtype=np.float64)
                     dest_meta = ref_class_mask.meta.copy()
                     dest_meta.update({
-                        'dtype' : rasterio.float32
+                        'dtype' : rasterio.float64,
+                        'nodata' : self.nodata_value
                     })
 
                 class_pixel_population_path = self.get_file_path(f"DEMAND/population_base_{cls}.tif")
@@ -519,17 +531,21 @@ class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
                 if current_task is not None:
                     self.progress.update(current_task, advance=1)
 
+            # proper masking by clumps
+            clump_data = rasterio.open(self.get_file_path('BASE/clumps.tif'), 'r').read(1)
+            clump_nodata_mask = np.isin(clump_data, [self.nodata_value], invert=False)
+            dest_mtx[clump_nodata_mask] = self.nodata_value
 
             with rasterio.open(out_filename, "w", **dest_meta) as dest:
                 dest.write(dest_mtx, 1)
             
-            if self.write_scaled_result:
-                scaler = MinMaxScaler()
-                orig_shape = dest_mtx.shape
-                dest_mtx = scaler.fit_transform(dest_mtx.reshape([-1,1]))
-                out_filename = self.get_file_path('DEMAND/scaled_disaggregated_population.tif')
+            # if self.write_scaled_result:
+            #     scaler = MinMaxScaler()
+            #     orig_shape = dest_mtx.shape
+            #     dest_mtx = scaler.fit_transform(dest_mtx.reshape([-1,1]))
+            #     out_filename = self.get_file_path('DEMAND/scaled_disaggregated_population.tif')
                 
-                with rasterio.open(out_filename, "w", **dest_meta) as dest:
-                    dest.write(dest_mtx.reshape(orig_shape), 1)
+            #     with rasterio.open(out_filename, "w", **dest_meta) as dest:
+            #         dest.write(dest_mtx.reshape(orig_shape), 1)
 
         
