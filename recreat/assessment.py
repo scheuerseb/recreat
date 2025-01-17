@@ -63,9 +63,9 @@ class Recreat(RecreatBase):
     # default values
     nodata_value = -9999
 
-    # reference to a dataset for the project
-    lulc_dataset = None
-    
+    # reference to key datasets and objects re-used across the implementation
+    land_use_map_reader = None
+    land_use_map_matrix = None
     clumps_matrix = None
     clumps_nodata_mask = None
    
@@ -131,7 +131,7 @@ class Recreat(RecreatBase):
         
         # get reference to the land use/land cover file
         lulc_file_path = self.get_file_path(land_use_filename, relative_to_root_path=True)
-        self.lulc_dataset = rasterio.open(lulc_file_path)
+        self.land_use_map_reader = rasterio.open(lulc_file_path)
 
     
     def get_file(self, filename, nodata_values: List[any], band: int = 1, relative_to_root_path: bool = True) -> Tuple[rasterio.DatasetReader, np.ndarray]:
@@ -162,24 +162,16 @@ class Recreat(RecreatBase):
         return out_rst       
 
     def get_shape(self) -> Tuple[int,int]:
-        return self.lulc_dataset.shape
+        return self.land_use_map_reader.shape
     
     def get_metadata(self, new_dtype, new_nodata_value):
-        out_meta = self.lulc_dataset.meta.copy()
+        out_meta = self.land_use_map_reader.meta.copy()
         out_meta.update({
             'nodata' : new_nodata_value,
             'dtype' : new_dtype
         })
         return out_meta        
 
-    def _get_clumps(self) -> Tuple[np.ndarray, np.ndarray]:
-        if self.clumps_matrix is None:            
-            if not os.path.isfile(self.get_file_path('BASE/clumps.tif')):
-                raise FileNotFoundError()
-            
-            clumps_reader, self.clumps_matrix = self.get_file('BASE/clumps.tif', [self.nodata_value])
-            self.clumps_nodata_mask = np.isin(self.clumps_matrix, [self.nodata_value], invert=False)
-        return self.clumps_matrix, self.clumps_nodata_mask
 
     def align_land_use_map(self, nodata_values: List[int], band: int = 1, reclassification_mappings: Dict[int, List[int]] = None):
         
@@ -187,8 +179,9 @@ class Recreat(RecreatBase):
         # conduct this if there is no base lulc file
         lulc_file_path = self.get_file_path("BASE/lulc.tif")
         if not os.path.isfile(lulc_file_path):
+         
             # get lulc data from datasetreader 
-            lulc_data = self.lulc_dataset.read(band)
+            lulc_data = self.land_use_map_reader.read(band)
 
             # conduct value replacement
             for nodata_value in nodata_values:
@@ -236,7 +229,7 @@ class Recreat(RecreatBase):
         # barrier_classes are user-defined classes as well as nodata parts
         barrier_classes = barrier_classes + [self.nodata_value]
 
-        lulc_reader, lulc_data = self.get_file("BASE/lulc.tif", [self.nodata_value]) 
+        lulc_data = self._get_land_use()
         barriers_mask = np.isin(lulc_data, barrier_classes, invert=False)
         lulc_data[barriers_mask] = 0
 
@@ -266,7 +259,7 @@ class Recreat(RecreatBase):
         with self.progress:
             
             # import land-use dataset
-            lulc_reader, lulc_data = self.get_file("BASE/lulc.tif", [self.nodata_value])
+            lulc_data = self._get_land_use()
             # import clump dataset for masking of outputs           
             clump_data, clump_nodata_mask = self._get_clumps()
 
@@ -330,8 +323,7 @@ class Recreat(RecreatBase):
             with self.progress:
                 
                 # import lulc 
-                lulc_reader, lulc_data = self.get_file("BASE/lulc.tif", [self.nodata_value]) 
-                
+                lulc_data = self._get_land_use()                
                 # import clump dataset for masking of outputs
                 clump_data, clump_nodata_mask = self._get_clumps()
                 
@@ -625,6 +617,27 @@ class Recreat(RecreatBase):
         mtx_reader, mtx_data = self.get_file(f'COSTS/minimum_cost_{lu}.tif', [self.nodata_value])
         return mtx_data
     
+    def _get_clumps(self) -> Tuple[np.ndarray, np.ndarray]:
+        if self.clumps_matrix is None:            
+            if not os.path.isfile(self.get_file_path('BASE/clumps.tif')):
+                raise FileNotFoundError('Clumps not found in BASE folder. Run clump detection to create this dataset.')
+            
+            clumps_reader, self.clumps_matrix = self.get_file('BASE/clumps.tif', [self.nodata_value])
+            self.clumps_nodata_mask = np.isin(self.clumps_matrix, [self.nodata_value], invert=False)
+        
+        return self.clumps_matrix, self.clumps_nodata_mask
+
+    def _get_land_use(self) -> np.ndarray:
+        if self.land_use_map_matrix is None:
+            if not os.path.isfile(self.get_file_path('BASE/lulc.tif')):
+                raise FileNotFoundError('Land use/land cover map not found in BASE folder. Run land use map alignment to create this dataset.')
+            
+            land_use_reader, self.land_use_map_matrix = self.get_file("BASE/lulc.tif", [self.nodata_value]) 
+        
+        return self.land_use_map_matrix
+
+
+
     def _get_aggregate_class_total_supply_for_cost(self, cost, lu_weights = None, write_non_weighted_result = True, task_progress = None):                        
         
         current_total_supply_at_cost = None
