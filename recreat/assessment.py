@@ -65,6 +65,9 @@ class Recreat(RecreatBase):
 
     # reference to a dataset for the project
     lulc_dataset = None
+    
+    clumps_matrix = None
+    clumps_nodata_mask = None
    
 
     def __init__(self, data_path: str):        
@@ -125,6 +128,7 @@ class Recreat(RecreatBase):
         self.root_path = root_path                
         # make folders in root path
         self.make_environment()                 
+        
         # get reference to the land use/land cover file
         lulc_file_path = self.get_file_path(land_use_filename, relative_to_root_path=True)
         self.lulc_dataset = rasterio.open(lulc_file_path)
@@ -168,8 +172,14 @@ class Recreat(RecreatBase):
         })
         return out_meta        
 
-
-
+    def _get_clumps(self) -> Tuple[np.ndarray, np.ndarray]:
+        if self.clumps_matrix is None:            
+            if not os.path.isfile(self.get_file_path('BASE/clumps.tif')):
+                raise FileNotFoundError()
+            
+            clumps_reader, self.clumps_matrix = self.get_file('BASE/clumps.tif', [self.nodata_value])
+            self.clumps_nodata_mask = np.isin(self.clumps_matrix, [self.nodata_value], invert=False)
+        return self.clumps_matrix, self.clumps_nodata_mask
 
     def align_land_use_map(self, nodata_values: List[int], band: int = 1, reclassification_mappings: Dict[int, List[int]] = None):
         
@@ -257,10 +267,9 @@ class Recreat(RecreatBase):
             
             # import land-use dataset
             lulc_reader, lulc_data = self.get_file("BASE/lulc.tif", [self.nodata_value])
-            # import clump dataset for masking of outputs
-            clump_reader, clump_data = self.get_file("BASE/clumps.tif", [self.nodata_value])
-            clump_nodata_mask = np.isin(clump_data, [self.nodata_value], invert=False)
-            
+            # import clump dataset for masking of outputs           
+            clump_data, clump_nodata_mask = self._get_clumps()
+
             for lu in classes_for_masking:
                 
                 current_lu_mask = self.get_matrix(0, self.get_shape(), np.int32)
@@ -324,8 +333,7 @@ class Recreat(RecreatBase):
                 lulc_reader, lulc_data = self.get_file("BASE/lulc.tif", [self.nodata_value]) 
                 
                 # import clump dataset for masking of outputs
-                clump_reader, clump_data = self.get_file("BASE/clumps.tif", [self.nodata_value])
-                clump_nodata_mask = np.isin(clump_data, [self.nodata_value], invert=False)
+                clump_data, clump_nodata_mask = self._get_clumps()
                 
                 for lu in classes_to_assess:
                     
@@ -499,8 +507,7 @@ class Recreat(RecreatBase):
         self.printStepInfo("Determining clumped supply per class")
         
         # clumps are required to properly mask islands
-        clump_reader, rst_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])
-        clump_nodata_mask = np.isin(rst_clumps, [self.nodata_value], invert=False)
+        rst_clumps, clump_nodata_mask = self._get_clumps()
         clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))
         
         step_count = len(clump_slices) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
@@ -552,8 +559,7 @@ class Recreat(RecreatBase):
         with self.progress as p:
 
             # clumps are required to properly mask islands
-            clump_reader, rst_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])
-            clump_nodata_mask = np.isin(rst_clumps, [self.nodata_value], invert=False)
+            rst_clumps, clump_nodata_mask = self._get_clumps()
 
             for c in self.cost_thresholds:    
                 
@@ -687,8 +693,7 @@ class Recreat(RecreatBase):
         with self.progress as p:
 
             # clumps are required to properly mask islands
-            clump_reader, rst_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])
-            clump_nodata_mask = np.isin(rst_clumps, [self.nodata_value], invert=False)
+            rst_clumps, clump_nodata_mask = self._get_clumps()
 
             # def. case
             if write_non_weighted_result:
@@ -793,8 +798,7 @@ class Recreat(RecreatBase):
         with self.progress as p:
 
             # clumps are required to properly mask islands
-            clump_reader, rst_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])
-            clump_nodata_mask = np.isin(rst_clumps, [self.nodata_value], invert=False)
+            rst_clumps, clump_nodata_mask = self._get_clumps()
 
             # result raster
             if write_non_weighted_result:
@@ -906,8 +910,7 @@ class Recreat(RecreatBase):
         disaggregated_population_reader, mtx_disaggregated_population = self.get_file("DEMAND/disaggregated_population.tif", [self.nodata_value])                        
         mtx_disaggregated_population[mtx_disaggregated_population == self.nodata_value] = 0
         
-        clump_reader, mtx_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])
-        clump_nodata_mask = np.isin(mtx_clumps, [self.nodata_value], invert=False)
+        mtx_clumps, clump_nodata_mask = self._get_clumps()
         clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))        
         
         step_count = len(self.cost_thresholds) * len(clump_slices)
@@ -983,9 +986,9 @@ class Recreat(RecreatBase):
         current_task = self.get_task("[white]Averaging beneficiaries", total=step_count)
 
         with self.progress as p:
-            
-            clump_reader, mtx_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])
-            clump_nodata_mask = np.isin(mtx_clumps, [self.nodata_value], invert=False)
+
+            # get clump nodata            
+            mtx_clumps, clump_nodata_mask = self._get_clumps()
 
             # result raster
             if write_non_weighted_result:
@@ -1103,8 +1106,7 @@ class Recreat(RecreatBase):
 
         # import the clumps raster
         # detect slices here, to avoid having to recall detect_clumps each time we want to do proximity computations
-        clump_reader, rst_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])
-        clump_nodata_mask = np.isin(rst_clumps, [self.nodata_value], invert=False)
+        rst_clumps, clump_nodata_mask = self._get_clumps()
         clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))        
         
         step_count = len(classes_for_proximity_calculation) * len(clump_slices)
@@ -1151,8 +1153,7 @@ class Recreat(RecreatBase):
         included_lu_classes = lu_classes if lu_classes is not None else self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
 
         # we require clumps for masking
-        clumps_reader, mtx_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])        
-        clump_nodata_mask = np.isin(mtx_clumps, [self.nodata_value], invert=False)
+        mtx_clumps, clump_nodata_mask = self._get_clumps()
         clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))
         
         step_count = len(included_lu_classes) * len(clump_slices)
