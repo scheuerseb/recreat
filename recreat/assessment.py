@@ -100,7 +100,7 @@ class Recreat(RecreatBase):
         """Create required subfolders for raster files in the current scenario folder.
         """
         # create directories, if needed
-        dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'TMP', 'FLOWS', 'CLUMPS_LU', 'PROX', 'COSTS', 'DIVERSITY', 'BASE']
+        dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'FLOWS', 'CLUMPS_LU', 'PROXIMITY', 'COSTS', 'DIVERSITY', 'BASE']
         for d in dirs_required:
             current_path = f"{self.data_path}/{self.root_path}/{d}"
             if not os.path.exists(current_path):
@@ -187,7 +187,7 @@ class Recreat(RecreatBase):
         return self._get_data_object(filename, nodata_replacement_value=0)
 
     def _get_proximity_raster_for_lu(self, lu) -> np.ndarray:
-        filename = f"PROX/dr_{lu}.tif"
+        filename = f"PROXIMITY/dr_{lu}.tif"
         return self._get_data_object(filename, nodata_replacement_value=0)
     
     def _get_minimum_cost_for_lu(self, lu) -> np.ndarray:
@@ -772,12 +772,8 @@ class Recreat(RecreatBase):
 
 #endregion
 
-    #
-    # methods related to diversity indicators
-    #
-    #
-    #
-    
+#region diversity
+
     def class_diversity(self) -> None:
         """Determine the diversity of land-use classes within cost thresholds. 
         """
@@ -881,12 +877,9 @@ class Recreat(RecreatBase):
         # done
         self.taskProgressReportStepCompleted()
 
-    
-    #
-    # methods related to the computation of demand
-    #
-    #
-    #
+#endregion
+
+#region disaggregation and demand
 
     def disaggregation(self, population_grid: str, disaggregation_method: DisaggregationMethod, max_pixel_count: int, write_scaled_result: bool = True, count_threshold: int = None, min_sample_size: int = None) -> None:
         """Disaggregates population to specified built-up (residential) classes. 
@@ -932,8 +925,6 @@ class Recreat(RecreatBase):
             )
 
             disaggregation_engine.run()
-
-    
         
     def beneficiaries_within_cost(self, mode: str = 'ocv_filter2d') -> None:  
         """Determine number of beneficiaries within cost windows.
@@ -1073,12 +1064,9 @@ class Recreat(RecreatBase):
         # done
         self.taskProgressReportStepCompleted()
 
+#endregion
 
-    #
-    # methods related to the computation of cost-based indicators
-    # 
-    #
-    #
+#region cost
 
     def _compute_proximity_raster_for_land_use(self, rst_clumps, clump_slices, lu, mode, current_task) -> np.ndarray:
 
@@ -1135,7 +1123,7 @@ class Recreat(RecreatBase):
         del src_lu_mtx
         return lu_dr
 
-    def compute_distance_rasters(self, mode: str = 'xr', lu_classes: List[int] = None, assess_builtup: bool = False) -> None:
+    def compute_proximity_rasters(self, mode: str = 'xr', lu_classes: List[int] = None, assess_builtup: bool = False) -> None:
         """Generate proximity rasters to land-use classes based on identified clumps.
 
         :param mode: Method used to compute proximity matrix. Either 'dr' or 'xr', defaults to 'xr'
@@ -1165,11 +1153,12 @@ class Recreat(RecreatBase):
                 lu_dr = self._compute_proximity_raster_for_land_use(rst_clumps, clump_slices, lu, mode, current_task)
                 # mask and export lu prox
                 lu_dr[clump_nodata_mask] = self.nodata_value
-                self._write_file(f"PROX/dr_{lu}.tif", lu_dr, self._get_metadata(np.float32, self.nodata_value))                
+                self._write_file(f"PROXIMITY/dr_{lu}.tif", lu_dr, self._get_metadata(np.float32, self.nodata_value))                
                 # clean up
                 del lu_dr
                
         if assess_builtup:
+            
             step_count = len(self.lu_classes_builtup) * len(clump_slices)
             current_task = self.get_task("[white]Computing distance rasters to built-up", total=step_count)
             with self.progress:
@@ -1178,14 +1167,13 @@ class Recreat(RecreatBase):
                     lu_dr = self._compute_proximity_raster_for_land_use(rst_clumps, clump_slices, lu, mode, current_task)
                     # mask and export lu prox
                     lu_dr[clump_nodata_mask] = self.nodata_value
-                    self._write_file(f"PROX/dr_{lu}.tif", lu_dr, self._get_metadata(np.float32, self.nodata_value))                    
+                    self._write_file(f"PROXIMITY/dr_{lu}.tif", lu_dr, self._get_metadata(np.float32, self.nodata_value))                    
                     # clean up
                     del lu_dr
  
         # done
         self.taskProgressReportStepCompleted()
 
-    
     def cost_to_closest(self, lu_classes = None) -> None:
         
         # several assumptions need to be considered when computing costs:
@@ -1266,7 +1254,6 @@ class Recreat(RecreatBase):
         # done
         self.taskProgressReportStepCompleted()
 
-    
     def minimum_cost_to_closest(self, lu_classes = None, write_scaled_result: bool = True) -> None:
         
         self.printStepCompleteInfo("Assessing minimum cost to closest")
@@ -1306,8 +1293,6 @@ class Recreat(RecreatBase):
 
         # done
         self.taskProgressReportStepCompleted()
-
-    
 
     def average_cost_to_closest(self, lu_classes = None, distance_threshold: float = -1, write_scaled_result: bool = True) -> None:
         
@@ -1352,8 +1337,6 @@ class Recreat(RecreatBase):
 
                 del mtx_lu_prox
 
-        
-
         # export average cost grid
         # prior, determine actual average. here, consider per each pixel the number of grids added.
         # self._write_dataset('COSTS/raw_sum_of_cost.tif', mtx_average_cost, mask_nodata=False, custom_metadata=custom_meta)
@@ -1378,12 +1361,9 @@ class Recreat(RecreatBase):
         # done
         self.taskProgressReportStepCompleted()
 
+#endregion
 
-    #
-    # methods related to the computation of flow-related indicators
-    #
-    #
-    #
+#region flow
 
     def class_flow(self) -> None:
         """Determine the total number of potential beneficiaries (flow to given land-use classes) as the sum of total population, within cost thresholds.
@@ -1425,7 +1405,6 @@ class Recreat(RecreatBase):
                 del mtx_pop
         # done
         self.taskProgressReportStepCompleted()
-
     
     def average_flow_across_cost(self, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True):
         """Determine the number of potential beneficiaries in terms of flow to (recreational) land-use classes, averaged across cost thresholds.
@@ -1503,3 +1482,5 @@ class Recreat(RecreatBase):
                     self._write_dataset('FLOWS/scaled_integrated_cost_weighted_avg_flow.tif', integrated_cost_weighted_average_flow.reshape(self.lsm_mtx.shape))
 
         self.taskProgressReportStepCompleted()
+
+#endregion
