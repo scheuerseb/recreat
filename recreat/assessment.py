@@ -194,6 +194,15 @@ class Recreat(RecreatBase):
         filename = f'COSTS/minimum_cost_{lu}.tif'
         return self._get_data_object(filename)
     
+    def _get_flow_for_land_use_class_and_cost(self, lu, cost) -> np.ndarray:
+        lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
+        filename = "FLOWS/flow_class_{}_cost_{}.tif".format(lu, cost) if lu_type == 'patch' else "FLOWS/flow_edge_class_{}_cost_{}.tif".format(lu, cost)
+        return self._get_data_object(filename, nodata_replacement_value=0)
+
+    def _get_flow_for_cost(self, cost) -> np.ndarray:
+        filename = f"FLOWS/flow_for_cost_{cost}.tif"
+        return self._get_data_object(filename, nodata_replacement_value=0)
+
     def _get_clumps(self) -> Tuple[np.ndarray, np.ndarray]:
         if self.clumps_matrix is None:            
             if not os.path.isfile(self.get_file_path('BASE/clumps.tif')):
@@ -1395,7 +1404,7 @@ class Recreat(RecreatBase):
                     # mask nodata areas and write result
                     mtx_res[clump_nodata_mask] = self.nodata_value
                     outfile_name = f"FLOWS/flow_class_{lu}_cost_{c}.tif" if lu_type == 'patch' else f"FLOWS/flow_edge_class_{lu}_cost_{c}.tif"
-                    self._write_dataset(outfile_name, mtx_res, self._get_metadata(np.int32, self.nodata_value))
+                    self._write_file(outfile_name, mtx_res, self._get_metadata(np.int32, self.nodata_value))
                     
                     del mtx_res
                     del mtx_lu
@@ -1403,9 +1412,76 @@ class Recreat(RecreatBase):
                     p.update(current_task, advance=1)
 
                 del mtx_pop
+
         # done
         self.taskProgressReportStepCompleted()
     
+    def aggregate_class_flow(self) -> None:
+        """Aggregate flow for a given cost threshold across all land-use classes.
+
+        :param cost: Cost threshold
+        :type cost: int
+        """
+        self.printStepInfo("Aggregating flow within cost")        
+
+        step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)) 
+        current_task = self.get_task("[white]Averaging flow across costs", total=step_count)
+
+        with self.progress as p:
+
+            mtx_clumps, clump_nodata_mask = self._get_clumps()
+            
+            for c in self.cost_thresholds:
+                mtx_flow_at_cost = self._get_aggregate_class_flow_for_cost(c)
+                mtx_flow_at_cost[clump_nodata_mask] = self.nodata_value
+                self._write_file(f'FLOWS/flow_for_cost_{c}.tif', mtx_flow_at_cost, self._get_metadata(np.int32, self.nodata_value))
+            
+
+        # also here, analogous to demand/beneficiaries, attempt to compute differences across costs            
+        step_count = len(self.cost_thresholds)
+        current_task = self.get_task("[white]Normalizing flows in cost ranges", total=step_count)
+        
+        with self.progress:
+            
+            # assert order from lowest to highest cost
+            sorted_costs = sorted(self.cost_thresholds)
+            self.progress.update(current_task, advance=1)
+            
+            # write lowest range directly
+            mtx_lower_range = self._get_flow_for_cost(sorted_costs[0])
+            mtx_lower_range[clump_nodata_mask] = self.nodata_value
+            self._write_file(f"FLOWS/flow_within_cost_range_{sorted_costs[0]}.tif", mtx_lower_range.astype(np.float64), self._get_metadata(np.float64, self.nodata_value))
+            del mtx_lower_range
+
+            for i in range(1,len(sorted_costs)):
+                
+                mtx_lower_range = self._get_flow_for_cost(sorted_costs[i-1]) 
+                mtx_current_cost = self._get_flow_for_cost(sorted_costs[i])
+
+                mtx_flow_in_cost_range = self._get_matrix(0, self._get_shape(), np.float64)
+                np.subtract(mtx_current_cost, mtx_lower_range, out=mtx_flow_in_cost_range)
+
+                # mask nodata and export
+                mtx_flow_in_cost_range[clump_nodata_mask] = self.nodata_value
+                self._write_file(f"FLOWS/flow_within_cost_range_{sorted_costs[i]}.tif", mtx_flow_in_cost_range, self._get_metadata(np.float64, self.nodata_value))
+                self.progress.update(current_task, advance=1)
+
+        self.printStepCompleteInfo()
+
+
+    def _get_aggregate_class_flow_for_cost(self, cost):
+
+        mtx_flow_for_current_cost = self._get_matrix(0, self._get_shape(), np.int32)
+        # iterate over cost thresholds and lu classes                
+        for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):  
+            mtx_current_flow = self._get_flow_for_land_use_class_and_cost(lu, cost)
+            mtx_flow_for_current_cost += mtx_current_flow 
+        
+        return mtx_flow_for_current_cost
+            
+
+
+
     def average_flow_across_cost(self, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True):
         """Determine the number of potential beneficiaries in terms of flow to (recreational) land-use classes, averaged across cost thresholds.
 
@@ -1417,56 +1493,77 @@ class Recreat(RecreatBase):
         :type write_scaled_result: bool, optional
         """        
 
-        self.printStepInfo("Averaging flow across costs")        
+        self.printStepInfo("Averaging flow across costs")    
+
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)) 
         current_task = self.get_task("[white]Averaging flow across costs", total=step_count)
 
         with self.progress as p:
 
+            # get clump nodata mask
+            mtx_clumps, clump_nodata_mask = self._get_clumps()
+
             # result grids for integrating averaged flows
             if write_non_weighted_result:
-                integrated_average_flow = self._get_value_matrix()
+                integrated_average_flow = self._get_matrix(0, self._get_shape(), np.float64)
             if cost_weights is not None:
-                integrated_cost_weighted_average_flow = self._get_value_matrix()
+                integrated_cost_weighted_average_flow = self._get_matrix(0, self._get_shape(), np.float64)
+
+
+
+
+
 
             # iterate over cost thresholds and lu classes                
             for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):               
 
                 # result grids for average flow for current cost threshold
                 if write_non_weighted_result:
-                    class_average_flow = self._get_value_matrix()
+                    class_average_flow = self._get_matrix(0, self._get_shape(), np.float64)
                 if cost_weights is not None:
-                    cost_weighted_class_average_flow = self._get_value_matrix()
+                    cost_weighted_class_average_flow = self._get_matrix(0, self._get_shape(), np.float64)
 
                 for c in self.cost_thresholds:
                     # determine source of list
-                    lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
-                    filename = "FLOWS/flow_class_{}_cost_{}.tif".format(lu, c) if lu_type == 'patch' else "FLOWS/flow_edge_class_{}_cost_{}.tif".format(lu, c)
+                    mtx_current_flow = self._get_flow_for_land_use_class_and_cost(lu, c)
 
-                    mtx_current_flow = self._read_band(filename) 
                     if write_non_weighted_result:
                         class_average_flow += mtx_current_flow
                     if cost_weights is not None:
                         cost_weighted_class_average_flow += (mtx_current_flow * cost_weights[c])
+                    
                     p.update(current_task, advance=1)
 
-                # we have now iterated over cost thresholds
-                # export current class-averaged flow, and integrate with final product
                 if write_non_weighted_result:
-                    class_average_flow = class_average_flow / len(self.cost_thresholds)
-                    self._write_dataset("FLOWS/average_flow_class_{}.tif".format(lu), class_average_flow)
-                    # add to integrated grid
+                    # add to final result
                     integrated_average_flow += class_average_flow
 
                 if cost_weights is not None:
                     cost_weighted_class_average_flow = cost_weighted_class_average_flow / sum(cost_weights.values())
-                    self._write_dataset("FLOWS/cost_weighted_average_flow_class_{}.tif".format(lu), cost_weighted_class_average_flow)
                     # add to integrated grid
                     integrated_cost_weighted_average_flow += cost_weighted_class_average_flow
 
+
+
+                # extract this to own method such as aggregate_flow
+                # # we have now iterated over cost thresholds
+                # # export current class-averaged flow, and integrate with final product
+                # if write_non_weighted_result:
+                #     class_average_flow = class_average_flow / len(self.cost_thresholds)
+                #     self._write_dataset("FLOWS/average_flow_class_{}.tif".format(lu), class_average_flow)
+                #     # add to integrated grid
+                #     integrated_average_flow += class_average_flow
+
+                # if cost_weights is not None:
+                #     cost_weighted_class_average_flow = cost_weighted_class_average_flow / sum(cost_weights.values())
+                #     self._write_dataset("FLOWS/cost_weighted_average_flow_class_{}.tif".format(lu), cost_weighted_class_average_flow)
+                #     # add to integrated grid
+                #     integrated_cost_weighted_average_flow += cost_weighted_class_average_flow
+
             # export integrated grids
             if write_non_weighted_result:
-                self._write_dataset("FLOWS/integrated_avg_flow.tif", integrated_average_flow)
+                integrated_average_flow[clump_nodata_mask] = self.nodata_value
+                self._write_file("INDICATORS/non_weighted_avg_flow.tif", integrated_average_flow, self._get_metadata(np.float64, self.nodata_value))
                 # if write_scaled_result:
                 #     # apply min-max scaling
                 #     scaler = MinMaxScaler()
@@ -1474,7 +1571,8 @@ class Recreat(RecreatBase):
                 #     self._write_dataset('FLOWS/scaled_integrated_avg_flow.tif', integrated_average_flow.reshape(self.lsm_mtx.shape))
             
             if cost_weights is not None:
-                self._write_dataset("FLOWS/integrated_cost_weighted_avg_flow.tif", integrated_cost_weighted_average_flow)
+                integrated_cost_weighted_average_flow[clump_nodata_mask] = self.nodata_value
+                self._write_file("INDICATORS/cost_weighted_avg_flow.tif", integrated_cost_weighted_average_flow, self._get_metadata(np.float64, self.nodata_value))
                 # if write_scaled_result:
                 #     # apply min-max scaling
                 #     scaler = MinMaxScaler()
