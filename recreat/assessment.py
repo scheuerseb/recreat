@@ -1,8 +1,6 @@
 ###############################################################################
 # (C) 2024 Sebastian Scheuer (seb.scheuer@outlook.de)                         #
 ###############################################################################
-
-
 import os
 from os import listdir
 from os.path import isfile, join
@@ -49,25 +47,7 @@ from .disaggregation import SimpleAreaWeightedEngine, DasymetricMappingEngine, D
 from .exceptions import MethodNotImplemented
 from .base import RecreatBase
 
-
 class Recreat(RecreatBase):
-
-    # some status variables
-    verbose_reporting = False
-
-    # references to input data
-    # this stores the lsm map as reference map
-    lsm_rst = None
-    lsm_mtx = None
-    lsm_nodata_mask = None
-
-    # distance units
-    lsm_pixel_area_unit_factor = 1  # factor value to convert pixel area to km² through multiplication (1 px * factor = pixel area in km²) note: for CLC, this would be 0.01
-    lsm_resolution = 1              # resolution of the land-use raster in km²
-
-    # nodata value to use in replacements
-    nodata_value = 0
-    dtype = None
 
     # store params
     # define relevant recreation patch and edge classes, cost thresholds, etc.
@@ -75,9 +55,17 @@ class Recreat(RecreatBase):
     lu_classes_recreation_patch = []
     lu_classes_builtup = []
     cost_thresholds = []
+    verbose_reporting = True
     
     # shared library
     clib = None 
+
+    # default values
+    nodata_value = -9999
+
+    # reference to a dataset for the project
+    lulc_dataset = None
+   
 
     def __init__(self, data_path: str):        
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -88,7 +76,7 @@ class Recreat(RecreatBase):
 
         else:
             super().__init__(data_path=data_path, root_path=None)
-            print(Fore.WHITE + Style.BRIGHT + "recreat (C) 2024, Sebastian Scheuer" + Style.RESET_ALL)
+            print(Fore.WHITE + Style.BRIGHT + "recreat landscape recreational potential (C) 2024, Sebastian Scheuer" + Style.RESET_ALL)
             self.py_path = os.path.dirname(__file__)
 
             # determine extension module to be used depending on platform
@@ -102,13 +90,14 @@ class Recreat(RecreatBase):
             self.clib = ctypes.cdll.LoadLibrary(clib_path)
 
     def __del__(self):        
-        print("BYE BYE.")
-        
+        print("BYE BYE FROM v2.")
+
+
     def make_environment(self) -> None:
         """Create required subfolders for raster files in the current scenario folder.
         """
         # create directories, if needed
-        dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'TMP', 'FLOWS', 'CLUMPS_LU', 'PROX', 'COSTS', 'DIVERSITY']
+        dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'TMP', 'FLOWS', 'CLUMPS_LU', 'PROX', 'COSTS', 'DIVERSITY', 'BASE']
         for d in dirs_required:
             current_path = f"{self.data_path}/{self.root_path}/{d}"
             if not os.path.exists(current_path):
@@ -116,13 +105,6 @@ class Recreat(RecreatBase):
 
 
     def set_params(self, param_name: str, param_value: any) -> None:
-        """Set processing parameters.
-
-        :param paramName: Parameter, one of 'classes.edge', 'classes.patch', 'classes.builtup', 'costs', 'use-data-type', 'verbose-reporting'. 
-        :type paramName: str
-        :param paramValue: Parameter value, depending on parameter name.
-        :type paramValue: any
-        """        
 
         if param_name == 'classes.edge':
             self.lu_classes_recreation_edge = param_value
@@ -132,95 +114,172 @@ class Recreat(RecreatBase):
             self.lu_classes_builtup = param_value
         elif param_name == 'costs':
             self.cost_thresholds = param_value    
-        elif param_name == 'use-data-type':
-            self.dtype = param_value 
         elif param_name == 'verbose-reporting':
             self.verbose_reporting = param_value
-      
+        elif param_name == 'nodata-value':
+            self.nodata_value = param_value
 
-    def set_land_use_map(self, root_path: str, land_use_filename: str, nodata_values: list[float] = [0], nodata_fill_value: float = None) -> None:
-        """Specify data sources for a given scenrio, i.e., root path, and import land-use raster file.
 
-        :param root_path: Name of a scenario, i.e., subfolder within root of data path.
-        :type root_path: str
-        :param land_use_filename: Name of the land-use raster file for the given scenario.
-        :type land_use_filename: str
-        :param nodata_values: Values in the land-use raster that should be treated as nodata values, defaults to [0]
-        :type nodata_values: list[float], optional
-        :param nodata_fill_value: If set, specified nodata values in the land-use raster will be filled with the specified value, defaults to None.
-        :type nodata_fill_value: float, optional
-        """        
+    def set_land_use_map(self, root_path: str, land_use_filename: str) -> None:
+        # set root path
+        self.root_path = root_path                
+        # make folders in root path
+        self.make_environment()                 
+        # get reference to the land use/land cover file
+        lulc_file_path = self.get_file_path(land_use_filename, relative_to_root_path=True)
+        self.lulc_dataset = rasterio.open(lulc_file_path)
 
-        self.root_path = root_path
+    
+    def get_file(self, filename, nodata_values: List[any], band: int = 1, relative_to_root_path: bool = True) -> Tuple[rasterio.DatasetReader, np.ndarray]:
+        
+        path = self.get_file_path(filename, relative_to_root_path)
+        if self.verbose_reporting:
+            print(f"{Fore.WHITE}{Style.DIM}READING {path}{Style.RESET_ALL}")
                 
-        # check if folders are properly created in current scenario workspace
-        self.make_environment()         
+        raster_reader = rasterio.open(path)
+        band_data = raster_reader.read(band)
+
+        for nodata_value in nodata_values:
+            fill_value = self.nodata_value
+            if nodata_value != self.nodata_value:
+                print(f"{Fore.YELLOW}{Style.DIM}REPLACING NODATA VALUE {nodata_value} WITH FILL VALUE {fill_value}{Style.RESET_ALL}")                     
+                band_data = np.where(band_data==nodata_value, fill_value, band_data)
+
+        return raster_reader, band_data
+    
+
+    def write_file(self, filename, outdata, out_metadata, relative_to_root_path: bool = True):
+        path = self.get_file_path(filename, relative_to_root_path)
+        RecreatBase.write_output(path, outdata, out_metadata)
+
+
+    def get_matrix(self, fill_value: float, shape: Tuple[int,int], dtype: any) -> np.ndarray:
+        out_rst = np.full(shape=shape, fill_value=fill_value, dtype=dtype)
+        return out_rst       
+
+    def get_shape(self) -> Tuple[int,int]:
+        return self.lulc_dataset.shape
+    
+    def get_metadata(self, new_dtype, new_nodata_value):
+        out_meta = self.lulc_dataset.meta.copy()
+        out_meta.update({
+            'nodata' : new_nodata_value,
+            'dtype' : new_dtype
+        })
+        return out_meta        
+
+
+
+
+    def align_land_use_map(self, nodata_values: List[int], band: int = 1, reclassification_mappings: Dict[int, List[int]] = None):
         
-        # import lsm
-        # support lazy-loading of data going forward
-        # get only a reference to the raster, and require the data itself and the nodata mask only if needed.
+        self.printStepInfo("Aligning land-use map")
+        # conduct this if there is no base lulc file
+        lulc_file_path = self.get_file_path("BASE/lulc.tif")
+        if not os.path.isfile(lulc_file_path):
+            # get lulc data from datasetreader 
+            lulc_data = self.lulc_dataset.read(band)
 
-        self.lsm_rst, self.lsm_mtx, self.lsm_nodata_mask = self._read_dataset(land_use_filename, nodata_values=nodata_values, nodata_fill_value = nodata_fill_value)
+            # conduct value replacement
+            for nodata_value in nodata_values:
+                fill_value = self.nodata_value
+                if nodata_value != self.nodata_value:
+                    print(f"{Fore.YELLOW}{Style.DIM}REPLACING NODATA VALUE {nodata_value} WITH FILL VALUE {fill_value}{Style.RESET_ALL}")                     
+                    lulc_data = np.where(lulc_data==nodata_value, fill_value, lulc_data)
 
-    #
-    # The following classes will be called from asses_map_units. 
-    # They will disaggregate population and determine clumped land-use class supplies.
-    # Layers written will be specific to given costs.
-    #
-        
-    def detect_clumps(self, barrier_classes: List[int] = [0]) -> None:
-        """Detect clumps as contiguous areas in the land-use raster that are separated by the specified barrier land-uses. Connectivity is defined as queens contiguity. 
+            # conduct recategorization of values, if requested
+            if reclassification_mappings is not None:
+                lulc_data = self.reclassify(lulc_data, reclassification_mappings)
 
-        :param barrier_classes: Classes acting as barriers, i.e., separating clumps, defaults to [0]
-        :type barrier_classes: List[int], optional
-        """        
+            # write out result to be re-used later
+            self.write_file("BASE/lulc.tif", lulc_data.astype(np.int32), self.get_metadata(np.int32, self.nodata_value))
+
+        self.printStepCompleteInfo()
+
+
+    def reclassify(self, data_mtx, mappings: Dict[int, List[int]]) -> np.ndarray:
+
+        self.printStepInfo("Raster reclassification")        
+        current_task = self.get_task("[white]Reclassification", total=len(mappings.keys()))
+
+        # iterate over key-value combinations
+        with self.progress:            
+            for (new_class_value, classes_to_aggregate) in mappings.items():
+                replacement_mask = np.isin(data_mtx, classes_to_aggregate, invert=False)
+                data_mtx[replacement_mask] = new_class_value
+                del replacement_mask                
+                self.progress.update(current_task, advance=1)                 
+
+        # done
+        self.taskProgressReportStepCompleted()
+        return data_mtx
+
+
+
+
+
+
+    def detect_clumps(self, barrier_classes: List[int]) -> None:
 
         self.printStepInfo("Detecting clumps")
+
+        # barrier_classes are user-defined classes as well as nodata parts
+        barrier_classes = barrier_classes + [self.nodata_value]
+
+        lulc_reader, lulc_data = self.get_file("BASE/lulc.tif", [self.nodata_value]) 
+        barriers_mask = np.isin(lulc_data, barrier_classes, invert=False)
+        lulc_data[barriers_mask] = 0
+
         clump_connectivity = np.full((3,3), 1)
-        out_clumps, out_meta = self._get_new_matrix(fill_value=0, shape=self.lsm_mtx.shape, dtype=np.int32)
+        out_clumps = self.get_matrix(fill_value=0, shape=self.get_shape(), dtype=np.int32)
 
-        indata = self.lsm_mtx.copy()
-        barriers_mask = np.isin(indata, barrier_classes, invert=False)
-        indata[barriers_mask] = 0
-
-        nr_clumps = ndimage.label(indata, structure=clump_connectivity, output=out_clumps)
+        nr_clumps = ndimage.label(lulc_data, structure=clump_connectivity, output=out_clumps)
         print(f"{Fore.YELLOW}{Style.BRIGHT} {nr_clumps} CLUMPS FOUND{Style.RESET_ALL}")
-        self._write_dataset("MASKS/clumps.tif", out_clumps, custom_metadata=out_meta)        
+        
+        # update clumps to hold nodata value where clump=0
+        out_clumps[out_clumps == 0] = self.nodata_value
+        self.write_file("BASE/clumps.tif", out_clumps, self.get_metadata(np.int32, self.nodata_value))        
         
         # done
         self.taskProgressReportStepCompleted()
 
+    
     def mask_landuses(self, lu_classes: List[int] = None) -> None:
-        """Generate land-use class masks (occurrence masks) for patch, edge, and built-up land-use classes.
-        
-        :param lu_classes: Classes for which to create class masks. If None, create class masks for all patch classes and edge classes, None by default.
-        :type lu_classes: List[int], optional        
-        """
+
         classes_for_masking = self.lu_classes_recreation_edge + self.lu_classes_recreation_patch if lu_classes is None else lu_classes
 
         # mask classes of interest into a binary raster to indicate presence/absence of recreational potential
         # we require this for all classes relevant to processing: patch and edge recreational classes, built-up classes
-        self.printStepInfo("CREATING LAND-USE MASKS")
-        current_task = self.get_task('[white]Masking land-uses', total=len(classes_for_masking))
+        self.printStepInfo("Creating land-use class masks")
+        current_task = self.get_task('[white]Masking', total=len(classes_for_masking))
+
         with self.progress:
+            
+            # import land-use dataset
+            lulc_reader, lulc_data = self.get_file("BASE/lulc.tif", [self.nodata_value])
+            # import clump dataset for masking of outputs
+            clump_reader, clump_data = self.get_file("BASE/clumps.tif", [self.nodata_value])
+            clump_nodata_mask = np.isin(clump_data, [self.nodata_value], invert=False)
+            
             for lu in classes_for_masking:
                 
-                out_filename = self.get_file_path(f"MASKS/mask_{lu}.tif")
-                if not os.path.isfile(out_filename):                    
-                    current_lu_mask, out_meta = self._get_new_matrix(0, self.lsm_mtx.shape, np.int32)
+                current_lu_mask = self.get_matrix(0, self.get_shape(), np.int32)
 
-                    # make mask for relevant pixels
-                    mask = np.isin(self.lsm_mtx, [lu], invert=False)
-                    
-                    # mask with binary values 
-                    current_lu_mask[mask] = 1
-                    current_lu_mask[~mask] = 0
-                    self._write_dataset(f"MASKS/mask_{lu}.tif", current_lu_mask, custom_metadata=out_meta)
+                # make mask for relevant pixels
+                mask = np.isin(lulc_data, [lu], invert=False)                
+                # mask with binary values 
+                current_lu_mask[mask] = 1
+                # mask with clump nodata
+                current_lu_mask[clump_nodata_mask] = self.nodata_value
+                
+                # write to disk
+                self.write_file(f"MASKS/mask_{lu}.tif", current_lu_mask, self.get_metadata(np.int32, self.nodata_value))
 
                 self.progress.update(current_task, advance=1)
 
         # done    
         self.taskProgressReportStepCompleted()
+    
     
     def detect_edges(self, lu_classes: List[int] = None, ignore_edges_to_class: int = None, buffer_edges: List[int] = None) -> None:
         """Detect edges (patch perimeters) of land-use classes that are defined as edge classes.
@@ -236,6 +295,7 @@ class Recreat(RecreatBase):
         # determine edge pixels of edge-only classes such as water opportunities
 
         classes_to_assess = lu_classes if lu_classes is not None else self.lu_classes_recreation_edge
+        
         if (len(classes_to_assess) > 0):
             
             if ignore_edges_to_class is None:
@@ -259,6 +319,14 @@ class Recreat(RecreatBase):
             current_task = self.get_task("[white]Detecting edges", total=len(classes_to_assess))
 
             with self.progress:
+                
+                # import lulc 
+                lulc_reader, lulc_data = self.get_file("BASE/lulc.tif", [self.nodata_value]) 
+                
+                # import clump dataset for masking of outputs
+                clump_reader, clump_data = self.get_file("BASE/clumps.tif", [self.nodata_value])
+                clump_nodata_mask = np.isin(clump_data, [self.nodata_value], invert=False)
+                
                 for lu in classes_to_assess:
                     
                     if ignore_edges_to_class is None:                    
@@ -271,410 +339,100 @@ class Recreat(RecreatBase):
                         ptr = ctypes.cast(ctypes.pointer(user_data), ctypes.c_void_p)
                         div_filter = LowLevelCallable(self.clib.div_filter_ignore_class, user_data=ptr, signature="int (double *, intptr_t, double *, void *)")              
 
-                    # read masking raster
-                    mtx_mask = self._read_band(f"MASKS/mask_{lu}.tif") 
-
                     # apply a 3x3 rectangular sliding window to determine pixel value diversity in window
-                    rst_edgePixelDiversity = self._moving_window_generic(data_mtx=self.lsm_mtx, kernel_func=div_filter, kernel_size=3, kernel_shape='rect', dest_datatype=np.int16)
+                    rst_edgePixelDiversity = self._moving_window_generic(data_mtx=lulc_data, kernel_func=div_filter, kernel_size=3, kernel_shape='rect', dest_datatype=np.int32)
                     rst_edgePixelDiversity = rst_edgePixelDiversity - 1
                     rst_edgePixelDiversity[rst_edgePixelDiversity > 1] = 1                
-
-                    out_meta = self.lsm_rst.meta.copy()
-                    out_meta.update({
-                        'nodata' : 0,
-                        'dtype' : np.int32
-                    })
 
                     # depending on whether to grow edge or not, intersect with land-use mask to have edge within land-use, or
                     # extending outside.
                     if lu in buffer_edges:
-                        self._write_dataset(f"MASKS/edges_{lu}.tif", rst_edgePixelDiversity.astype(np.int32), custom_metadata=out_meta)    
+                        rst_edgePixelDiversity[clump_nodata_mask] = self.nodata_value
+                        self.write_file(f"MASKS/edges_{lu}.tif", rst_edgePixelDiversity.astype(np.int32), self.get_metadata(np.int32, self.nodata_value))                        
+                    
                     else:
-                        mtx_mask = mtx_mask * rst_edgePixelDiversity
-                        self._write_dataset(f"MASKS/edges_{lu}.tif", mtx_mask.astype(np.int32), custom_metadata=out_meta)
+                        # read masking raster, reconstruct original data by replacing nodata values with 0
+                        mask_reader, mask_data = self.get_file(f"MASKS/mask_{lu}.tif", [self.nodata_value]) 
+                        mask_data[clump_nodata_mask] = 0
+                        mask_data = mask_data * rst_edgePixelDiversity
+                        mask_data[clump_nodata_mask] = self.nodata_value
+
+                        self.write_file(f"MASKS/edges_{lu}.tif", mask_data.astype(np.int32), self.get_metadata(np.int32, self.nodata_value))
+                        del mask_data
 
                     # some cleaning
-                    del mtx_mask
                     del rst_edgePixelDiversity
-
                     self.progress.update(current_task, advance=1)
 
             # done
             self.taskProgressReportStepCompleted()
 
-    def compute_distance_rasters(self, mode: str = 'xr', lu_classes: List[int] = None, assess_builtup: bool = False) -> None:
-        """Generate proximity rasters to land-use classes based on identified clumps.
+    def _get_circular_kernel(self, kernel_size: int) -> np.ndarray:
+        """Generate a kernel for floating-window operations with circular kernel mask.
 
-        :param mode: Method used to compute proximity matrix. Either 'dr' or 'xr', defaults to 'xr'
-        :type mode: str, optional
-        :param lu_classes: List of integers, i.e., land-use classes to assess, defaults to None
-        :type lu_classes: List[int], optional
-        :param assess_builtup: Assesses proximities to built-up, if true, defaults to False
-        :type assess_builtup: bool, optional
-        """        
+        Args:
+            kernel_size (int): Kernel diameter (in pixel). 
 
-        self.printStepInfo("Computing distance rasters")
-        # determine proximity outward from relevant lu classes, including built-up
-        classes_for_proximity_calculation = (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge) if lu_classes is None else lu_classes
-
-        # import the clumps raster
-        rst_clumps = self._read_band("MASKS/clumps.tif")
-        # detect slices here, to avoid having to recall detect_clumps each time we want to do proximity computations
-        clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))        
-        
-        step_count = len(classes_for_proximity_calculation) * len(clump_slices)
-
-        # if standalone, create new progress bar, otherwise use existing bar, and create task
-        current_task = self.get_task("[white]Computing distance rasters", total=step_count)
-
-        # iterate over classes and clumps
-        with self.progress:
-            for lu in classes_for_proximity_calculation:
-                
-                # target raster
-                lu_dr = self._get_value_matrix()
-
-                # for proximities, edge or patch does not matter basically - if within boundaries of edge class, proximity should still be 0, as distance to edge only matters from outside.
-                # however, as prox are determined at clump level, we need to add edge to mask in order to have potential buffered edges included, so that in case of barrier classes,
-                # we get a proper depiction of prox
-                
-                lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
-                src_lu_mtx = self._read_band(f'MASKS/mask_{lu}.tif')
-                
-                if lu_type == "edge":                    
-                    mtx_edge = self._read_band(f'MASKS/edges_{lu}.tif')
-                    src_lu_mtx[mtx_edge == 1] = 1
-                
-                
-                # add here support for clumping, i.e., determine proximities only to available opportunities within each clump
-                # check how to integrate that into the dr raster in the end
-                # now operate over clumps, in order to safe some computational time
-                for patch_idx in range(len(clump_slices)):
-                    obj_slice = clump_slices[patch_idx]
-                    obj_label = patch_idx + 1
-
-                    # get slice from land-use mask
-                    sliced_lu_mtx = src_lu_mtx[obj_slice].copy() 
-                    sliced_clump_mtx = rst_clumps[obj_slice]
-            
-                    # properly mask out current object
-                    obj_mask = np.isin(sliced_clump_mtx, [obj_label], invert=False)
-                    sliced_lu_mtx[~obj_mask] = 0
-
-                    # check if we actually have opportunity in reach in current clump slice:
-                    if np.sum(sliced_lu_mtx) > 0:
-                        
-                        if mode == 'dr':
-                            # now all pixels outside of clump should be zeroed, and we can determine proximity on the subset of the full raster
-                            sliced_dr = dr.DistanceRaster(sliced_lu_mtx, progress_bar=False)
-                            sliced_dr = sliced_dr.dist_array
-                        elif mode == 'xr':
-                            n, m = sliced_lu_mtx.shape
-                            xr_rst = xr.DataArray(sliced_lu_mtx, dims=['y', 'x'], name='raster')
-                            xr_rst['y'] = np.arange(n)[::-1]
-                            xr_rst['x'] = np.arange(m)
-                            sliced_dr = proximity(xr_rst, target_values = [1]).to_numpy()
-                        
-                        # proximities should only be written to clump object
-                        sliced_dr[~obj_mask] = 0
-                        lu_dr[obj_slice] += sliced_dr
-                                                
-                    self.progress.update(current_task, advance=1)
-
-                self._write_dataset(f"PROX/dr_{lu}.tif", lu_dr)
-                
-                # clean up
-                del lu_dr
-                del src_lu_mtx
-
-
-        if assess_builtup:
-            
-            step_count = len(clump_slices)
-            current_task = self.get_task("[white]Computing distance rasters", total=step_count)
-            with self.progress:
-                
-                # target raster
-                lu_dr = self._get_value_matrix()
-                # built-up source mask
-                src_lu_mtx = self._read_band('MASKS/built-up.tif') 
-                
-                for patch_idx in range(len(clump_slices)):
-                    obj_slice = clump_slices[patch_idx]
-                    obj_label = patch_idx + 1
-
-                    # get slice from land-use mask
-                    sliced_lu_mtx = src_lu_mtx[obj_slice].copy() 
-                    sliced_clump_mtx = rst_clumps[obj_slice]
-            
-                    # properly mask out current object
-                    obj_mask = np.isin(sliced_clump_mtx, [obj_label], invert=False)
-                    sliced_lu_mtx[~obj_mask] = 0
-
-                    # check if we actually have opportunity in reach in current clump slice:
-                    if np.sum(sliced_lu_mtx) > 0:
-
-                        # now all pixels outside of clump should be zeroed, and we can determine proximity on the subset of the full raster
-                        sliced_dr = dr.DistanceRaster(sliced_lu_mtx, progress_bar=False)
-                        sliced_dr = sliced_dr.dist_array
-                        # proximities should only be written to clump object
-                        sliced_dr[~obj_mask] = 0
-                        lu_dr[obj_slice] += sliced_dr
-                    
-                    self.progress.update(current_task, advance=1)
-
-                self._write_dataset("PROX/dr_built-up.tif".format(lu), lu_dr)
-                del lu_dr
-        
-        # done
-        self.taskProgressReportStepCompleted()
-
-    def reclassify(self, mappings: Dict[int, List[int]], export_filename: str = None) -> None:
-        """Reclassifies set(s) of source class values into a new destination class in the land-use dataset.
-
-        :param mappings: Dictionary of new classes (keys), and corresponding list of class values to recategorize (values).
-        :type mappings: Dict[int, List[int]]
-        :param export_filename: Export to specified filename into root-path, defaults to None.
-        :type export_filename: str  
-        """        
-
-        self.printStepInfo("Recategorizing classes")
-        if self.lsm_mtx is not None:
-            
-            current_task = self.get_task("[white]Reclassification", total=len(mappings.keys()))
-
-            # iterate over key-value combinations
-            with self.progress:
-                
-                for (new_class_value, classes_to_aggregate) in mappings.items():
-                    replacement_mask = np.isin(self.lsm_mtx, classes_to_aggregate, invert=False)
-                    self.lsm_mtx[replacement_mask] = new_class_value
-                    del replacement_mask
-                    
-                    self.progress.update(current_task, advance=1)                 
-
-            # export to disk, if requested by user
-            if export_filename is not None:
-                print(f"{Fore.YELLOW}{Style.BRIGHT}Exporting reclassified land-use raster to {export_filename}{Style.RESET_ALL}")
-                self._write_dataset(export_filename, self.lsm_mtx)
-
-            # done
-            self.taskProgressReportStepCompleted()
-
-        else:
-            print(Fore.WHITE + Back.RED + "ERR: Import Land-Use first" + Style.RESET_ALL)
-
-
-
-
-
-    def disaggregation(self, population_grid: str, disaggregation_method: DisaggregationMethod, max_pixel_count: int, write_scaled_result: bool = True, count_threshold: int = None, min_sample_size: int = None) -> None:
-        """Disaggregates population to specified built-up (residential) classes. 
-
-        :param population_grid: Name of the population raster file to be used for disaggregation.
-        :type population_grid: str
-        :param disaggregation_method: Method to conduct disaggregation.
-        :type disaggregation_method: DisaggregationMethod
-        :param max_pixel_count: Number of built-up pixels per population raster. 
-        :type max_pixel_count: int
-        :param write_scaled_result: _description_, defaults to True
-        :type write_scaled_result: bool, optional
-        :param count_threshold: Sampling threshold.
-        :type count_threshold: int, optional
+        Returns:
+            np.ndarray: Circular kernel.
         """
-        # mask residential classes
-        self.mask_landuses(lu_classes=self.lu_classes_builtup)
+        kernel = np.zeros((kernel_size,kernel_size))
+        radius = kernel_size/2
+        # modern scikit uses a tuple for center
+        rr, cc = disk( (kernel_size//2, kernel_size//2), radius)
+        kernel[rr,cc] = 1
+        return kernel
+    
+    def _moving_window_generic(self, data_mtx: np.ndarray, kernel_func: Callable[[np.ndarray], float], kernel_size: int, kernel_shape: str = 'circular', dest_datatype = None) -> np.ndarray:
+        """Conduct a moving window operation with specified kernel shape and kernel size on an array.
 
-        if disaggregation_method is DisaggregationMethod.SimpleAreaWeighted:            
-            disaggregation_engine = SimpleAreaWeightedEngine(
-                data_path=self.data_path, 
-                root_path=self.root_path,
-                population_grid=population_grid, 
-                residential_classes=self.lu_classes_builtup, 
-                max_pixel_count=max_pixel_count,
-                write_scaled_result=write_scaled_result
-            )
-            
-            disaggregation_engine.run()
+        Args:
+            data_mtx (np.ndarray): Input array
+            kernel_func (Callable[[np.ndarray], float]): Callable for aggregation/Summarization of values in kernel window.
+            kernel_size (int): Size of kernel (total with for squared kernel window, kernel diameter for circular kernel window).
+            kernel_shape (str, optional): Kernel shape: Circular kernel (circular) or squared/rectangular kernel (rect). Defaults to 'circular'.
+            dest_datatype (any, optional): Destination datatype.
 
-        elif disaggregation_method is DisaggregationMethod.IntelligentDasymetricMapping:
-            disaggregation_engine = DasymetricMappingEngine(
-                data_path=self.data_path, 
-                root_path=self.root_path, 
-                population_grid=population_grid,
-                residential_classes=self.lu_classes_builtup, 
-                max_pixel_count=max_pixel_count,
-                count_threshold=count_threshold,
-                min_sample_size=min_sample_size,
-                write_scaled_result=write_scaled_result
-            )
-
-            disaggregation_engine.run()
-
+        Returns:
+            np.ndarray: Output array
+        """
+        dtype_to_use = np.float32
+        # make kernel
+        kernel = self._get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
+        mtx_res = self.get_matrix(0, data_mtx.shape, dtype_to_use)        
+        # apply moving window over input mtx
+        ndimage.generic_filter(data_mtx.astype(dtype_to_use), kernel_func, footprint=kernel, output=mtx_res, mode='constant', cval = 0)
+        return mtx_res
+    
+    def _moving_window_convolution(self, data_mtx: np.ndarray, kernel_size: int, kernel_shape: str = 'circular') -> np.ndarray: 
+        dtype_to_use = np.float32
+        # make kernel
+        kernel = self._get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
+        # make result matrix
+        mtx_res = self.get_matrix(0, data_mtx.shape, dtype_to_use)
+        # apply convolution filter from ndimage that sums as weights are 0 or 1.        
+        ndimage.convolve(data_mtx.astype(dtype_to_use), kernel, output=mtx_res, mode = 'constant', cval = 0)        
+        return mtx_res
+    
+    def _moving_window_filter2d(self, data_mtx: np.ndarray, kernel_size: int, kernel_shape: str = 'circular') -> np.ndarray: 
+        # make kernel
+        radius = int(kernel_size / 2)
+        kernel = self._get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
+        # make sure that input is padded, as this determines border values
+        data_mtx = np.pad(data_mtx, radius, mode='constant')
         
-    def beneficiaries_within_cost(self, mode: str = 'ocv_filter2d') -> None:  
-        """Determine number of beneficiaries within cost windows.
+        if data_mtx.dtype == np.int32 or data_mtx.dtype == np.int64:
+            data_mtx = data_mtx.astype(np.float32)
 
-        :param mode: Method to perform sliding window operation. One of 'generic_filter', 'convolve', or 'ocv_filter2d'. Defaults to 'ocv_filter2d', defaults to 'ocv_filter2d'
-        :type mode: str, optional
-        """      
-        self.printStepInfo("Determining beneficiaries within costs")
+        mtx_res = cv.filter2D(data_mtx, -1, cv.flip(kernel, -1)) 
+        return mtx_res[radius:-radius,radius:-radius]
+    
+    
 
-        # mtx_disaggregated_population = self._read_band("DEMAND/disaggregated_population.tif")        
-        mtx_clumps = self._read_band("MASKS/clumps.tif")
-        clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))        
+    def sum_values_in_kernel(self, mtx_source: np.ndarray, mtx_clumps: np.ndarray, clump_slices: List[any], cost: float, mode: str, progress_task: any = None) -> np.ndarray:
         
-        step_count = len(self.cost_thresholds) * len(clump_slices)
-        current_task = self.get_task("[white]Determining beneficiaries", total=step_count)
-        
-        custom_meta = self.lsm_rst.meta.copy()
-        custom_meta.update({
-            'nodata' : 0,
-            'dtype' : np.int32
-        })
-
-        # this is constant and required for all cost windows
-        infile_name = "DEMAND/disaggregated_population.tif" 
-        
-        with self.progress:
-            for c in self.cost_thresholds:
-
-                mtx_pop_within_cost = self.sum_values_in_kernel(
-                    source_path=infile_name, 
-                    mtx_clumps=mtx_clumps,
-                    clump_slices=clump_slices,
-                    cost=c,
-                    mode=mode,
-                    progress_task=current_task,
-                    dest_datatype=np.int32
-                )
-
-                # export current beneficiaries within cost
-                self._write_dataset(f"DEMAND/beneficiaries_within_cost_{c}.tif", mtx_pop_within_cost, custom_metadata=custom_meta)
-                del mtx_pop_within_cost
-                
-        
-        # subsequently, we need to order costs and subtract from the larger cost windows the population in the smaller cost windows
-        # this is to create layers for population within a specific cost-interval, in order to avoid a double counting of population.
-        # before, averaging beneficiaries within cost overestimated population, as larger cost windows included the pop of smaller cost windows, 
-        # hence double-counting pop within closer range
-        # this should be avoided.
-
-        step_count = len(self.cost_thresholds)
-        current_task = self.get_task("[white]Normalizing beneficiaries in cost ranges", total=step_count)
-        with self.progress:
-            # assert order from lowest to highest cost
-            sorted_costs = sorted(self.cost_thresholds)
-            self.progress.update(current_task, advance=1)
-            
-            # write lowest range directly
-            mtx_lower_range = self._read_band(f"DEMAND/beneficiaries_within_cost_{sorted_costs[0]}.tif")
-            self._write_dataset(f"DEMAND/beneficiaries_within_cost_range_{sorted_costs[0]}.tif", mtx_lower_range, custom_metadata=custom_meta)
-                        
-            for i in range(1,len(sorted_costs)):
-                
-                mtx_lower_range = self._read_band(f"DEMAND/beneficiaries_within_cost_{sorted_costs[i-1]}.tif")  
-                mtx_current_cost = self._read_band(f"DEMAND/beneficiaries_within_cost_{sorted_costs[i]}.tif")  
-
-                mtx_beneficiaries_in_cost_range = self._get_value_matrix(dest_datatype=np.float64)
-                np.subtract(mtx_current_cost, mtx_lower_range, out=mtx_beneficiaries_in_cost_range)
-
-                # it should not happen to have values < 0 in this exercise
-
-                self._write_dataset(f"DEMAND/beneficiaries_within_cost_range_{sorted_costs[i]}.tif", mtx_beneficiaries_in_cost_range, custom_metadata=custom_meta)
-                self.progress.update(current_task, advance=1)
-
-
-        # done
-        self.taskProgressReportStepCompleted()
-
-
-    def class_total_supply(self, mode: str = 'ocv_filter2d') -> None:
-        """Determines class total supply.
-
-        :param mode: Method to perform sliding window operation. One of 'generic_filter', 'convolve', or 'ocv_filter2d'. Defaults to 'ocv_filter2d', defaults to 'ocv_filter2d'
-        :type mode: str, optional
-        """        
-
-        # for each recreation patch class and edge class, determine total supply within cost windows
-        # do this for each clump, i.e., operate only on parts of masks corresponding to clumps, ignore patches/edges external to each clump
-        self.printStepInfo("Determining clumped supply per class")
-        # clumps are required to properly mask islands
-        rst_clumps = self._read_band("MASKS/clumps.tif")
-        clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))
-        
-        step_count = len(clump_slices) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
-        current_task = self.get_task("[white]Determining clumped supply", total=step_count)
-
-        with self.progress:
-            for c in self.cost_thresholds: 
-                for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):    
-                    # determine source of list
-                    lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
-
-                    infile_name = (
-                        f"MASKS/mask_{lu}.tif"
-                        if lu_type == "patch"
-                        else f"MASKS/edges_{lu}.tif"
-                    )
-                    outfile_name = (
-                        f"SUPPLY/totalsupply_class_{lu}_cost_{c}_clumped.tif"
-                        if lu_type == "patch"
-                        else f"SUPPLY/totalsupply_edge_class_{lu}_cost_{c}_clumped.tif"
-                    )
-
-                    # get result of windowed operation
-                    lu_supply_mtx = self.sum_values_in_kernel(
-                        source_path=infile_name, 
-                        mtx_clumps=rst_clumps, 
-                        clump_slices=clump_slices, 
-                        cost=c, 
-                        mode=mode, 
-                        progress_task=current_task,
-                        dest_datatype=np.int32
-                    )
-
-                    out_meta = self.lsm_rst.meta.copy()
-                    out_meta.update({
-                        'nodata' : 0,
-                        'dtype' : np.int32
-                    })
-
-                    # export current cost
-                    self._write_dataset(outfile_name, lu_supply_mtx.astype(np.int32), custom_metadata=out_meta)
-                    del lu_supply_mtx           
-
-
-        # done
-        self.taskProgressReportStepCompleted()
-
-
-    def sum_values_in_kernel(self, source_path: str, mtx_clumps: np.ndarray, clump_slices: List[any], cost: float, mode: str, progress_task: any = None, dest_datatype = np.int32) -> np.ndarray:
-        """Compute total (sum) of values in source raster within a given cost.
-
-        :param source_path: Path to source raster.
-        :type source_path: str
-        :param mtx_clumps: Array of clumps.
-        :type mtx_clumps: np.ndarray
-        :param clump_slices: List of clump slices.
-        :type clump_slices: List[any]
-        :param cost: Cost threshold.
-        :type cost: float
-        :param mode: Method to use to determine supply within cost. One of 'convolve', 'generic_filter', or 'ocv_filter2d'.
-        :type mode: str
-        :param progress_task: Progress task, defaults to None
-        :type progress_task: any, optional
-        :param dest_datatype: Datatype of target raster. By default, np.int32.
-        :type dest_datatype: Numpy datatype.
-        :return: Class supply for given land-use class within given cost.
-        :rtype: np.ndarray
-        """        
-
         # grid to store summed values in kernel 
-        mtx_result = self._get_value_matrix(dest_datatype=dest_datatype)
-        
-        # get source raster for which values should be summed in kernel
-        mtx_source = self._read_band(source_path).astype(dest_datatype)
+        mtx_result = self.get_matrix(0, self.get_shape(), mtx_source.dtype)               
 
         # use lowlevelcallable to speed up moving window operation               
         if mode == 'generic_filter':
@@ -689,6 +447,7 @@ class Recreat(RecreatBase):
 
         # now operate over clumps, in order to safe some computational time
         for patch_idx in range(len(clump_slices)):
+            
             obj_slice = clump_slices[patch_idx]
             obj_label = patch_idx + 1
 
@@ -702,17 +461,16 @@ class Recreat(RecreatBase):
 
             # now all pixels outside of clump should be zeroed, and we can determine total supply within sliding window
             if mode == 'convolve':            
-                sliding_supply = self._moving_window_convolution(sliced_mtx_source, cost)
+                sliding_results = self._moving_window_convolution(sliced_mtx_source, cost)
             elif mode == 'generic_filter':                 
-                sliding_supply = self._moving_window_generic(sliced_mtx_source, sum_filter, cost)
+                sliding_results = self._moving_window_generic(sliced_mtx_source, sum_filter, cost)
             elif mode == 'ocv_filter2d':
-                sliding_supply = self._moving_window_filter2d(sliced_mtx_source, cost)
-
+                sliding_results = self._moving_window_filter2d(sliced_mtx_source, cost)
            
-            sliding_supply[~obj_mask] = 0
-            mtx_result[obj_slice] += sliding_supply.astype(dest_datatype)
+            sliding_results[~obj_mask] = 0
+            mtx_result[obj_slice] += sliding_results.astype(mtx_source.dtype)
             
-            del sliding_supply
+            del sliding_results
             del sliced_mtx_source
 
             if progress_task is not None:
@@ -722,39 +480,66 @@ class Recreat(RecreatBase):
         del mtx_source
         return mtx_result
     
-    
-    def aggregate_class_total_supply(self, lu_weights: Dict[any,float] = None, write_non_weighted_result: bool = True) -> None:
-        """Aggregate total supply of land-use classes within each specified cost threshold. A weighting schema may be supplied, in which case a weighted average is determined as the sum of weighted class supply divided by the sum of all weights.
 
-        :param lu_weights: Dictionary of land-use class weights, where keys refer to land-use classes, and values to weights. If specified, weighted total supply will be determined, defaults to None
-        :type lu_weights: Dict[any,float], optional
-        :param write_non_weighted_result: Indicates if non-weighted total supply be computed, defaults to True
-        :type write_non_weighted_result: bool, optional
+
+
+
+
+    def class_total_supply(self, mode: str = 'ocv_filter2d') -> None:
+        """Determines class total supply.
+
+        :param mode: Method to perform sliding window operation. One of 'generic_filter', 'convolve', or 'ocv_filter2d'. Defaults to 'ocv_filter2d', defaults to 'ocv_filter2d'
+        :type mode: str, optional
         """        
-                
-        self.printStepInfo('Determining clumped total supply')
 
-        # progress reporting        
-        step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))
-        current_task = self.get_task("[white]Aggregating clumped supply", total=step_count)
+        dtype_to_use = np.int32
 
-        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
-            for c in self.cost_thresholds:
-                # get aggregation for current cost threshold
-                current_total_supply_at_cost, current_weighted_total_supply_at_cost = self._get_aggregate_class_total_supply_for_cost(cost=c, lu_weights=lu_weights, write_non_weighted_result=write_non_weighted_result, task_progress=current_task)                                           
+        # for each recreation patch class and edge class, determine total supply within cost windows
+        # do this for each clump, i.e., operate only on parts of masks corresponding to clumps, ignore patches/edges external to each clump
+        self.printStepInfo("Determining clumped supply per class")
+        
+        # clumps are required to properly mask islands
+        clump_reader, rst_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])
+        clump_nodata_mask = np.isin(rst_clumps, [self.nodata_value], invert=False)
+        clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))
+        
+        step_count = len(clump_slices) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
+        current_task = self.get_task("[white]Determining clumped supply", total=step_count)
 
-                # export total for costs, if requested
-                if write_non_weighted_result:    
-                    self._write_dataset(f"INDICATORS/totalsupply_cost_{c}.tif", current_total_supply_at_cost)
-                # export weighted total, if applicable
-                if lu_weights is not None:                    
-                    self._write_dataset(f"INDICATORS/weighted_totalsupply_cost_{c}.tif", current_weighted_total_supply_at_cost)
+        with self.progress:
+            for c in self.cost_thresholds: 
+                for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):    
+                    
+                    # determine source of list
+                    lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
+                    lu_mask = self._get_mask_for_lu(lu, lu_type)
+
+                    # get result of windowed operation
+                    lu_supply_mtx = self.sum_values_in_kernel(
+                        mtx_source=lu_mask.astype(dtype_to_use), 
+                        mtx_clumps=rst_clumps, 
+                        clump_slices=clump_slices, 
+                        cost=c, 
+                        mode=mode, 
+                        progress_task=current_task
+                    )
+
+                    # mask nodata regions based on clumps
+                    lu_supply_mtx[clump_nodata_mask] = self.nodata_value
+
+                   
+                    # export current cost
+                    outfile_name = (
+                        f"SUPPLY/totalsupply_class_{lu}_cost_{c}_clumped.tif"
+                        if lu_type == "patch"
+                        else f"SUPPLY/totalsupply_edge_class_{lu}_cost_{c}_clumped.tif"
+                    )
+                    self.write_file(outfile_name, lu_supply_mtx.astype(dtype_to_use), self.get_metadata(dtype_to_use, self.nodata_value))
+                    del lu_supply_mtx           
+
 
         # done
         self.taskProgressReportStepCompleted()
-
-    
-
 
     def class_diversity(self) -> None:
         """Determine the diversity of land-use classes within cost thresholds. 
@@ -765,72 +550,110 @@ class Recreat(RecreatBase):
         current_task = self.get_task("[white]Determining class diversity", total=step_count)
 
         with self.progress as p:
+
+            # clumps are required to properly mask islands
+            clump_reader, rst_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])
+            clump_nodata_mask = np.isin(rst_clumps, [self.nodata_value], invert=False)
+
             for c in self.cost_thresholds:    
-                mtx_diversity_at_cost, out_meta = self._get_new_matrix(0, self.lsm_mtx.shape, np.int32)
+                
+                mtx_diversity_at_cost = self.get_matrix(0, self.get_shape(), np.int32)
 
                 for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
-                    # determine source of list
+                    
+                    # determine opportunity type and get respective dataset
                     lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"                    
                     mtx_supply = self._get_supply_for_lu_and_cost(lu, lu_type, c)                   
                     
                     mtx_supply[mtx_supply > 0] = 1
                     mtx_diversity_at_cost += mtx_supply.astype(np.int32)
+                    
                     p.update(current_task, advance=1)
 
-                # export current cost diversity
-                self._write_dataset(f"DIVERSITY/diversity_cost_{c}.tif", mtx_diversity_at_cost, custom_metadata=out_meta)
+                # mask using clump nodata mask
+                mtx_diversity_at_cost[clump_nodata_mask] = self.nodata_value
+
+                # export current cost diversity                                
+                self.write_file(f"DIVERSITY/diversity_cost_{c}.tif", mtx_diversity_at_cost, self.get_metadata(np.int32, self.nodata_value))
                 del mtx_diversity_at_cost
 
         # done
         self.taskProgressReportStepCompleted()
+    
 
+    def _get_supply_for_lu_and_cost(self, lu, lu_type, cost) -> np.ndarray:        
 
-    #
-    # Determine flow of beneficiaries to recreational opportunities per cost
-    #
+        filename = f"SUPPLY/totalsupply_class_{lu}_cost_{cost}_clumped.tif" if lu_type == 'patch' else f"SUPPLY/totalsupply_edge_class_{lu}_cost_{cost}_clumped.tif"
+        # get supply of current class 
+        lu_supply_reader, lu_supply_mtx = self.get_file(filename, [self.nodata_value])
+        # replace supply with 0 value, for correct summation
+        lu_supply_mtx[lu_supply_mtx == self.nodata_value] = 0 
+        return lu_supply_mtx
+    
+    def _get_mask_for_lu(self, lu, lu_type) -> np.ndarray:        
 
-    def class_flow(self) -> None:
-        """Determine the total number of potential beneficiaries (flow to given land-use classes) as the sum of total population, within cost thresholds.
-        """
-        self.printStepInfo("Determine class flow")        
-        step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch))
-        current_task = self.get_task("[white]Determine class-based flows within cost", step_count)
+        filename = f"MASKS/mask_{lu}.tif" if lu_type == 'patch' else f"MASKS/edges_{lu}.tif"
+        # get mask of current class 
+        lu_reader, lu_mask = self.get_file(filename, [self.nodata_value]) 
+        # reset nodata values to 0 values for proper summation
+        lu_mask[lu_mask == self.nodata_value] = 0
+        return lu_mask
+    
+    def _get_diversity_for_cost(self, cost) -> np.ndarray:
+        mtx_reader, mtx_data = self.get_file(f"DIVERSITY/diversity_cost_{cost}.tif", [self.nodata_value]) 
+        mtx_data[mtx_data == self.nodata_value] = 0
+        return mtx_data
+    
+    def _get_beneficiaries_for_cost(self, cost, return_cost_window_difference = False) -> np.ndarray:
+        in_filename = f"DEMAND/beneficiaries_within_cost_{cost}.tif" if not return_cost_window_difference else f"DEMAND/beneficiaries_within_cost_range_{cost}.tif"
+        mtx_reader, mtx_data = self.get_file(in_filename, [self.nodata_value]) 
+        mtx_data[mtx_data == self.nodata_value] = 0
+        return mtx_data
 
-        with self.progress as p:            
-            for c in self.cost_thresholds:
-                mtx_pop = self._read_band(f"DEMAND/beneficiaries_within_cost_{c}.tif")
+    def _get_proximity_raster_for_lu(self, lu) -> np.ndarray:
+        mtx_reader, mtx_data = self.get_file(f"PROX/dr_{lu}.tif", [self.nodata_value]) 
+        mtx_data[mtx_data == self.nodata_value] = 0
+        return mtx_data
+    
+    def _get_minimum_cost_for_lu(self, lu) -> np.ndarray:
+        mtx_reader, mtx_data = self.get_file(f'COSTS/minimum_cost_{lu}.tif', [self.nodata_value])
+        return mtx_data
+    
+    def _get_aggregate_class_total_supply_for_cost(self, cost, lu_weights = None, write_non_weighted_result = True, task_progress = None):                        
+        
+        current_total_supply_at_cost = None
+        current_weighted_total_supply_at_cost = None
 
-                for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
-                    
-                    # determine source of list
-                    lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
-                    mtx_lu = self._get_mask_for_lu(lu, lu_type)
-                    mtx_res = mtx_lu * mtx_pop
-                    
-                    out_meta = self.lsm_rst.meta.copy()
-                    out_meta.update({
-                        'nodata' : 0,
-                        'dtype' : np.int32
-                    })
+        # make grids for the results: zero-valued grids with full lsm extent
+        if write_non_weighted_result:
+            current_total_supply_at_cost = self.get_matrix(0, self.get_shape(), np.float64) 
+        if lu_weights is not None:
+            current_weighted_total_supply_at_cost = self.get_matrix(0, self.get_shape(), np.float64)
+        
+        for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
+            
+            # determine source of list
+            lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"                    
+            lu_supply_mtx = self._get_supply_for_lu_and_cost(lu, lu_type, cost)
+            lu_supply_mtx = lu_supply_mtx.astype(np.float64)
 
-                    # write result
-                    outfile_name = f"FLOWS/flow_class_{lu}_cost_{c}.tif" if lu_type == 'patch' else f"FLOWS/flow_edge_class_{lu}_cost_{c}.tif"
-                    self._write_dataset(outfile_name, mtx_res.astype(np.int32), custom_metadata=out_meta)
-                    
-                    del mtx_res
-                    del mtx_lu
+            # add to aggregations
+            if write_non_weighted_result:
+                current_total_supply_at_cost += lu_supply_mtx
+            if lu_weights is not None:
+                current_weighted_total_supply_at_cost += (lu_supply_mtx * lu_weights[lu])
 
-                    p.update(current_task, advance=1)
+            if task_progress is not None:
+                self.progress.update(task_progress, advance=1)
 
-                del mtx_pop
-        # done
-        self.taskProgressReportStepCompleted()
+        if lu_weights is not None:
+            current_weighted_total_supply_at_cost = current_weighted_total_supply_at_cost / sum(lu_weights.values())
 
-
-    #
-    #
-    #
-    # The following functions provide averaged metrics as targeted main indicators 
+        # return aggregated grids for given cost
+        return current_total_supply_at_cost, current_weighted_total_supply_at_cost
+    
+    
+    
 
     def average_total_supply_across_cost(self, lu_weights: Dict[any, float] = None, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
         """Determine the total (recreational) land-use supply averaged across cost thresholds. Weighting of importance of land-uses and weighting of cost may be applied. 
@@ -863,19 +686,23 @@ class Recreat(RecreatBase):
 
         with self.progress as p:
 
+            # clumps are required to properly mask islands
+            clump_reader, rst_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])
+            clump_nodata_mask = np.isin(rst_clumps, [self.nodata_value], invert=False)
+
             # def. case
             if write_non_weighted_result:
-                non_weighted_average_total_supply = self._get_value_matrix(dest_datatype=np.float64)            
+                non_weighted_average_total_supply = self.get_matrix(0, self.get_shape(), np.float64)           
             # def. case + cost weighting
             if cost_weights is not None:
-                cost_weighted_average_total_supply = self._get_value_matrix(dest_datatype=np.float64)                
+                cost_weighted_average_total_supply = self.get_matrix(0, self.get_shape(), np.float64)               
 
             if lu_weights is not None:
                 # lu weights only
-                lu_weighted_average_total_supply = self._get_value_matrix(dest_datatype=np.float64)
+                lu_weighted_average_total_supply = self.get_matrix(0, self.get_shape(), np.float64)
                 if cost_weights is not None:
                     # both weights
-                    bi_weighted_average_total_supply = self._get_value_matrix(dest_datatype=np.float64)
+                    bi_weighted_average_total_supply = self.get_matrix(0, self.get_shape(), np.float64)
 
             # iterate over costs
             for c in self.cost_thresholds:
@@ -893,61 +720,61 @@ class Recreat(RecreatBase):
                     if cost_weights is not None:                        
                         bi_weighted_average_total_supply += (mtx_current_cost_weighted_total_supply * cost_weights[c])
             
-            out_meta = self.lsm_rst.meta.copy()
-            out_meta.update({
-                'nodata' : 0.0,
-                'dtype' : np.float64
-            }) 
-
-
             # complete determining averages for the various combinations
             # def. case
             if write_non_weighted_result:
                 non_weighted_average_total_supply = non_weighted_average_total_supply / len(self.cost_thresholds)
-                self._write_dataset("INDICATORS/non_weighted_avg_totalsupply.tif", non_weighted_average_total_supply, custom_metadata=out_meta)
-                if write_scaled_result:
-                    # apply min-max scaling
-                    scaler = MinMaxScaler()
-                    non_weighted_average_total_supply = scaler.fit_transform(non_weighted_average_total_supply.reshape([-1,1]))
-                    self._write_dataset('INDICATORS/scaled_non_weighted_avg_totalsupply.tif', non_weighted_average_total_supply.reshape(self.lsm_mtx.shape))
+                non_weighted_average_total_supply[clump_nodata_mask] = self.nodata_value
+                self.write_file("INDICATORS/non_weighted_avg_totalsupply.tif", non_weighted_average_total_supply, self.get_metadata(np.float64, self.nodata_value))
+                
+                # if write_scaled_result:
+                #     # apply min-max scaling
+                #     scaler = MinMaxScaler()
+                #     non_weighted_average_total_supply = scaler.fit_transform(non_weighted_average_total_supply.reshape([-1,1]))
+                #     self._write_dataset('INDICATORS/scaled_non_weighted_avg_totalsupply.tif', non_weighted_average_total_supply.reshape(self.lsm_mtx.shape))
 
 
             # def. case + cost weighting
             if cost_weights is not None:
                 cost_weighted_average_total_supply = cost_weighted_average_total_supply / sum(cost_weights.values())
-                self._write_dataset("INDICATORS/cost_weighted_avg_totalsupply.tif", cost_weighted_average_total_supply, custom_metadata=out_meta)
-                if write_scaled_result:
-                    # apply min-max scaling
-                    scaler = MinMaxScaler()
-                    cost_weighted_average_total_supply = scaler.fit_transform(cost_weighted_average_total_supply.reshape([-1,1]))
-                    self._write_dataset('INDICATORS/scaled_cost_weighted_avg_totalsupply.tif', cost_weighted_average_total_supply.reshape(self.lsm_mtx.shape))
+                cost_weighted_average_total_supply[clump_nodata_mask] = self.nodata_value
+                self.write_file("INDICATORS/cost_weighted_avg_totalsupply.tif", cost_weighted_average_total_supply, self.get_metadata(np.float64, self.nodata_value))
+                
+                # if write_scaled_result:
+                #     # apply min-max scaling
+                #     scaler = MinMaxScaler()
+                #     cost_weighted_average_total_supply = scaler.fit_transform(cost_weighted_average_total_supply.reshape([-1,1]))
+                #     self._write_dataset('INDICATORS/scaled_cost_weighted_avg_totalsupply.tif', cost_weighted_average_total_supply.reshape(self.lsm_mtx.shape))
 
             if lu_weights is not None:
                 # lu weights only
                 lu_weighted_average_total_supply = lu_weighted_average_total_supply / len(self.cost_thresholds)
-                self._write_dataset("INDICATORS/landuse_weighted_avg_totalsupply.tif", lu_weighted_average_total_supply, custom_metadata=out_meta)
-                if write_scaled_result:
-                    # apply min-max scaling
-                    scaler = MinMaxScaler()
-                    lu_weighted_average_total_supply = scaler.fit_transform(lu_weighted_average_total_supply.reshape([-1,1]))
-                    self._write_dataset('INDICATORS/scaled_landuse_weighted_avg_totalsupply.tif', lu_weighted_average_total_supply.reshape(self.lsm_mtx.shape))
+                lu_weighted_average_total_supply[clump_nodata_mask] = self.nodata_value
+                self.write_file("INDICATORS/landuse_weighted_avg_totalsupply.tif", lu_weighted_average_total_supply, self.get_metadata(np.float64, self.nodata_value))
+                
+                # if write_scaled_result:
+                #     # apply min-max scaling
+                #     scaler = MinMaxScaler()
+                #     lu_weighted_average_total_supply = scaler.fit_transform(lu_weighted_average_total_supply.reshape([-1,1]))
+                #     self._write_dataset('INDICATORS/scaled_landuse_weighted_avg_totalsupply.tif', lu_weighted_average_total_supply.reshape(self.lsm_mtx.shape))
 
                 if cost_weights is not None:
                     # both weights
                     bi_weighted_average_total_supply = bi_weighted_average_total_supply / sum(cost_weights.values())
-                    self._write_dataset("INDICATORS/bi_weighted_avg_totalsupply.tif", bi_weighted_average_total_supply, custom_metadata=out_meta)
-                    if write_scaled_result:
-                        # apply min-max scaling
-                        scaler = MinMaxScaler()
-                        bi_weighted_average_total_supply = scaler.fit_transform(bi_weighted_average_total_supply.reshape([-1,1]))
-                        self._write_dataset('INDICATORS/scaled_bi_weighted_avg_totalsupply.tif', bi_weighted_average_total_supply.reshape(self.lsm_mtx.shape))
+                    bi_weighted_average_total_supply[clump_nodata_mask] = self.nodata_value
+                    self.write_file("INDICATORS/bi_weighted_avg_totalsupply.tif", bi_weighted_average_total_supply, self.get_metadata(np.float64, self.nodata_value))
+
+                    # if write_scaled_result:
+                    #     # apply min-max scaling
+                    #     scaler = MinMaxScaler()
+                    #     bi_weighted_average_total_supply = scaler.fit_transform(bi_weighted_average_total_supply.reshape([-1,1]))
+                    #     self._write_dataset('INDICATORS/scaled_bi_weighted_avg_totalsupply.tif', bi_weighted_average_total_supply.reshape(self.lsm_mtx.shape))
 
             
         # done
         self.taskProgressReportStepCompleted()
 
-
-
+    
     def average_diversity_across_cost(self, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
         """Determine diversity of (recreational) land-uses averaged across cost thresholds. 
 
@@ -965,51 +792,181 @@ class Recreat(RecreatBase):
 
         with self.progress as p:
 
+            # clumps are required to properly mask islands
+            clump_reader, rst_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])
+            clump_nodata_mask = np.isin(rst_clumps, [self.nodata_value], invert=False)
+
             # result raster
             if write_non_weighted_result:
-                average_diversity = self._get_value_matrix(dest_datatype=np.float64)
+                average_diversity = self.get_matrix(0, self.get_shape(), np.float64)
             if cost_weights is not None:
-                cost_weighted_average_diversity = self._get_value_matrix(dest_datatype=np.float64)
+                cost_weighted_average_diversity = self.get_matrix(0, self.get_shape(), np.float64)
 
             # iterate over cost thresholds and aggregate cost-specific diversities into result
             for c in self.cost_thresholds:
-                mtx_current_diversity = self._read_band(f"DIVERSITY/diversity_cost_{c}.tif") 
+                
+                mtx_current_diversity = self._get_diversity_for_cost(c) 
+                mtx_current_diversity = mtx_current_diversity.astype(np.float64)
+                
                 if write_non_weighted_result:
                     average_diversity += mtx_current_diversity
                 if cost_weights is not None:
                     cost_weighted_average_diversity += (average_diversity * cost_weights[c])
-
+                
                 p.update(current_task, advance=1)
 
-            out_meta = self.lsm_rst.meta.copy()
-            out_meta.update({
-                'nodata' : 0.0,
-                'dtype' : np.float64
-            })
 
             # export averaged diversity grids
             if write_non_weighted_result:
                 average_diversity = average_diversity / len(self.cost_thresholds)
-                self._write_dataset("INDICATORS/non_weighted_avg_diversity.tif", average_diversity, custom_metadata=out_meta)
-                if write_scaled_result:
-                    # apply min-max scaling
-                    scaler = MinMaxScaler()
-                    average_diversity = scaler.fit_transform(average_diversity.reshape([-1,1]))
-                    self._write_dataset('INDICATORS/scaled_non_weighted_avg_diversity.tif', average_diversity.reshape(self.lsm_mtx.shape))
+                average_diversity[clump_nodata_mask] = self.nodata_value
+                self.write_file("INDICATORS/non_weighted_avg_diversity.tif", average_diversity, self.get_metadata(np.float64, self.nodata_value))
+                
+                # if write_scaled_result:
+                #     # apply min-max scaling
+                #     scaler = MinMaxScaler()
+                #     average_diversity = scaler.fit_transform(average_diversity.reshape([-1,1]))
+                #     self._write_dataset('INDICATORS/scaled_non_weighted_avg_diversity.tif', average_diversity.reshape(self.lsm_mtx.shape))
                         
             if cost_weights is not None:
                 cost_weighted_average_diversity = cost_weighted_average_diversity / sum(cost_weights.values())
-                self._write_dataset("INDICATORS/cost_weighted_avg_diversity.tif", cost_weighted_average_diversity, custom_metadata=out_meta)
-                if write_scaled_result:
-                    # apply min-max scaling
-                    scaler = MinMaxScaler()
-                    cost_weighted_average_diversity = scaler.fit_transform(cost_weighted_average_diversity.reshape([-1,1]))
-                    self._write_dataset('INDICATORS/scaled_cost_weighted_avg_diversity.tif', cost_weighted_average_diversity.reshape(self.lsm_mtx.shape))
+                cost_weighted_average_diversity[clump_nodata_mask] = self.nodata_value
+                self.write_file("INDICATORS/cost_weighted_avg_diversity.tif", cost_weighted_average_diversity, self.get_metadata(np.float64, self.nodata_value))
+                
+                # if write_scaled_result:
+                #     # apply min-max scaling
+                #     scaler = MinMaxScaler()
+                #     cost_weighted_average_diversity = scaler.fit_transform(cost_weighted_average_diversity.reshape([-1,1]))
+                #     self._write_dataset('INDICATORS/scaled_cost_weighted_avg_diversity.tif', cost_weighted_average_diversity.reshape(self.lsm_mtx.shape))
 
         # done
         self.taskProgressReportStepCompleted()
 
     
+
+    def disaggregation(self, population_grid: str, disaggregation_method: DisaggregationMethod, max_pixel_count: int, write_scaled_result: bool = True, count_threshold: int = None, min_sample_size: int = None) -> None:
+        """Disaggregates population to specified built-up (residential) classes. 
+
+        :param population_grid: Name of the population raster file to be used for disaggregation.
+        :type population_grid: str
+        :param disaggregation_method: Method to conduct disaggregation.
+        :type disaggregation_method: DisaggregationMethod
+        :param max_pixel_count: Number of built-up pixels per population raster. 
+        :type max_pixel_count: int
+        :param write_scaled_result: _description_, defaults to True
+        :type write_scaled_result: bool, optional
+        :param count_threshold: Sampling threshold.
+        :type count_threshold: int, optional
+        """
+        # mask residential classes
+        self.mask_landuses(lu_classes=self.lu_classes_builtup)
+
+        if disaggregation_method is DisaggregationMethod.SimpleAreaWeighted:            
+            disaggregation_engine = SimpleAreaWeightedEngine(
+                data_path=self.data_path, 
+                root_path=self.root_path,
+                population_grid=population_grid, 
+                residential_classes=self.lu_classes_builtup, 
+                max_pixel_count=max_pixel_count,
+                nodata_value=self.nodata_value,
+                write_scaled_result=write_scaled_result
+            )
+            
+            disaggregation_engine.run()
+
+        elif disaggregation_method is DisaggregationMethod.IntelligentDasymetricMapping:
+            disaggregation_engine = DasymetricMappingEngine(
+                data_path=self.data_path, 
+                root_path=self.root_path, 
+                population_grid=population_grid,
+                residential_classes=self.lu_classes_builtup, 
+                max_pixel_count=max_pixel_count,
+                count_threshold=count_threshold,
+                min_sample_size=min_sample_size,
+                nodata_value=self.nodata_value,
+                write_scaled_result=write_scaled_result
+            )
+
+            disaggregation_engine.run()
+
+    
+        
+    def beneficiaries_within_cost(self, mode: str = 'ocv_filter2d') -> None:  
+        """Determine number of beneficiaries within cost windows.
+
+        :param mode: Method to perform sliding window operation. One of 'generic_filter', 'convolve', or 'ocv_filter2d'. Defaults to 'ocv_filter2d', defaults to 'ocv_filter2d'
+        :type mode: str, optional
+        """      
+        dtype_to_use = np.int32
+        
+        self.printStepInfo("Determining beneficiaries within costs")
+
+
+        # read input data
+        disaggregated_population_reader, mtx_disaggregated_population = self.get_file("DEMAND/disaggregated_population.tif", [self.nodata_value])                        
+        mtx_disaggregated_population[mtx_disaggregated_population == self.nodata_value] = 0
+        
+        clump_reader, mtx_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])
+        clump_nodata_mask = np.isin(mtx_clumps, [self.nodata_value], invert=False)
+        clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))        
+        
+        step_count = len(self.cost_thresholds) * len(clump_slices)
+        current_task = self.get_task("[white]Determining beneficiaries", total=step_count)
+        
+        with self.progress:
+            for c in self.cost_thresholds:
+
+                mtx_pop_within_cost = self.sum_values_in_kernel(
+                    mtx_source=mtx_disaggregated_population.astype(dtype_to_use),
+                    mtx_clumps=mtx_clumps,
+                    clump_slices=clump_slices,
+                    cost=c,
+                    mode=mode,
+                    progress_task=current_task
+                )
+
+                # export current beneficiaries within cost
+                mtx_pop_within_cost[clump_nodata_mask] = self.nodata_value
+                self.write_file(f"DEMAND/beneficiaries_within_cost_{c}.tif", mtx_pop_within_cost, self.get_metadata(dtype_to_use, self.nodata_value))
+                del mtx_pop_within_cost
+                
+        
+        # subsequently, we need to order costs and subtract from the larger cost windows the population in the smaller cost windows
+        # this is to create layers for population within a specific cost-interval, in order to avoid a double counting of population.
+        # before, averaging beneficiaries within cost overestimated population, as larger cost windows included the pop of smaller cost windows, 
+        # hence double-counting pop within closer range
+        # this should be avoided.
+
+        step_count = len(self.cost_thresholds)
+        current_task = self.get_task("[white]Normalizing beneficiaries in cost ranges", total=step_count)
+        with self.progress:
+            # assert order from lowest to highest cost
+            sorted_costs = sorted(self.cost_thresholds)
+            self.progress.update(current_task, advance=1)
+            
+            # write lowest range directly
+            mtx_lower_range = self._get_beneficiaries_for_cost(sorted_costs[0])
+            mtx_lower_range[clump_nodata_mask] = self.nodata_value
+            self.write_file(f"DEMAND/beneficiaries_within_cost_range_{sorted_costs[0]}.tif", mtx_lower_range, self.get_metadata(np.float64, self.nodata_value))
+            del mtx_lower_range
+
+            for i in range(1,len(sorted_costs)):
+                
+                mtx_lower_range = self._get_beneficiaries_for_cost(sorted_costs[i-1]) 
+                mtx_current_cost = self._get_beneficiaries_for_cost(sorted_costs[i])
+
+                mtx_beneficiaries_in_cost_range = self.get_matrix(0, self.get_shape(), np.float64)
+                np.subtract(mtx_current_cost, mtx_lower_range, out=mtx_beneficiaries_in_cost_range)
+
+                # mask nodata and export
+                mtx_beneficiaries_in_cost_range[clump_nodata_mask] = self.nodata_value
+                self.write_file(f"DEMAND/beneficiaries_within_cost_range_{sorted_costs[i]}.tif", mtx_beneficiaries_in_cost_range, self.get_metadata(np.float64, self.nodata_value))
+                self.progress.update(current_task, advance=1)
+
+
+        # done
+        self.taskProgressReportStepCompleted()
+
     def average_beneficiaries_across_cost(self, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
         """Determine the number of potential beneficiaries, averaged across cost thresholds. 
 
@@ -1025,324 +982,163 @@ class Recreat(RecreatBase):
         step_count = len(self.cost_thresholds)
         current_task = self.get_task("[white]Averaging beneficiaries", total=step_count)
 
-        custom_meta = self.lsm_rst.meta.copy()
-        custom_meta.update({
-            'nodata' : 0.0
-        })
-
         with self.progress as p:
+            
+            clump_reader, mtx_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])
+            clump_nodata_mask = np.isin(mtx_clumps, [self.nodata_value], invert=False)
 
             # result raster
             if write_non_weighted_result:
-                average_pop = self._get_value_matrix()
+                averaged_beneficiaries = self.get_matrix(0, self.get_shape(), np.float64)
             if cost_weights is not None:
-                cost_weighted_average_pop = self._get_value_matrix()
+                cost_weighted_averaged_beneficiaries = self.get_matrix(0, self.get_shape(), np.float64)
 
             # iterate over cost thresholds and aggregate cost-specific beneficiaries into result
             for c in self.cost_thresholds:
-                mtx_current_pop = self._read_band(f"DEMAND/beneficiaries_within_cost_range_{c}.tif")
+                mtx_current_pop = self._get_beneficiaries_for_cost(c, return_cost_window_difference=True)
+
                 if write_non_weighted_result:
-                    average_pop += mtx_current_pop
+                    averaged_beneficiaries += mtx_current_pop
                 if cost_weights is not None:
-                    cost_weighted_average_pop += (mtx_current_pop * cost_weights[c])
+                    cost_weighted_averaged_beneficiaries += (mtx_current_pop * cost_weights[c])
+                
                 p.update(current_task, advance=1)
 
             # export averaged diversity grids
             if write_non_weighted_result:
-                average_pop = average_pop / len(self.cost_thresholds)
-                self._write_dataset("INDICATORS/non_weighted_avg_population.tif", average_pop, custom_metadata=custom_meta)
-                if write_scaled_result:
-                    # apply min-max scaling
-                    scaler = MinMaxScaler()
-                    average_pop = scaler.fit_transform(average_pop.reshape([-1,1]))
-                    self._write_dataset('INDICATORS/scaled_non_weighted_avg_population.tif', average_pop.reshape(self.lsm_mtx.shape))
+                averaged_beneficiaries = averaged_beneficiaries / len(self.cost_thresholds)
+                averaged_beneficiaries[clump_nodata_mask] = self.nodata_value
+                self.write_file("INDICATORS/non_weighted_avg_population.tif", averaged_beneficiaries, self.get_metadata(np.float64, self.nodata_value))
+                
+                # if write_scaled_result:
+                #     # apply min-max scaling
+                #     scaler = MinMaxScaler()
+                #     average_pop = scaler.fit_transform(average_pop.reshape([-1,1]))
+                #     self._write_dataset('INDICATORS/scaled_non_weighted_avg_population.tif', average_pop.reshape(self.lsm_mtx.shape))
 
             if cost_weights is not None:
-                cost_weighted_average_pop = cost_weighted_average_pop / sum(cost_weights.values())
-                self._write_dataset("INDICATORS/cost_weighted_avg_population.tif", cost_weighted_average_pop, custom_metadata=custom_meta)
-                if write_scaled_result:
-                    # apply min-max scaling
-                    scaler = MinMaxScaler()
-                    cost_weighted_average_pop = scaler.fit_transform(cost_weighted_average_pop.reshape([-1,1]))
-                    self._write_dataset('INDICATORS/scaled_cost_weighted_avg_population.tif', cost_weighted_average_pop.reshape(self.lsm_mtx.shape))
+                cost_weighted_averaged_beneficiaries = cost_weighted_averaged_beneficiaries / sum(cost_weights.values())
+                cost_weighted_averaged_beneficiaries[clump_nodata_mask] = self.nodata_value
+                self.write_file("INDICATORS/cost_weighted_avg_population.tif", cost_weighted_averaged_beneficiaries, self.get_metadata(np.float64, self.nodata_value))
+                
+                # if write_scaled_result:
+                #     # apply min-max scaling
+                #     scaler = MinMaxScaler()
+                #     cost_weighted_average_pop = scaler.fit_transform(cost_weighted_average_pop.reshape([-1,1]))
+                #     self._write_dataset('INDICATORS/scaled_cost_weighted_avg_population.tif', cost_weighted_average_pop.reshape(self.lsm_mtx.shape))
 
         # done
         self.taskProgressReportStepCompleted()
 
 
+    def _compute_proximity_raster_for_land_use(self, rst_clumps, clump_slices, lu, mode, current_task) -> np.ndarray:
 
+        # target raster
+        lu_dr = self.get_matrix(0, self.get_shape(), np.float32)
+
+        # for proximities, edge or patch does not matter basically - if within boundaries of edge class, proximity should still be 0, as distance to edge only matters from outside.
+        # however, as prox are determined at clump level, we need to add edge to mask in order to have potential buffered edges included, so that in case of barrier classes,
+        # we get a proper depiction of prox
+        
+        lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
+        src_lu_mtx_reader, src_lu_mtx = self.get_file(f'MASKS/mask_{lu}.tif', [self.nodata_value])
+        src_lu_mtx[src_lu_mtx == self.nodata_value] = 0
+
+        if lu_type == "edge":                    
+            mtx_edge_reader, mtx_edge = self.get_file(f'MASKS/edges_{lu}.tif', [self.nodata_value])
+            src_lu_mtx[mtx_edge == 1] = 1
+                        
+        # add here support for clumping, i.e., determine proximities only to available opportunities within each clump
+        # check how to integrate that into the dr raster in the end
+        # now operate over clumps, in order to safe some computational time
+        for patch_idx in range(len(clump_slices)):
+            obj_slice = clump_slices[patch_idx]
+            obj_label = patch_idx + 1
+
+            # get slice from land-use mask
+            sliced_lu_mtx = src_lu_mtx[obj_slice].copy() 
+            sliced_clump_mtx = rst_clumps[obj_slice]
     
-    def average_flow_across_cost(self, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True):
-        """Determine the number of potential beneficiaries in terms of flow to (recreational) land-use classes, averaged across cost thresholds.
+            # properly mask out current object
+            obj_mask = np.isin(sliced_clump_mtx, [obj_label], invert=False)
+            sliced_lu_mtx[~obj_mask] = 0
 
-        :param cost_weights: Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined, defaults to None
-        :type cost_weights: Dict[float, float], optional
-        :param write_non_weighted_result: Indicates if non-weighted total supply be computed, defaults to True
-        :type write_non_weighted_result: bool, optional
-        :param write_scaled_result: Indicates if min-max-scaled values should be written as separate outputs, defaults to True
-        :type write_scaled_result: bool, optional
+            # check if we actually have opportunity in reach in current clump slice:
+            if np.sum(sliced_lu_mtx) > 0:
+                
+                if mode == 'dr':
+                    # now all pixels outside of clump should be zeroed, and we can determine proximity on the subset of the full raster
+                    sliced_dr = dr.DistanceRaster(sliced_lu_mtx, progress_bar=False)
+                    sliced_dr = sliced_dr.dist_array
+                elif mode == 'xr':
+                    n, m = sliced_lu_mtx.shape
+                    xr_rst = xr.DataArray(sliced_lu_mtx, dims=['y', 'x'], name='raster')
+                    xr_rst['y'] = np.arange(n)[::-1]
+                    xr_rst['x'] = np.arange(m)
+                    sliced_dr = proximity(xr_rst, target_values = [1]).to_numpy()
+                
+                # proximities should only be written to clump object
+                sliced_dr[~obj_mask] = 0
+                lu_dr[obj_slice] += sliced_dr
+                                        
+            self.progress.update(current_task, advance=1)
+        
+        del src_lu_mtx
+        return lu_dr
+
+    def compute_distance_rasters(self, mode: str = 'xr', lu_classes: List[int] = None, assess_builtup: bool = False) -> None:
+        """Generate proximity rasters to land-use classes based on identified clumps.
+
+        :param mode: Method used to compute proximity matrix. Either 'dr' or 'xr', defaults to 'xr'
+        :type mode: str, optional
+        :param lu_classes: List of integers, i.e., land-use classes to assess, defaults to None
+        :type lu_classes: List[int], optional
+        :param assess_builtup: Assesses proximities to built-up, if true, defaults to False
+        :type assess_builtup: bool, optional
         """        
 
-        self.printStepInfo("Averaging flow across costs")        
-        step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)) 
-        current_task = self.get_task("[white]Averaging flow across costs", total=step_count)
+        self.printStepInfo("Computing distance rasters")
+        # determine proximity outward from relevant lu classes, including built-up
+        classes_for_proximity_calculation = (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge) if lu_classes is None else lu_classes
 
-        with self.progress as p:
-
-            # result grids for integrating averaged flows
-            if write_non_weighted_result:
-                integrated_average_flow = self._get_value_matrix()
-            if cost_weights is not None:
-                integrated_cost_weighted_average_flow = self._get_value_matrix()
-
-            # iterate over cost thresholds and lu classes                
-            for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):               
-
-                # result grids for average flow for current cost threshold
-                if write_non_weighted_result:
-                    class_average_flow = self._get_value_matrix()
-                if cost_weights is not None:
-                    cost_weighted_class_average_flow = self._get_value_matrix()
-
-                for c in self.cost_thresholds:
-                    # determine source of list
-                    lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
-                    filename = "FLOWS/flow_class_{}_cost_{}.tif".format(lu, c) if lu_type == 'patch' else "FLOWS/flow_edge_class_{}_cost_{}.tif".format(lu, c)
-
-                    mtx_current_flow = self._read_band(filename) 
-                    if write_non_weighted_result:
-                        class_average_flow += mtx_current_flow
-                    if cost_weights is not None:
-                        cost_weighted_class_average_flow += (mtx_current_flow * cost_weights[c])
-                    p.update(current_task, advance=1)
-
-                # we have now iterated over cost thresholds
-                # export current class-averaged flow, and integrate with final product
-                if write_non_weighted_result:
-                    class_average_flow = class_average_flow / len(self.cost_thresholds)
-                    self._write_dataset("FLOWS/average_flow_class_{}.tif".format(lu), class_average_flow)
-                    # add to integrated grid
-                    integrated_average_flow += class_average_flow
-
-                if cost_weights is not None:
-                    cost_weighted_class_average_flow = cost_weighted_class_average_flow / sum(cost_weights.values())
-                    self._write_dataset("FLOWS/cost_weighted_average_flow_class_{}.tif".format(lu), cost_weighted_class_average_flow)
-                    # add to integrated grid
-                    integrated_cost_weighted_average_flow += cost_weighted_class_average_flow
-
-            # export integrated grids
-            if write_non_weighted_result:
-                self._write_dataset("FLOWS/integrated_avg_flow.tif", integrated_average_flow)
-                if write_scaled_result:
-                    # apply min-max scaling
-                    scaler = MinMaxScaler()
-                    integrated_average_flow = scaler.fit_transform(integrated_average_flow.reshape([-1,1]))
-                    self._write_dataset('FLOWS/scaled_integrated_avg_flow.tif', integrated_average_flow.reshape(self.lsm_mtx.shape))
-            
-            if cost_weights is not None:
-                self._write_dataset("FLOWS/integrated_cost_weighted_avg_flow.tif", integrated_cost_weighted_average_flow)
-                if write_scaled_result:
-                    # apply min-max scaling
-                    scaler = MinMaxScaler()
-                    integrated_cost_weighted_average_flow = scaler.fit_transform(integrated_cost_weighted_average_flow.reshape([-1,1]))
-                    self._write_dataset('FLOWS/scaled_integrated_cost_weighted_avg_flow.tif', integrated_cost_weighted_average_flow.reshape(self.lsm_mtx.shape))
-
-        self.taskProgressReportStepCompleted()
-
-
-    def determine_clump_area(self, lu: int, pixel_area_sqm: float, nodata_value: float = -9999):
+        # import the clumps raster
+        # detect slices here, to avoid having to recall detect_clumps each time we want to do proximity computations
+        clump_reader, rst_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])
+        clump_nodata_mask = np.isin(rst_clumps, [self.nodata_value], invert=False)
+        clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))        
         
-        self.printStepInfo("Determine clump area from mask")
+        step_count = len(classes_for_proximity_calculation) * len(clump_slices)
+        current_task = self.get_task("[white]Computing distance rasters", total=step_count)
 
-        # define a queen contiguity
-        clump_connectivity = np.full((3,3), 1)
-                
-        # get lu mask as basis to determine clump total area
-        lu_type = 'patch' if lu in self.lu_classes_recreation_patch else 'edge'
-        mtx_lu_mask = self._get_mask_for_lu(lu, lu_type)
-        
-        mtx_current_lu_clumps = self._get_value_matrix(dest_datatype=np.int64)
-        mtx_current_lu_clump_size = self._get_value_matrix(dest_datatype=np.float32)
-
-        nr_clumps = ndimage.label(mtx_lu_mask, structure=clump_connectivity, output=mtx_current_lu_clumps)
-        print(f"{Fore.YELLOW}{Style.BRIGHT}{nr_clumps}CLUMPS FOUND")
-
-        current_lu_clump_slices = ndimage.find_objects(mtx_current_lu_clumps.astype(np.int64)) 
-
-        # iterate over clumps of current lu and determine clump sizes
-        clump_progress = self.get_task("[white]Iterate clumps", total=len(current_lu_clump_slices))
-        
-        with self.progress as p:
-            
-            for patch_idx in range(len(current_lu_clump_slices)):
-                obj_slice = current_lu_clump_slices[patch_idx]
-                obj_label = patch_idx + 1
-
-                # get slice from mask
-                # mask
-                clump_slice = mtx_current_lu_clumps[obj_slice]
-                obj_mask = np.isin(clump_slice, [obj_label], invert=False)
-
-                mask_slice = mtx_lu_mask[obj_slice].copy()
-                mask_slice[obj_mask] = 1
-                mask_slice[~obj_mask] = 0       
-
-                # now that we have zeroed all non-clump pixels, the area in sqm of current clump is equal to the number of pixels * user-specified resolution
-                val_clump_size = np.sum(mask_slice) * pixel_area_sqm                   
-                
-                # replace presence/absence in mask with size of clump in sqm 
-                clump_size_as_mtx = val_clump_size * mask_slice
-                mtx_current_lu_clump_size[obj_slice] += clump_size_as_mtx
-                p.update(clump_progress, advance=1)
-
-
-        # write outputs
-        mtx_current_lu_clump_size[mtx_current_lu_clump_size == 0] = nodata_value
-        rst_meta = self.lsm_rst.meta.copy()
-        rst_meta.update({
-            'dtype' : np.float32,
-            'npdata' : nodata_value
-        })
-
-        self._write_dataset(f"CLUMPS_LU/clump_area_{lu}.tif", mtx_current_lu_clump_size.astype(np.float32), mask_nodata=False, custom_metadata=rst_meta)
-
-    # 
-    # Clump detection in land-uses to determine size of patches and edges
-    # To determine per-capita recreational area
-    #
-
-    def per_capita_opportunity_area(self):
-        
-        self.printStepInfo("Determining per-capita opportunity area")
-        step_count = len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)
-        lu_progress = self.get_task("[white]Per-capita assessment", total=step_count)
-
-        # get average flow for all lu patches as basis for average per-capita area
-        mtx_average_flows = self._read_band("FLOWS/integrated_avg_flow.tif")
-        # make clump raster
-        clump_connectivity = np.full((3,3), 1)
-
-        with self.progress as p:
-
-            # particularly for debugging reasons, write out all grids
-            res_lu_patch_area_per_capita = self._get_value_matrix()
-            res_lu_clump_size = self._get_value_matrix()
-            res_lu_clump_average_flow = self._get_value_matrix()
-
-            # iterate over land-uses
-            for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):
-                # determine lu type
-                lu_type = 'patch' if lu in self.lu_classes_recreation_patch else 'edge'
-                
-                # get lu mask as basis to determine clump total area
-                mtx_current_lu_mask = self._get_mask_for_lu(lu, lu_type)
-
-                mtx_current_lu_clumps = self._get_value_matrix()
-                mtx_current_lu_clump_size = self._get_value_matrix()
-                mtx_current_lu_clump_average_flow = self._get_value_matrix()
-
-                nr_clumps = ndimage.label(mtx_current_lu_mask, structure=clump_connectivity, output=mtx_current_lu_clumps)
-                print(f"{Fore.YELLOW}{Style.BRIGHT}{nr_clumps} CLUMPS FOUND FOR CLASS {lu}{Style.RESET_ALL}")
-                current_lu_clump_slices = ndimage.find_objects(mtx_current_lu_clumps.astype(np.int64)) 
-
-                # iterate over clumps of current lu 
-                clump_progress = p.add_task(f"[white]Iterate clumps on class {lu}", total=len(current_lu_clump_slices))
-
-                for patch_idx in range(len(current_lu_clump_slices)):
-                    obj_slice = current_lu_clump_slices[patch_idx]
-                    obj_label = patch_idx + 1
-
-                    # get slice from mask
-                    # mask
-                    clump_slice = mtx_current_lu_clumps[obj_slice]
-                    obj_mask = np.isin(clump_slice, [obj_label], invert=False)
-                    
-                    mask_slice = mtx_current_lu_mask[obj_slice].copy()
-                    mask_slice[obj_mask] = 1
-                    mask_slice[~obj_mask] = 0        
-                    # now that we have zeroed all non-clump pixels, the area in sqkm of current clump should be equal to number of pixels of current clump
-                    # convert from sqkm to sqm
-                    val_clump_size = np.sum(mask_slice) * 1000000                   
-                    
-                    flow_slice = mtx_average_flows[obj_slice].copy()                    
-                    flow_slice[~obj_mask] = 0
-                    val_clump_average_flow = np.mean(flow_slice, where=flow_slice > 0) if np.sum(flow_slice) > 0 else 1
-
-                    clump_size_as_mtx = val_clump_size * mask_slice
-                    clump_flow_as_mtx = val_clump_average_flow * mask_slice
-                    
-                    mtx_current_lu_clump_size[obj_slice] += clump_size_as_mtx
-                    mtx_current_lu_clump_average_flow[obj_slice] += clump_flow_as_mtx
-
-                    
-                    p.update(clump_progress, advance=1)
-                
-                # determine per-capita area
-                mtx_current_lu_clump_area_per_capita = np.divide(mtx_current_lu_clump_size, mtx_current_lu_clump_average_flow, out=np.zeros_like(mtx_current_lu_clump_size), where=mtx_current_lu_clump_average_flow > 0)
-
-                # export result
-                #self._write_dataset('CLUMPS_LU/clump_size_class_{}.tif'.format(lu), mtx_current_lu_clump_size)
-                #self._write_dataset('CLUMPS_LU/clump_flow_class_{}.tif'.format(lu), mtx_current_lu_clump_average_flow)
-                #self._write_dataset('CLUMPS_LU/clump_pcap_class_{}.tif'.format(lu), mtx_current_lu_clump_area_per_capita)
-
-                # add to integrated grid
-                res_lu_clump_size += mtx_current_lu_clump_size
-                res_lu_clump_average_flow += mtx_current_lu_clump_average_flow                
-                res_lu_patch_area_per_capita += mtx_current_lu_clump_area_per_capita   
-
-                p.update(lu_progress, advance=1)
-
-        self._write_dataset('CLUMPS_LU/clumps_size.tif', res_lu_clump_size)
-        self._write_dataset('CLUMPS_LU/clumps_flow.tif', res_lu_clump_average_flow)
-        self._write_dataset('CLUMPS_LU/clumps_pcap.tif', res_lu_patch_area_per_capita)
-
+        # iterate over classes and clumps
+        with self.progress:
+            for lu in classes_for_proximity_calculation:
+                # make computation
+                lu_dr = self._compute_proximity_raster_for_land_use(rst_clumps, clump_slices, lu, mode, current_task)
+                # mask and export lu prox
+                lu_dr[clump_nodata_mask] = self.nodata_value
+                self.write_file(f"PROX/dr_{lu}.tif", lu_dr, self.get_metadata(np.float32, self.nodata_value))                
+                # clean up
+                del lu_dr
+               
+        if assess_builtup:
+            step_count = len(self.lu_classes_builtup) * len(clump_slices)
+            current_task = self.get_task("[white]Computing distance rasters to built-up", total=step_count)
+            with self.progress:
+                for lu in self.lu_classes_builtup:
+                     # make computation
+                    lu_dr = self._compute_proximity_raster_for_land_use(rst_clumps, clump_slices, lu, mode, current_task)
+                    # mask and export lu prox
+                    lu_dr[clump_nodata_mask] = self.nodata_value
+                    self.write_file(f"PROX/dr_{lu}.tif", lu_dr, self.get_metadata(np.float32, self.nodata_value))                    
+                    # clean up
+                    del lu_dr
+ 
         # done
         self.taskProgressReportStepCompleted()
 
-
-
-    def minimum_cost_to_closest(self, lu_classes = None, nodata_value: int = -9999, write_scaled_result: bool = True) -> None:
-        
-        self.printStepCompleteInfo("Assessing minimum cost to closest")
-
-        included_lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
-        
-        step_count = len(included_lu_classes)
-        current_task = self.get_task("[white]Assessing minimum cost to closest", total=step_count)
-
-        # make result layer
-        high_val = 9999999
-        
-        mtx_min_cost = self._get_value_matrix(fill_value = high_val, dest_datatype=np.float32)
-        mtx_min_type = self._get_value_matrix(fill_value = 0, dest_datatype=np.float32)
-
-        with self.progress as p:
-            for lu in included_lu_classes:
-
-                mtx_proximity = self._read_band(f'COSTS/minimum_cost_{lu}.tif')   
-                
-                # in mtx_proximity, we have any form of actual distance as values >= 0, and
-                # all other pixels as nodata_value (by default, -9999)
-                condition = ((mtx_proximity < mtx_min_cost) & (mtx_proximity != nodata_value))
-
-                mtx_min_cost[condition] = mtx_proximity[condition]                
-                mtx_min_type = np.where(condition, lu, mtx_min_type)
-
-                p.update(current_task, advance=1)
-
-            mtx_min_cost[mtx_min_cost == high_val] = nodata_value
-            custom_meta = self.lsm_rst.meta.copy()
-            custom_meta.update({
-                'nodata' : nodata_value,
-                'dtype' : np.float32
-            })
-            self._write_dataset('INDICATORS/non_weighted_minimum_cost.tif', mtx_min_cost, mask_nodata=False, custom_metadata=custom_meta)
-            self._write_dataset('INDICATORS/minimum_opportunity_type.tif', mtx_min_type, mask_nodata=False, custom_metadata=custom_meta)
-
-        # done
-        self.taskProgressReportStepCompleted()
-
-    def cost_to_closest(self, lu_classes = None, nodata_value: int = -9999) -> None:
+    
+    def cost_to_closest(self, lu_classes = None) -> None:
         
         # several assumptions need to be considered when computing costs:
         # the output of distances is...
@@ -1355,7 +1151,8 @@ class Recreat(RecreatBase):
         included_lu_classes = lu_classes if lu_classes is not None else self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
 
         # we require clumps for masking
-        mtx_clumps = self._read_band("MASKS/clumps.tif")        
+        clumps_reader, mtx_clumps = self.get_file("BASE/clumps.tif", [self.nodata_value])        
+        clump_nodata_mask = np.isin(mtx_clumps, [self.nodata_value], invert=False)
         clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))
         
         step_count = len(included_lu_classes) * len(clump_slices)
@@ -1367,17 +1164,17 @@ class Recreat(RecreatBase):
             for lu in included_lu_classes:
                 
                 # store final result
-                mtx_out = self._get_value_matrix(dest_datatype=np.float32)
+                mtx_out = self.get_matrix(0, self.get_shape(), np.float32)
                 
                 # get relevant lu-specific datasets
                 # complete cost raster
-                mtx_lu_prox = self._read_band(f'PROX/dr_{lu}.tif')
+                mtx_proximity_to_lu = self._get_proximity_raster_for_lu(lu) 
                 
                 # complete mask raster
                 lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
                 mtx_lu_mask = self._get_mask_for_lu(lu, lu_type=lu_type)
 
-                # iterate over patches, and for each patch, determine whether um of mask is 0 (then all 0 costs are nodata)
+                # iterate over patches, and for each patch, determine whether sum of mask is 0 (then all 0 costs are nodata)
                 # or whether sum of mask > 0, then 0 are actual within-lu costs, and remaining values should be > 0 for the current lu
                 for patch_idx in range(len(clump_slices)):
                     
@@ -1399,30 +1196,74 @@ class Recreat(RecreatBase):
                     if np.sum(sliced_lu_mask) > 0:
                         
                         # write out proximities
-                        sliced_lu_prox = mtx_lu_prox[obj_slice].copy()
-                        np.add(sliced_lu_prox, 1, out=sliced_lu_prox)                        
-                        sliced_lu_prox[~obj_mask] = 0                      
-                        mtx_out[obj_slice] += sliced_lu_prox
+                        mtx_sliced_proximity_to_lu = mtx_proximity_to_lu[obj_slice].copy()                        
+                        # add one to allow re-masking with 0. we will subtract that later for the completed matrix
+                        np.add(mtx_sliced_proximity_to_lu, 1, out=mtx_sliced_proximity_to_lu)                        
+                        
+                        mtx_sliced_proximity_to_lu[~obj_mask] = 0                      
+                        mtx_out[obj_slice] += mtx_sliced_proximity_to_lu
 
                     p.update(current_task, advance=1)
 
 
                 # done iterating over patches
                 del mtx_lu_mask
-                del mtx_lu_prox
+                del mtx_proximity_to_lu
 
                 # now apply nodata value to all values that are 0, as we shifted all proximities by +1
-                mtx_out[mtx_out <= 0] = nodata_value
+                mtx_out[mtx_out <= 0] = self.nodata_value
                 np.subtract(mtx_out, 1, out=mtx_out, where=mtx_out > 0)
 
                 # export mtx_out for current lu
-                self._write_dataset(f'COSTS/minimum_cost_{lu}.tif', mtx_out, mask_nodata=False)
+                self.write_file(f'COSTS/minimum_cost_{lu}.tif', mtx_out, self.get_metadata(np.float32, self.nodata_value))
 
         # done
         self.taskProgressReportStepCompleted()
 
+    
+    def minimum_cost_to_closest(self, lu_classes = None, write_scaled_result: bool = True) -> None:
+        
+        self.printStepCompleteInfo("Assessing minimum cost to closest")
 
-    def average_cost_to_closest(self, lu_classes = None, nodata_value: int = -9999, distance_threshold: float = -1, write_scaled_result: bool = True) -> None:
+        included_lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
+        
+        step_count = len(included_lu_classes)
+        current_task = self.get_task("[white]Assessing minimum cost to closest", total=step_count)
+
+        # make result layer
+        high_val = 9999999
+        
+        mtx_min_cost = self.get_matrix(high_val, self.get_shape(), np.float32)
+        mtx_min_type = self.get_matrix(0, self.get_shape(), np.float32)
+
+        with self.progress as p:
+            for lu in included_lu_classes:
+
+                mtx_proximity = self._get_minimum_cost_for_lu(lu) 
+                
+                # in mtx_proximity, we have any form of actual distance as values >= 0, and
+                # all other pixels as nodata_value (by default, -9999)
+                condition = ((mtx_proximity < mtx_min_cost) & (mtx_proximity != self.nodata_value))
+
+                mtx_min_cost[condition] = mtx_proximity[condition]                
+                mtx_min_type = np.where(condition, lu, mtx_min_type)
+
+                p.update(current_task, advance=1)
+
+            mtx_min_cost[mtx_min_cost == high_val] = self.nodata_value
+            
+            # mask and export layers
+            self.write_file('INDICATORS/non_weighted_minimum_cost.tif', mtx_min_cost, self.get_metadata(np.float32, self.nodata_value))
+            
+            mtx_min_type[mtx_min_type == 0] = self.nodata_value
+            self.write_file('INDICATORS/minimum_opportunity_type.tif', mtx_min_type, self.get_metadata(np.float32, self.nodata_value))
+
+        # done
+        self.taskProgressReportStepCompleted()
+
+    
+
+    def average_cost_to_closest(self, lu_classes = None, distance_threshold: float = -1, write_scaled_result: bool = True) -> None:
         
         # TODO: Add lu-based weighting
 
@@ -1433,17 +1274,11 @@ class Recreat(RecreatBase):
         current_task = self.get_task("[white]Averaging cost to closest", total=step_count)
 
         # raster for average result
-        mtx_average_cost = self._get_value_matrix(dest_datatype=np.float32)
-        mtx_lu_cost_count_considered = self._get_value_matrix(dest_datatype=np.float32)    
+        mtx_average_cost = self.get_matrix(0, self.get_shape(), np.float32)
+        mtx_lu_cost_count_considered = self.get_matrix(0, self.get_shape(), np.int32)    
         
         if distance_threshold > 0:
-            print(f"{Fore.YELLOW}{Style.BRIGHT}Masking costs > {distance_threshold} units{Style.RESET_ALL}")
-        
-        custom_meta = self.lsm_rst.meta.copy()
-        custom_meta.update({
-            'dtype' : np.float32,
-            'nodata' : nodata_value
-        })
+            print(f"{Fore.YELLOW}{Style.BRIGHT}Masking costs > {distance_threshold} units{Style.RESET_ALL}")                
 
         with self.progress as p:
 
@@ -1452,7 +1287,7 @@ class Recreat(RecreatBase):
                 
                 # get relevant lu-specific datasets
                 # complete cost raster
-                mtx_lu_prox = self._read_band(f'COSTS/minimum_cost_{lu}.tif')
+                mtx_lu_prox = self._get_minimum_cost_for_lu(lu)
                 
                 # the mtx_lu_prox raster contains values of nodata if no lu in clump/outside of clump, 
                 # or >= 0 when cost is within or towards lu
@@ -1462,10 +1297,10 @@ class Recreat(RecreatBase):
                 # if we require cost masking by distance thresholds > 0, 
                 # mask inputs here
                 if distance_threshold > 0:
-                    mtx_lu_prox[mtx_lu_prox > distance_threshold] = nodata_value
+                    mtx_lu_prox[mtx_lu_prox > distance_threshold] = self.nodata_value
 
-                np.add(mtx_average_cost, mtx_lu_prox, out=mtx_average_cost, where=mtx_lu_prox != nodata_value)
-                np.add(mtx_lu_cost_count_considered, 1, out=mtx_lu_cost_count_considered, where=mtx_lu_prox != nodata_value)
+                np.add(mtx_average_cost, mtx_lu_prox, out=mtx_average_cost, where=mtx_lu_prox != self.nodata_value)
+                np.add(mtx_lu_cost_count_considered, 1, out=mtx_lu_cost_count_considered, where=mtx_lu_prox != self.nodata_value)
            
                 p.update(current_task, advance=1)
 
@@ -1476,350 +1311,25 @@ class Recreat(RecreatBase):
         # export average cost grid
         # prior, determine actual average. here, consider per each pixel the number of grids added.
         # self._write_dataset('COSTS/raw_sum_of_cost.tif', mtx_average_cost, mask_nodata=False, custom_metadata=custom_meta)
-        self._write_dataset('COSTS/cost_count.tif', mtx_lu_cost_count_considered, mask_nodata=False, custom_metadata=custom_meta)
+        self.write_file('COSTS/cost_count.tif', mtx_lu_cost_count_considered, self.get_metadata(np.int32, self.nodata_value))
                 
         np.divide(mtx_average_cost, mtx_lu_cost_count_considered, out=mtx_average_cost, where=mtx_lu_cost_count_considered > 0)     
-        # we should now also be able to reset cells with nodata values to the actual nodata_value
-        mtx_average_cost[mtx_lu_cost_count_considered <= 0] = nodata_value
-
-        self._write_dataset('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost, mask_nodata=False, custom_metadata=custom_meta)
         
-        if write_scaled_result:
-            # apply min-max scaling
-            scaler = MinMaxScaler()
-            mtx_average_cost = 1-scaler.fit_transform(mtx_average_cost.reshape([-1,1]))
-            self._write_dataset('INDICATORS/scaled_non_weighted_avg_cost.tif', mtx_average_cost.reshape(self.lsm_mtx.shape), mask_nodata=False)
+        # we should now also be able to reset cells with nodata values to the actual nodata_value
+        mtx_average_cost[mtx_lu_cost_count_considered < 0] = self.nodata_value
+
+        self.write_file('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost, self.get_metadata(np.float32, self.nodata_value))
+        
+        # if write_scaled_result:
+        #     # apply min-max scaling
+        #     scaler = MinMaxScaler()
+        #     mtx_average_cost = 1-scaler.fit_transform(mtx_average_cost.reshape([-1,1]))
+        #     self._write_dataset('INDICATORS/scaled_non_weighted_avg_cost.tif', mtx_average_cost.reshape(self.lsm_mtx.shape), mask_nodata=False)
 
         del mtx_average_cost
         del mtx_lu_cost_count_considered
 
         # done
         self.taskProgressReportStepCompleted()
-
-
-
-
-
-    #
-    # Helper functions
-    #
-    #
-    def _get_dataset_reader(self, file_name: str, is_scenario_specific: bool = True) -> rasterio.DatasetReader:
-        """Get dataset reader for a given raster file.
-
-        :param file_name: Raster file for which a dataset reader should be returned.
-        :type file_name: str
-        :param is_scenario_specific: Indicates if the specified datasource located in a scenario-specific subfolder (True) or at the data path root (False), defaults to True
-        :type is_scenario_specific: bool, optional
-        :return: Dataset reader
-        :rtype: rasterio.DatasetReader
-        """
-        path = self.get_file_path(file_name, is_scenario_specific)
-        return rasterio.open(path)
-
-
-
-
-    def _read_dataset(self, file_name: str, band: int = 1, nodata_values: List[float] = [0], is_scenario_specific: bool = True, nodata_fill_value = None, is_lazy_load = False) -> Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]:
-        """Read a dataset and return reference to the dataset, values, and boolean mask of nodata values.
-
-        :param file_name: Filename of dataset to be read.
-        :type file_name: str
-        :param band: Band to be read, defaults to 1
-        :type band: int, optional
-        :param nodata_values: List of values indicating nodata, defaults to [0]
-        :type nodata_values: List[float], optional
-        :param is_scenario_specific: Indicates if the specified datasource located in a scenario-specific subfolder (True) or at the data path root (False), defaults to True
-        :type is_scenario_specific: bool, optional
-        :param nodata_fill_value: If set to a value, nodata values of the raster to be imported will be filled up with the specified value, defaults to None
-        :type nodata_fill_value: _type_, optional
-        :param is_lazy_load: If set to True, apply lazy loading of raster data, defaults to False
-        :type is_lazy_load: bool, optional
-        :return: Dataset, data matrix, and mask of nodata values
-        :rtype: Tuple[rasterio.DatasetReader, np.ndarray, np.ndarray]
-        """        
-                
-        path = self.get_file_path(file_name, is_scenario_specific)
-        if self.verbose_reporting:
-            print(Fore.WHITE + Style.DIM + "    READING {}".format(path) + Style.RESET_ALL)
-        
-        rst_ref = rasterio.open(path)
-        band_data = rst_ref.read(band)
-
-        # attempt replacement of nodata with desired fill value
-        nodata_mask = np.isin(band_data, nodata_values, invert=False)             
-        
-        if not is_lazy_load:
-
-            fill_value = self.nodata_value if nodata_fill_value is None else nodata_fill_value
-            for nodata_value in nodata_values:
-
-                # replace only if not the same values!
-                if fill_value != nodata_value:
-                    if self.verbose_reporting:                
-                        print(Fore.YELLOW + Style.DIM + "    REPLACING NODATA VALUE={} WITH FILL VALUE={}".format(nodata_value, fill_value) + Style.RESET_ALL) 
-                    band_data = np.where(band_data==nodata_value, fill_value, band_data)
-
-        else:
-            del band_data
-            band_data is None
-
-        # determine nodata mask AFTER potential filling of nodata values  
-        return rst_ref, band_data, nodata_mask
-
-
-    def _read_band(self, file_name: str, band: int = 1, is_scenario_specific: bool = True) -> np.ndarray:
-        """Read a raster band.
-
-        :param file_name: Filename of dataset to be read.
-        :type file_name: str
-        :param band: Band to be read, defaults to 1
-        :type band: int, optional
-        :param is_scenario_specific: Indicates if the specified datasource located in a scenario-specific subfolder (True) or at the data path root (False), defaults to True
-        :type is_scenario_specific: bool, optional
-        :return: Raster band
-        :rtype: np.ndarray
-        """        
-
-        rst_ref, band_data, nodata_mask = self._read_dataset(file_name=file_name, band=band, is_scenario_specific=is_scenario_specific, is_lazy_load=False)
-        return band_data
-    
-    def _write_dataset(self, file_name: str, outdata: np.ndarray, mask_nodata: bool = True, is_scenario_specific: bool = True, custom_metadata: Dict[str,any] = None, custom_nodata_mask: np.ndarray = None) -> None:
-        """Write a dataset to disk.
-
-
-        :param file_name: Name of file to be written.
-        :type file_name: str
-        :param outdata: Values to be written.
-        :type outdata: np.ndarray
-        :param mask_nodata: Indicates if nodata values should be masked using default or custom nodata mask (True) or not (False). Uses custom nodata mask if specified, defaults to True
-        :type mask_nodata: bool, optional
-        :param is_scenario_specific: Indicates whether file should be written in a scenario-specific subfolder (True) or in the data path root (False), defaults to True
-        :type is_scenario_specific: bool, optional
-        :param custom_metadata: Custom raster metadata to be used. If not specified, uses default land-use grid metadata, defaults to None
-        :type custom_metadata: Dict[str,any], optional
-        :param custom_nodata_mask: Custom nodata mask to apply if mask_nodata is set to True, defaults to None
-        :type custom_nodata_mask: np.ndarray, optional
-        """        
-
-        custom_metadata = custom_metadata if custom_metadata is not None else self.lsm_rst.meta.copy()
-
-        path = (
-            f"{self.data_path}/{file_name}"
-            if not is_scenario_specific
-            else f"{self.data_path}/{self.root_path}/{file_name}"
-        )
-
-        if self.verbose_reporting:
-            print(Fore.WHITE + Style.DIM + "    WRITING {}".format(path) + Style.RESET_ALL)
-
-        if mask_nodata is True:
-            custom_nodata_mask = custom_nodata_mask if custom_nodata_mask is not None else self.lsm_nodata_mask
-            outdata[custom_nodata_mask] = self.nodata_value    
-
-        RecreatBase.write_output(path, outdata, custom_metadata)
-    
-    def _get_supply_for_lu_and_cost(self, lu, lu_type, cost):        
-        # make filename
-        filename = "SUPPLY/totalsupply_class_{}_cost_{}_clumped.tif".format(lu, cost) if lu_type == 'patch' else "SUPPLY/totalsupply_edge_class_{}_cost_{}_clumped.tif".format(lu, cost)
-        # get supply of current class 
-        lu_supply_mtx = self._read_band(filename) 
-        # return supply
-        return lu_supply_mtx
-    
-    def _get_mask_for_lu(self, lu, lu_type):        
-        # make filename
-        filename = "MASKS/mask_{}.tif".format(lu) if lu_type == 'patch' else "MASKS/edges_{}.tif".format(lu)
-        # get mask of current class 
-        lu_mask = self._read_band(filename) 
-        # return mask
-        return lu_mask
-
-
-    def _get_new_matrix(self, fill_value: float, shape: Tuple[int,int], dtype: any) -> Tuple[np.ndarray,any]:
-        out_rst = np.full(shape=shape, fill_value=fill_value, dtype=dtype)
-        out_meta = self.lsm_rst.meta.copy()
-        out_meta.update({
-            'dtype' : dtype,
-            'nodata' : 0 if (dtype is np.int32 or dtype is np.int64) else 0.0 
-        })
-        return out_rst, out_meta
-
-
-    def _get_value_matrix(self, fill_value: float = 0, shape: Tuple[int, int] = None, dest_datatype: any = None) -> np.ndarray:
-        """Return array with specified fill value. 
-
-        :param fill_value: Fill value, defaults to 0
-        :type fill_value: float, optional
-        :param shape: Shape of the matrix to be returned, defaults to None
-        :type shape: Tuple[int, int], optional
-        :param dest_datatype: Datatype of matrix, defaults to None
-        :type dest_datatype: any, optional
-        :return: Data matrix of given shape and fill value.
-        :rtype: np.ndarray
-        """        
-        
-        # determine parameters based on specified method arguments
-        dest_dtype = self.dtype if dest_datatype is None else dest_datatype
-        rst_dtype = self.lsm_mtx.dtype if dest_dtype is None else dest_dtype
-        rst_shape = self.lsm_mtx.shape if shape is None else shape
-
-        rst_new = np.full(shape=rst_shape, fill_value=fill_value, dtype=rst_dtype)
-        return rst_new        
-
-    def _get_circular_kernel(self, kernel_size: int) -> np.ndarray:
-        """Generate a kernel for floating-window operations with circular kernel mask.
-
-        Args:
-            kernel_size (int): Kernel diameter (in pixel). 
-
-        Returns:
-            np.ndarray: Circular kernel.
-        """
-        kernel = np.zeros((kernel_size,kernel_size))
-        radius = kernel_size/2
-        # modern scikit uses a tuple for center
-        rr, cc = disk( (kernel_size//2, kernel_size//2), radius)
-        kernel[rr,cc] = 1
-        return kernel
-
-    def _kernel_sum(self, subarr: np.ndarray) -> float:
-        """Determine the sum of values in a kernel window.
-
-        Args:
-            subarr (np.ndarray): Kernel.
-
-        Returns:
-            float: Sum of kernel values.
-        """
-        return(ndimage.sum(subarr))
-    
-    def _moving_window_generic(self, data_mtx: np.ndarray, kernel_func: Callable[[np.ndarray], float], kernel_size: int, kernel_shape: str = 'circular', dest_datatype = None) -> np.ndarray:
-        """Conduct a moving window operation with specified kernel shape and kernel size on an array.
-
-        Args:
-            data_mtx (np.ndarray): Input array
-            kernel_func (Callable[[np.ndarray], float]): Callable for aggregation/Summarization of values in kernel window.
-            kernel_size (int): Size of kernel (total with for squared kernel window, kernel diameter for circular kernel window).
-            kernel_shape (str, optional): Kernel shape: Circular kernel (circular) or squared/rectangular kernel (rect). Defaults to 'circular'.
-            dest_datatype (any, optional): Destination datatype.
-
-        Returns:
-            np.ndarray: Output array
-        """
-        # define properties of result matrix
-        # for the moment, use the dtype set by user
-        if dest_datatype is None:
-            dest_datatype = self.dtype
-
-        target_dtype = self.lsm_mtx.dtype if dest_datatype is None else dest_datatype
-
-        # make kernel
-        kernel = self._get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
-        # create result mtx as memmap
-        mtx_res = np.memmap("{}/{}/TMP/{}".format(self.data_path, self.root_path, uuid.uuid1()), dtype=target_dtype, mode='w+', shape=data_mtx.shape) 
-        # apply moving window over input mtx
-        ndimage.generic_filter(data_mtx, kernel_func, footprint=kernel, output=mtx_res, mode='constant', cval=0)
-        mtx_res.flush()
-        return mtx_res
-    
-    def _moving_window_convolution(self, data_mtx: np.ndarray, kernel_size: int, kernel_shape: str = 'circular') -> np.ndarray: 
-
-        # define properties of result matrix
-        # for the moment, use the dtype set by user
-        target_dtype = self.lsm_mtx.dtype if self.dtype is None else self.dtype
-        # make kernel
-        kernel = self._get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
-        # create result mtx as memmap
-        mtx_res = np.memmap("{}/{}/TMP/{}".format(self.data_path, self.root_path, uuid.uuid1()), dtype=target_dtype, mode='w+', shape=data_mtx.shape) 
-        # apply convolution filter from ndimage that sums as weights are 0 or 1.        
-        ndimage.convolve(data_mtx, kernel, output=mtx_res, mode = 'constant', cval = 0)        
-        mtx_res.flush()
-        return mtx_res
-    
-    def _moving_window_filter2d(self, data_mtx: np.ndarray, kernel_size: int, kernel_shape: str = 'circular') -> np.ndarray: 
-        # make kernel
-        radius = int(kernel_size / 2)
-        kernel = self._get_circular_kernel(kernel_size) if kernel_shape == 'circular' else np.full((kernel_size, kernel_size), 1)
-        # make sure that input is padded, as this determines border values
-        data_mtx = np.pad(data_mtx, radius, mode='constant')
-        data_mtx = data_mtx.astype(np.float64)
-        #print(f'dtype of kernel input is {data_mtx.dtype}')
-        
-        mtx_res = cv.filter2D(data_mtx, -1, kernel) # used float32 beforehand, will now use the input dtype
-
-        return mtx_res[radius:-radius,radius:-radius]
-    
-    def _get_aggregate_class_total_supply_for_cost(self, cost, lu_weights = None, write_non_weighted_result = True, task_progress = None):                        
-        
-        current_total_supply_at_cost = None
-        current_weighted_total_supply_at_cost = None
-
-        # make grids for the results: zero-valued grids with full lsm extent
-        if write_non_weighted_result:
-            current_total_supply_at_cost = self._get_value_matrix(dest_datatype=np.float64) 
-        if lu_weights is not None:
-            current_weighted_total_supply_at_cost = self._get_value_matrix(dest_datatype=np.float64)
-        
-        for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
-            
-            # determine source of list
-            lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"                    
-            lu_supply_mtx = self._get_supply_for_lu_and_cost(lu, lu_type, cost)
-
-            # add to aggregations
-            if write_non_weighted_result:
-                current_total_supply_at_cost += lu_supply_mtx
-            if lu_weights is not None:
-                current_weighted_total_supply_at_cost += (lu_supply_mtx * lu_weights[lu])
-
-            if task_progress is not None:
-                self.progress.update(task_progress, advance=1)
-
-        if lu_weights is not None:
-            current_weighted_total_supply_at_cost = current_weighted_total_supply_at_cost / sum(lu_weights.values())
-
-        # return aggregated grids for given cost
-        return current_total_supply_at_cost, current_weighted_total_supply_at_cost
-    
-    
-
-    
-
-
-    
-
-    def clean_temporary_files(self):
-        """Clean temporary files from the TMP folder.
-        """
-        tmp_path = os.path.join(self.data_path, self.root_path, 'TMP')
-        tmp_files = [os.path.join(self.data_path, self.root_path, 'TMP', f) for f in listdir(tmp_path) if isfile(join(tmp_path, f))]
-        
-        step_count = len(tmp_files)
-        current_task = self.get_task('[red]Removing temporary files', total=step_count)
-        
-        for f in tmp_files:
-            os.remove(f)
-            self.progress.update(current_task, advance=1)
-        
-        self.taskProgressReportStepCompleted(msg = "TEMPORARY FILES CLEANED")
-        
-        
-    
-    
-    
-
-    
-    
-
-
-
-
-
-
-
-    
-
-    
 
 
