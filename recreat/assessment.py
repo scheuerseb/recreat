@@ -1460,7 +1460,7 @@ class Recreat(RecreatBase):
                 self._write_file(out_filename, mtx_flow_in_cost_range, self._get_metadata(np.float64, self.nodata_value))
                 self.progress.update(current_task, advance=1)
 
-    def average_flow_across_cost(self, cost_weights: Dict[float, float] = None, cost_range_differences_as_input: bool = False, write_non_weighted_result: bool = True, write_scaled_result: bool = True):
+    def average_flow_across_cost(self, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True):
         """Determine the number of potential beneficiaries in terms of flow to (recreational) land-use classes, averaged across cost thresholds.
 
         :param cost_weights: Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined, defaults to None
@@ -1491,11 +1491,12 @@ class Recreat(RecreatBase):
             # so we do not need to aggregate flow across land-uses
             for c in self.cost_thresholds:
 
-                mtx_flow_in_cost = self._get_flow_for_cost(c, return_cost_window_difference=cost_range_differences_as_input)
 
                 if write_non_weighted_result:
+                    mtx_flow_in_cost = self._get_flow_for_cost(c, return_cost_window_difference=False)
                     mtx_averaged_flow += mtx_flow_in_cost
                 if cost_weights is not None:
+                    mtx_flow_in_cost = self._get_flow_for_cost(c, return_cost_window_difference=True)                    
                     mtx_cost_weighted_average_flow += (mtx_flow_in_cost * cost_weights[c])
 
                 p.update(current_task, advance=1)
