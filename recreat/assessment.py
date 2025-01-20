@@ -651,13 +651,13 @@ class Recreat(RecreatBase):
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))
         current_task = self.get_task("[white]Aggregating clumped supply", total=step_count)
 
-        with self.progress if self._runsAsStandalone() else nullcontext() as bar:
+        with self.progress:
             
             mtx_clumps, clump_nodata_mask = self._get_clumps()
                         
             for c in self.cost_thresholds:
                 # get aggregation for current cost threshold
-                current_total_supply_at_cost, current_weighted_total_supply_at_cost = self._get_aggregate_class_total_supply_for_cost(cost=c, lu_weights=lu_weights, write_non_weighted_result=write_non_weighted_result, task_progress=current_task)                                           
+                current_total_supply_at_cost, current_lu_weighted_total_supply_at_cost = self._get_aggregate_class_total_supply_for_cost(cost=c, lu_weights=lu_weights, write_non_weighted_result=write_non_weighted_result, task_progress=current_task)                                           
 
                 # mask nodata areas and export total for costs
                 if write_non_weighted_result:  
@@ -666,8 +666,8 @@ class Recreat(RecreatBase):
                 
                 # export weighted total, if applicable
                 if lu_weights is not None:                    
-                    current_weighted_total_supply_at_cost[clump_nodata_mask] = self.nodata_value
-                    self._write_file(f"SUPPLY/lu_weighted_totalsupply_cost_{c}.tif", current_weighted_total_supply_at_cost, self._get_metadata(np.float64, self.nodata_value))
+                    current_lu_weighted_total_supply_at_cost[clump_nodata_mask] = self.nodata_value
+                    self._write_file(f"SUPPLY/lu_weighted_totalsupply_cost_{c}.tif", current_lu_weighted_total_supply_at_cost, self._get_metadata(np.float64, self.nodata_value))
 
 
         # additionally, compute differences in supply across cost ranges, if needed
@@ -683,7 +683,7 @@ class Recreat(RecreatBase):
         # done
         self.taskProgressReportStepCompleted()
     
-    def average_total_supply_across_cost(self, land_use_weighted_supply_as_input: bool = False, cost_weights: Dict[float, float] = None, cost_range_differences_as_input: bool = False, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
+    def average_total_supply_across_cost(self, land_use_weighted_supply_as_input: bool = False, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
         """Determine the total (recreational) land-use supply averaged across cost thresholds. Weighting of importance of land-uses and weighting of cost may be applied. 
            If either weighting schema (land-use classes or costs) is supplied, the total supply is determined as weighted average, i.e., the weighted sum of land-use class-specific supply, divided by the sum of weights.
            Potential combinations, i.e., land-use and subsequently cost-based weighting, are considered if both weighting schemas are supplied.
@@ -698,53 +698,46 @@ class Recreat(RecreatBase):
         :type write_scaled_result: bool, optional
         """        
 
+        # this averaging method will create the following datasets, depending on specified parameters
+        # if cost_range_differences_as_input is False:
+        # ... non-weighted average of supply in cost
+        # ... cost-weighted average of supply in cost if cost weights is not None
+        # if cost_range_differences_as_input is True:
+        # ... non-weighted average of supply within cost ranges 
+        # ... cost-weighted average of supply within cost ranges
+        # either of the above products use...
+        # ... either non-lu-weighted inputs if land_use_weighted_supply_as_input is False
+        # ... or     lu-weighted supply if land_use_weighted_supply_as_input is True
+
+
         self.printStepInfo("Averaging supply across costs")
-        step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))
+        step_count = len(self.cost_thresholds)
         current_task = self.get_task("[white]Averaging supply", total=step_count)
-
-        # make result rasters
-        # consider the following combinations
-
-        # non-weighted lu + non-weighted cost (def. case)
-        # non-weighted lu +     weighted cost (computed in addition to def. case if weights supplied)
-        #     weighted lu + non-weighted cost (if weights applied only to previous step)
-        #     weighted lu +     weighted cost
 
         with self.progress as p:
 
             # clumps are required to properly mask islands
             rst_clumps, clump_nodata_mask = self._get_clumps()
 
-            # def. case
+            # prepare result rasters
             if write_non_weighted_result:
                 non_weighted_average_total_supply = self._get_matrix(0, self._get_shape(), np.float64)           
-            # def. case + cost weighting
             if cost_weights is not None:
                 cost_weighted_average_total_supply = self._get_matrix(0, self._get_shape(), np.float64)               
-
-            if lu_weights is not None:
-                # lu weights only
-                lu_weighted_average_total_supply = self._get_matrix(0, self._get_shape(), np.float64)
-                if cost_weights is not None:
-                    # both weights
-                    bi_weighted_average_total_supply = self._get_matrix(0, self._get_shape(), np.float64)
 
             # iterate over costs
             for c in self.cost_thresholds:
 
                 # re-aggregate lu supply within cost, using currently supplied weights
-                mtx_current_cost_total_supply, mtx_current_cost_weighted_total_supply = self._get_aggregate_class_total_supply_for_cost(c, lu_weights, write_non_weighted_result, current_task)                                           
-                
+                # mtx_current_cost_total_supply, mtx_current_cost_weighted_total_supply = self._get_aggregate_class_total_supply_for_cost(c, lu_weights, write_non_weighted_result, current_task)                                           
                 if write_non_weighted_result:
-                    non_weighted_average_total_supply += mtx_current_cost_total_supply
+                    mtx_current_cost_supply = self._get_lu_weighted_supply_for_cost(c, return_cost_window_difference=False) if land_use_weighted_supply_as_input else self._get_supply_for_cost(c, return_cost_window_difference=False)
+                    non_weighted_average_total_supply += mtx_current_cost_supply
+                
                 if cost_weights is not None:
-                    cost_weighted_average_total_supply += (mtx_current_cost_total_supply * cost_weights[c])
-                                            
-                if lu_weights is not None:                                                            
-                    lu_weighted_average_total_supply += mtx_current_cost_weighted_total_supply                    
-                    if cost_weights is not None:                        
-                        bi_weighted_average_total_supply += (mtx_current_cost_weighted_total_supply * cost_weights[c])
-            
+                    mtx_current_cost_supply = self._get_lu_weighted_supply_for_cost(c, return_cost_window_difference=True) if land_use_weighted_supply_as_input else self._get_supply_for_cost(c, return_cost_window_difference=True)
+                    cost_weighted_average_total_supply += (mtx_current_cost_supply * cost_weights[c])
+                  
             # complete determining averages for the various combinations
             # def. case
             if write_non_weighted_result:
@@ -770,31 +763,6 @@ class Recreat(RecreatBase):
                 #     scaler = MinMaxScaler()
                 #     cost_weighted_average_total_supply = scaler.fit_transform(cost_weighted_average_total_supply.reshape([-1,1]))
                 #     self._write_dataset('INDICATORS/scaled_cost_weighted_avg_totalsupply.tif', cost_weighted_average_total_supply.reshape(self.lsm_mtx.shape))
-
-            if lu_weights is not None:
-                # lu weights only
-                lu_weighted_average_total_supply = lu_weighted_average_total_supply / len(self.cost_thresholds)
-                lu_weighted_average_total_supply[clump_nodata_mask] = self.nodata_value
-                self._write_file("INDICATORS/landuse_weighted_avg_totalsupply.tif", lu_weighted_average_total_supply, self._get_metadata(np.float64, self.nodata_value))
-                
-                # if write_scaled_result:
-                #     # apply min-max scaling
-                #     scaler = MinMaxScaler()
-                #     lu_weighted_average_total_supply = scaler.fit_transform(lu_weighted_average_total_supply.reshape([-1,1]))
-                #     self._write_dataset('INDICATORS/scaled_landuse_weighted_avg_totalsupply.tif', lu_weighted_average_total_supply.reshape(self.lsm_mtx.shape))
-
-                if cost_weights is not None:
-                    # both weights
-                    bi_weighted_average_total_supply = bi_weighted_average_total_supply / sum(cost_weights.values())
-                    bi_weighted_average_total_supply[clump_nodata_mask] = self.nodata_value
-                    self._write_file("INDICATORS/bi_weighted_avg_totalsupply.tif", bi_weighted_average_total_supply, self._get_metadata(np.float64, self.nodata_value))
-
-                    # if write_scaled_result:
-                    #     # apply min-max scaling
-                    #     scaler = MinMaxScaler()
-                    #     bi_weighted_average_total_supply = scaler.fit_transform(bi_weighted_average_total_supply.reshape([-1,1]))
-                    #     self._write_dataset('INDICATORS/scaled_bi_weighted_avg_totalsupply.tif', bi_weighted_average_total_supply.reshape(self.lsm_mtx.shape))
-
             
         # done
         self.taskProgressReportStepCompleted()
@@ -844,7 +812,7 @@ class Recreat(RecreatBase):
         # done
         self.taskProgressReportStepCompleted()
     
-    def average_diversity_across_cost(self, cost_weights: Dict[float, float] = None, cost_range_differences_as_input: bool = False, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
+    def average_diversity_across_cost(self, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
         """Determine diversity of (recreational) land-uses averaged across cost thresholds. 
 
         :param cost_weights: Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined, defaults to None
@@ -873,13 +841,13 @@ class Recreat(RecreatBase):
             # iterate over cost thresholds and aggregate cost-specific diversities into result
             for c in self.cost_thresholds:
                 
-                mtx_current_diversity = self._get_diversity_for_cost(c, return_cost_window_difference=cost_range_differences_as_input) 
-                mtx_current_diversity = mtx_current_diversity.astype(np.float64)
-                
                 if write_non_weighted_result:
-                    average_diversity += mtx_current_diversity
+                    mtx_current_diversity = self._get_diversity_for_cost(c, return_cost_window_difference=False) 
+                    average_diversity += mtx_current_diversity.astype(np.float64)
+                
                 if cost_weights is not None:
-                    cost_weighted_average_diversity += (average_diversity * cost_weights[c])
+                    mtx_current_diversity = self._get_diversity_for_cost(c, return_cost_window_difference=True) 
+                    cost_weighted_average_diversity += (average_diversity.astype(np.float64) * cost_weights[c])
                 
                 p.update(current_task, advance=1)
 
@@ -1009,7 +977,7 @@ class Recreat(RecreatBase):
         # done
         self.taskProgressReportStepCompleted()
 
-    def average_beneficiaries_across_cost(self, cost_weights: Dict[float, float] = None, cost_range_differences_as_input: bool = False, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
+    def average_beneficiaries_across_cost(self, cost_weights: Dict[float, float] = None, write_non_weighted_result: bool = True, write_scaled_result: bool = True) -> None:
         """Determine the number of potential beneficiaries, averaged across cost thresholds. 
 
         :param cost_weights: Dictionary of cost weights, where keys refer to cost thresholds, and values to weights. If specified, weighted total supply will be determined, defaults to None
@@ -1037,11 +1005,12 @@ class Recreat(RecreatBase):
 
             # iterate over cost thresholds and aggregate cost-specific beneficiaries into result
             for c in self.cost_thresholds:
-                mtx_current_pop = self._get_beneficiaries_for_cost(c, return_cost_window_difference=cost_range_differences_as_input)
 
                 if write_non_weighted_result:
+                    mtx_current_pop = self._get_beneficiaries_for_cost(c, return_cost_window_difference=False)
                     averaged_beneficiaries += mtx_current_pop
                 if cost_weights is not None:
+                    mtx_current_pop = self._get_beneficiaries_for_cost(c, return_cost_window_difference=True)
                     cost_weighted_averaged_beneficiaries += (mtx_current_pop * cost_weights[c])
                 
                 p.update(current_task, advance=1)
