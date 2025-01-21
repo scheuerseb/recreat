@@ -22,30 +22,27 @@ just_fix_windows_console()
 cli_model = Model()
 
 
-@click.group(invoke_without_command=True, chain=True, )
+@click.group(invoke_without_command=True, chain=True)
 @click.option('-w', '--data-path', default=None, help="Set data path if data is not located in the current path.")
 @click.option('-d', '--debug', default=False, is_flag=True, type=bool, help="Debug command-line parameters, do not run model.")
 @click.option('-v', '--verbose', is_flag=True, default=False, type=bool, help="Enable verbose reporting.")
-@click.option('--datatype', default=None, type=click.Choice(['int', 'float', 'double'], case_sensitive=False), help="Set datatype to use. By default, the same datatype as the land-use raster is used.")
-@click.option('--no-cleaning', is_flag=True, default=True, type=bool, help="Do not clean temporary files after completion.")
-def recreat_util(data_path, verbose, datatype, no_cleaning, debug):
+def recreat_util(data_path, verbose, debug):
+    cli_model.model_set(ModelEnvironment.DataPath, data_path if data_path is not None else str(pathlib.Path().absolute()))    
     cli_model.model_set(ModelParameter.Verbosity, verbose)
-    cli_model.model_set(ModelParameter.DataType, Model.datatype_to_numpy(datatype) )
-    cli_model.model_set(ModelEnvironment.DataPath, data_path if data_path is not None else str(pathlib.Path().absolute()))
-    #new_model.clean_temporary_files = no_cleaning
     #new_model.is_debug = debug
 
-@recreat_util.command(help="Use specified land-use dataset")
-@click.option('-m', '--nodata', default=[0.0], type=str, multiple=True, help="Nodata values in land-use raster.")
-@click.option('-f', '--fill', default=0, type=str, help="Fill value to replace nodata values in land-use raster.")
+@recreat_util.command(help="Specify land-use map")
+@click.option('--nodata-values', default=[0.0], type=str, multiple=True, help="Nodata values in land-use raster.")
 @click.argument('root-path')
 @click.argument('landuse-filename')
-def use(root_path, landuse_filename, nodata, fill):
+def use(root_path, landuse_filename, nodata_values):
+    # nodata values in the lsm are an argument to land use map alignment
+    alignment_config = cli_model.get_task(CoreTask.Alignment)
+    alignment_config.add_arg(ParameterNames.Alignment.NodataValues, sorted(list({float(num) for item in nodata_values for num in str(item).split(',')})))
+    # root path and land use filename are required to setting land use in the model
     landuse_params = {
         ScenarioParameters.RootPath : root_path,
         ScenarioParameters.LanduseFileName : landuse_filename,
-        ScenarioParameters.NodataValues : sorted(list({float(num) for item in nodata for num in str(item).split(',')})),
-        ScenarioParameters.NodataFillValue : float(fill)
     }
     cli_model.model_set(ModelEnvironment.Scenario, landuse_params)
 
@@ -55,7 +52,8 @@ def use(root_path, landuse_filename, nodata, fill):
 @click.option('-g', '--buffered-edge', default=None, multiple=True, help="(Comma-separated) edge class(es) to buffer.")
 @click.option('-b', '--built-up', default=None, multiple=True, help="(Comma-separated) built-up class(es).")
 @click.option('-c', '--cost', default=None, multiple=True, help="(Comma-separated) cost(s).")
-def params(cost, patch, edge, buffered_edge, built_up):
+@click.option('--nodata-value', default=-9999, type=float, help="Set nodata value to be used in model exports.")
+def params(cost, patch, edge, buffered_edge, built_up, nodata_value):
     # add classes to model
     cli_model.model_set(ClassType.Patch, sorted(list({int(num) for item in patch for num in str(item).split(',')})))
     cli_model.model_set(ClassType.Edge, sorted(list({int(num) for item in edge for num in str(item).split(',')})))
@@ -63,27 +61,23 @@ def params(cost, patch, edge, buffered_edge, built_up):
     cli_model.model_set(ClassType.Built_up, sorted(list({int(num) for item in built_up for num in str(item).split(',')})))
     # add costs to model
     cli_model.model_set(ModelParameter.Costs, sorted(list({int(num) for item in cost for num in str(item).split(',')})))
+    # set nodata value to use
+    cli_model.model_set(ModelParameter.NodataValue, nodata_value)
 
-@recreat_util.command(help="Reclassify sets of classes into new class.")
-@click.option('-e', '--export', default=None, type=str, help="Export result of reclassification into root-path.")
+
+@recreat_util.command(help="Reclassify values in the land-use map prior to assessing landscape recreational potential")
 @click.argument('source-classes')
 @click.argument('destination-class')
-def reclassify(source_classes, destination_class, export):       
-    current_config = cli_model.get_task(CoreTask.Reclassification)   
-    if current_config is None:
+def reclassify(source_classes, destination_class):       
+    # this task is automatically created upon instantiation of the model class
+    # we have to add reclassification mappings to this configuration
+    current_config = cli_model.get_task(CoreTask.Alignment)   
+    if current_config.get_arg(ParameterNames.Alignment.Mappings) is None:
         mappings = { int(destination_class) : sorted([int(item) for item in source_classes.split(',')]) }
-        new_task_config = Configuration(CoreTask.Reclassification)
-        new_task_config.add_arg(ParameterNames.Reclassification.Mappings, mappings)
-        new_task_config.add_arg(ParameterNames.Reclassification.ExportFilename, export)        
-        cli_model.add_task(new_task_config)
+        current_config.add_arg(ParameterNames.Alignment.Mappings, mappings)
     else:
-        current_config.args[ParameterNames.Reclassification.Mappings][int(destination_class)] = sorted([int(item) for item in source_classes.split(',')])
-        if (
-            (current_config.args[ParameterNames.Reclassification.ExportFilename] is not None
-            and export is not None)
-            or current_config.args[ParameterNames.Reclassification.ExportFilename] is None
-        ):
-            current_config.args[ParameterNames.Reclassification.ExportFilename] = export
+        current_config.args[ParameterNames.Alignment.Mappings][int(destination_class)] = sorted([int(item) for item in source_classes.split(',')])        
+
 
 @recreat_util.command(help="Identify clumps in land-use raster.")
 @click.option('--barrier-classes', default=[0], type=str, multiple=True)
@@ -128,22 +122,18 @@ def aggregate_total_supply(landuse_weights, exclude_non_weighted):
     cli_model.add_task(new_task_config)
     
 @recreat_util.command(help="Average total supply across costs.")
-@click.option('--landuse-weights', type=str, default=None)
+@click.option('-w', '--land-use-weighted', is_flag=True, default=False, type=bool, help="Use land-use-weighted supply as input.")
 @click.option('--cost-weights', type=str, default=None)
 @click.option('-s', '--exclude-scaled', is_flag=True, default=True, type=bool, help="Exclude export of scaled result(s).")
 @click.option('-u', '--exclude-non-weighted', is_flag=True, default=True, type=bool, help="Exclude export of non-weighted result(s).")
-def average_total_supply(cost_weights, landuse_weights, exclude_non_weighted, exclude_scaled):
+def average_total_supply(cost_weights, land_use_weighted, exclude_non_weighted, exclude_scaled):
     if cost_weights is not None:
         cost_weights = dict((int(x.strip()), float(y.strip()))
              for x, y in (element.split('=') 
              for element in cost_weights.split(',')))
-    if landuse_weights is not None:
-        landuse_weights = dict((int(x.strip()), float(y.strip()))
-            for x, y in (element.split('=') 
-            for element in landuse_weights.split(',')))
     
     new_task_config = Configuration(CoreTask.AverageTotalSupplyAcrossCost)
-    new_task_config.add_arg(ParameterNames.AverageTotalSupplyAcrossCost.LandUseWeights, landuse_weights)
+    new_task_config.add_arg(ParameterNames.AverageTotalSupplyAcrossCost.LandUseWeighting, land_use_weighted)
     new_task_config.add_arg(ParameterNames.AverageTotalSupplyAcrossCost.CostWeights, cost_weights)
     new_task_config.add_arg(ParameterNames.AverageTotalSupplyAcrossCost.WriteNonWeightedResult, exclude_non_weighted)
     new_task_config.add_arg(ParameterNames.AverageTotalSupplyAcrossCost.WriteScaledResult, exclude_scaled)

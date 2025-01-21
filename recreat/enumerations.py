@@ -19,24 +19,20 @@ class ClassType(RecreatBaseEnum):
     Built_up = 'built-up classes', 'classes.builtup' 
 
 class ModelParameter(RecreatBaseEnum):
-    DataType = 'data type', 'use-data-type'
     Verbosity = 'verbose', 'verbose-reporting'
     Costs = 'costs', 'costs'
+    NodataValue = 'nodata value', 'nodata-value'
 
 class ModelEnvironment(RecreatBaseEnum):
     DataPath = 'data-path', 'data_path'
-    Scenario = 'land-use raster file', 'land_use_data'
-    clean_temporary_files = 'clean-temp-path'
+    Scenario = 'scenario'
 
 class ScenarioParameters(RecreatBaseEnum):
     RootPath = 'root-path', 'root_path'
     LanduseFileName = 'land-use raster', 'land_use_filename'
-    NodataValues = 'nodata values', 'nodata_values'
-    NodataFillValue = 'fill value', 'nodata_fill_value'
-
 
 class CoreTask(RecreatBaseEnum):
-    Reclassification = 'reclassification', 'reclassify'
+    Alignment = 'alignment', 'align_land_use_map'
     ClumpDetection = 'clumps', 'detect_clumps'
     MaskLandUses = 'mask-landuses', 'mask_landuses'
     EdgeDetection = 'detect-edges', 'detect_edges'
@@ -56,9 +52,9 @@ class ClusteringTask(RecreatBaseEnum):
     
 class ParameterNames:
 
-    class Reclassification(RecreatBaseEnum):
-        Mappings = 'mappings', 'mappings'
-        ExportFilename = 'export', 'export_filename'
+    class Alignment(RecreatBaseEnum):
+        Mappings = 'mappings', 'reclassification_mappings'        
+        NodataValues = 'land-use map nodata values', 'nodata_values'
     
     class ClumpDetection(RecreatBaseEnum):
         BarrierClasses = 'barriers', 'barrier_classes'
@@ -76,7 +72,7 @@ class ParameterNames:
         WriteNonWeightedResult = 'write non-weighted results', 'write_non_weighted_result'
 
     class AverageTotalSupplyAcrossCost(RecreatBaseEnum):
-        LandUseWeights = 'land-use weights', 'lu_weights'
+        LandUseWeighting = 'land-use weights', 'land_use_weighted_supply_as_input'
         CostWeights = 'cost weights', 'cost_weights'
         WriteNonWeightedResult = 'write non-weighted results', 'write_non_weighted_result'
         WriteScaledResult = 'write scaled results', 'write_scaled_result'

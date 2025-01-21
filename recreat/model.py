@@ -27,6 +27,9 @@ class Model():
         self.params = {}         
         self.tasks = {}
 
+        new_task_config = Configuration(CoreTask.Alignment)
+        self.add_task(new_task_config)
+
     # Track model parameters, environment variables, etc.
     def model_set(self, parameter_type, value):
         if parameter_type not in self.params.keys():
@@ -55,7 +58,6 @@ class Model():
     def getargs_model_params(self) -> List[Dict[str, any]]:
         return [
             {'param_name': ModelParameter.Verbosity.name(), 'param_value': self.verbose},
-            {'param_name': ModelParameter.DataType.name(), 'param_value': self.datatype},
             {'param_name': ClassType.Patch.name(), 'param_value': self.classes_patch},
             {'param_name': ClassType.Edge.name(), 'param_value': self.classes_edge},
             {'param_name': ClassType.Built_up.name(), 'param_value': self.classes_builtup},
@@ -97,7 +99,6 @@ class Model():
             return []
         return self.params[ClassType.Built_up]
    
-
     # other model parameters
     # costs
     @property
@@ -106,10 +107,6 @@ class Model():
             return []
         return self.params[ModelParameter.Costs]    
     
-    # datatype
-    @property
-    def datatype(self) -> str:
-        return self.params[ModelParameter.DataType]
     # verbosity
     @property
     def verbose(self) -> bool:
@@ -121,43 +118,22 @@ class Model():
     def data_path(self) -> str:
         return self.params[ModelEnvironment.DataPath]    
     
-
-    # clean tmp folder
     @property
-    def clean_temporary_files(self) -> bool:
-        return self.environment[ModelEnvironment.clean_temporary_files]
-    @clean_temporary_files.setter
-    def clean_temporary_files(self, value: bool) -> None:
-        self.model_set(self.environment, ModelEnvironment.clean_temporary_files, value)
+    def nodata_value(self) -> float:
+        if ModelParameter.NodataValue not in self.params.keys():
+            return -9999
+        return self.params[ModelParameter.NodataValue]
 
-
-    
-   
     # is debugging
     @property 
     def is_debug(self):
         return self.debug
 
-    
-    
-    
-    @staticmethod
-    def datatype_to_numpy(datatype_as_str: str) -> any:
-        if datatype_as_str == 'int':
-            return int32
-        elif datatype_as_str == 'float':
-            return float32
-        elif datatype_as_str == 'double':
-            return float64    
-        else:
-            return None    
-    
-
 
     def print(self) -> None:
         self._print_model_environment()
         self._print_land_use_map()
-        self._print_model_classes()
+        self._print_model_parameters()
         self._print_tasks()
 
     def _print_model_environment(self) -> None:
@@ -169,16 +145,16 @@ class Model():
         if self.model_get(ModelEnvironment.Scenario) is not None:
             map_params = self.model_get(ModelEnvironment.Scenario)
             print(f"     use {Fore.CYAN}{Style.BRIGHT}{map_params[ScenarioParameters.LanduseFileName]}{Style.RESET_ALL} in {map_params[ScenarioParameters.RootPath]}")
-            print(f"         {map_params[ScenarioParameters.NodataValues]} -> {map_params[ScenarioParameters.NodataFillValue]}")
         else:
             print("Not defined in model.")
 
-    def _print_model_classes(self) -> None:
+    def _print_model_parameters(self) -> None:
         outp(Panel("Parameters", box=box.SIMPLE))
         print(f"     Patch classes    : {Fore.CYAN}{','.join(map(str, self.classes_patch))}{Style.RESET_ALL}")
         print(f"     Edge classes     : {Fore.CYAN}{','.join(map(str, self.classes_edge))}{Style.RESET_ALL}")
         print(f"     Built-up classes : {Fore.CYAN}{','.join(map(str, self.classes_builtup))}{Style.RESET_ALL}")
         print(f"     Costs            : {Fore.CYAN}{','.join(map(str, self.costs))}{Style.RESET_ALL}")
+        print(f"     Nodata value     : {Fore.CYAN}{self.nodata_value}{Style.RESET_ALL}")
         
 
     def _print_tasks(self) -> None:
@@ -196,9 +172,6 @@ class Model():
         else:
             print(f"{Fore.WHITE}{Style.DIM}     {p.label()}{Style.RESET_ALL}")
 
-    def tasks_require_landuse_import(self):
-        return len(set(list(CoreTask)).intersection(self.tasks.keys())) > 0
-
     def validate(self):
         if not os.path.isdir(self.data_path):
             raise ModelValidationError('Data-path does not exist in path.')
@@ -206,13 +179,14 @@ class Model():
         #    raise ModelValidationError('No recreational classes defined in model.')
         #if self.costs is None or len(self.costs) < 1:
         #    raise ModelValidationError('No costs defined in model.')    
-        if self.tasks_require_landuse_import():
-            if self.model_get(ModelEnvironment.Scenario) is None:
-                raise ModelValidationError('No land-use raster defined in model.')
-            if not os.path.isdir(f"{self.data_path}/{self.model_get(ModelEnvironment.Scenario)[ScenarioParameters.RootPath]}"):
-                raise ModelValidationError('Root-path does not exist in path.')            
-            if not os.path.isfile(f"{self.data_path}/{self.model_get(ModelEnvironment.Scenario)[ScenarioParameters.RootPath]}/{self.model_get(ModelEnvironment.Scenario)[ScenarioParameters.LanduseFileName]}"):
-                raise ModelValidationError('Specified land-use file does not exist in path.')            
+       
+        if self.model_get(ModelEnvironment.Scenario) is None:
+            raise ModelValidationError('No land-use raster defined in model.')
+        if not os.path.isdir(f"{self.data_path}/{self.model_get(ModelEnvironment.Scenario)[ScenarioParameters.RootPath]}"):
+            raise ModelValidationError('Root-path does not exist in path.')            
+        if not os.path.isfile(f"{self.data_path}/{self.model_get(ModelEnvironment.Scenario)[ScenarioParameters.RootPath]}/{self.model_get(ModelEnvironment.Scenario)[ScenarioParameters.LanduseFileName]}"):
+            raise ModelValidationError('Specified land-use file does not exist in path.')            
+    
         if self.has_task_attached(CoreTask.Disaggregation):
             if len(self.classes_builtup) < 1:
                 raise ModelValidationError('No built-up classes defined in model for disaggregation task.')
@@ -240,11 +214,10 @@ class Model():
         rc = Recreat(self.data_path)
         for attrib in self.getargs_model_params():
             rc.set_params(**attrib)
-                
-        if self.tasks_require_landuse_import():
-            import_args = {k.name() : v for k,v in self.model_get(ModelEnvironment.Scenario).items()}
-            print(import_args)
-            rc.set_land_use_map(**import_args)
+                        
+        import_args = {k.name() : v for k,v in self.model_get(ModelEnvironment.Scenario).items()}
+        print(import_args)
+        rc.set_land_use_map(**import_args)
 
         # iterate over tasks
         p: CoreTask
