@@ -86,7 +86,7 @@ class DisaggregationBaseEngine(RecreatBase):
         :type residential_class: List[int]
         """        
         step_count = len(residential_classes)
-        current_task = self.get_task("[white]Determine pixel count", total=step_count)
+        current_task = self._new_task("[white]Determine pixel count", total=step_count)
         with self.progress:
             for cls in residential_classes:               
                 self._determine_pixel_count_per_population_cell(cls)
@@ -202,7 +202,7 @@ class DasymetricMappingEngine(DisaggregationBaseEngine):
         :type residential_class: List[int]
         """
         step_count = len(residential_classes)
-        current_task = self.get_task("[white]Reprojecting raster", total=step_count)
+        current_task = self._new_task("[white]Reprojecting raster", total=step_count)
                         
         with self.progress:
             for cls in self.residential_classes:
@@ -260,7 +260,7 @@ class DasymetricMappingEngine(DisaggregationBaseEngine):
     def disaggregate_class_population(self, residential_classes: List[int], mtx_pop: np.ndarray) -> None:
         
         step_count = len(residential_classes)
-        current_task = self.get_task("[white]Disaggregating class", total=step_count)
+        current_task = self._new_task("[white]Disaggregating class", total=step_count)
                 
         mtx_sum_of_targets = rasterio.open(self.get_file_path("DEMAND/sum_atdc.tif")).read(1)       
 
@@ -303,7 +303,7 @@ class DasymetricMappingEngine(DisaggregationBaseEngine):
         self.disaggregate_class_population(residential_classes, mtx_pop)
         
         step_count = len(residential_classes)
-        current_task = self.get_task("[white]Finalizing", total=step_count)
+        current_task = self._new_task("[white]Finalizing", total=step_count)
         mtx_out_population = np.zeros(mtx_pop.shape, dtype=np.float64)
 
         with self.progress:
@@ -357,7 +357,7 @@ class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
         :type residential_class: List[int]
         """
         step_count = len(residential_classes)
-        current_task = self.get_task("[white]Determine class pixel share", total=step_count)
+        current_task = self._new_task("[white]Determine class pixel share", total=step_count)
         with self.progress:
             for cls in residential_classes:
                 self._determine_class_share(cls)
@@ -403,7 +403,7 @@ class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
         :type residential_class: List[int]
         """
         step_count = len(residential_classes)
-        current_task = self.get_task("[white]Determine per-pixel population", total=step_count)
+        current_task = self._new_task("[white]Determine per-pixel population", total=step_count)
         with self.progress:
             for cls in residential_classes:
                 self._determine_class_pixel_population(cls)
@@ -458,7 +458,7 @@ class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
         :type residential_class: List[int]
         """
         step_count = len(residential_classes)
-        current_task = self.get_task("[white]Determine class population", total=step_count)
+        current_task = self._new_task("[white]Determine class population", total=step_count)
         with self.progress:
             for cls in self.residential_classes:
                 self._reproject_pixel_population_count_to_builtup(cls)
@@ -481,7 +481,7 @@ class SimpleAreaWeightedEngine(DisaggregationBaseEngine):
 
     def aggregate_class_population(self, residential_classes: List[int]) -> None:
         step_count = 1
-        current_task = self.get_task("[white]Determine class population", total=step_count)
+        current_task = self._new_task("[white]Determine class population", total=step_count)
         with self.progress:
             self._aggregate_class_population(residential_classes)
             self.progress.update(current_task, advance=1)

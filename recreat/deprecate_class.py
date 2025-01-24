@@ -201,7 +201,7 @@ class Recreat(RecreatBase):
         # mask classes of interest into a binary raster to indicate presence/absence of recreational potential
         # we require this for all classes relevant to processing: patch and edge recreational classes, built-up classes
         self.printStepInfo("CREATING LAND-USE MASKS")
-        current_task = self.get_task('[white]Masking land-uses', total=len(classes_for_masking))
+        current_task = self._new_task('[white]Masking land-uses', total=len(classes_for_masking))
         with self.progress:
             for lu in classes_for_masking:
                 
@@ -256,7 +256,7 @@ class Recreat(RecreatBase):
                 )
 
             self.printStepInfo("Detecting edges")
-            current_task = self.get_task("[white]Detecting edges", total=len(classes_to_assess))
+            current_task = self._new_task("[white]Detecting edges", total=len(classes_to_assess))
 
             with self.progress:
                 for lu in classes_to_assess:
@@ -325,7 +325,7 @@ class Recreat(RecreatBase):
         step_count = len(classes_for_proximity_calculation) * len(clump_slices)
 
         # if standalone, create new progress bar, otherwise use existing bar, and create task
-        current_task = self.get_task("[white]Computing distance rasters", total=step_count)
+        current_task = self._new_task("[white]Computing distance rasters", total=step_count)
 
         # iterate over classes and clumps
         with self.progress:
@@ -391,7 +391,7 @@ class Recreat(RecreatBase):
         if assess_builtup:
             
             step_count = len(clump_slices)
-            current_task = self.get_task("[white]Computing distance rasters", total=step_count)
+            current_task = self._new_task("[white]Computing distance rasters", total=step_count)
             with self.progress:
                 
                 # target raster
@@ -441,7 +441,7 @@ class Recreat(RecreatBase):
         self.printStepInfo("Recategorizing classes")
         if self.lsm_mtx is not None:
             
-            current_task = self.get_task("[white]Reclassification", total=len(mappings.keys()))
+            current_task = self._new_task("[white]Reclassification", total=len(mappings.keys()))
 
             # iterate over key-value combinations
             with self.progress:
@@ -525,7 +525,7 @@ class Recreat(RecreatBase):
         clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))        
         
         step_count = len(self.cost_thresholds) * len(clump_slices)
-        current_task = self.get_task("[white]Determining beneficiaries", total=step_count)
+        current_task = self._new_task("[white]Determining beneficiaries", total=step_count)
         
         custom_meta = self.lsm_rst.meta.copy()
         custom_meta.update({
@@ -561,7 +561,7 @@ class Recreat(RecreatBase):
         # this should be avoided.
 
         step_count = len(self.cost_thresholds)
-        current_task = self.get_task("[white]Normalizing beneficiaries in cost ranges", total=step_count)
+        current_task = self._new_task("[white]Normalizing beneficiaries in cost ranges", total=step_count)
         with self.progress:
             # assert order from lowest to highest cost
             sorted_costs = sorted(self.cost_thresholds)
@@ -604,7 +604,7 @@ class Recreat(RecreatBase):
         clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))
         
         step_count = len(clump_slices) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
-        current_task = self.get_task("[white]Determining clumped supply", total=step_count)
+        current_task = self._new_task("[white]Determining clumped supply", total=step_count)
 
         with self.progress:
             for c in self.cost_thresholds: 
@@ -736,7 +736,7 @@ class Recreat(RecreatBase):
 
         # progress reporting        
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))
-        current_task = self.get_task("[white]Aggregating clumped supply", total=step_count)
+        current_task = self._new_task("[white]Aggregating clumped supply", total=step_count)
 
         with self.progress if self._runsAsStandalone() else nullcontext() as bar:
             for c in self.cost_thresholds:
@@ -762,7 +762,7 @@ class Recreat(RecreatBase):
         self.printStepInfo("Determining class diversity within costs")        
 
         step_count = (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
-        current_task = self.get_task("[white]Determining class diversity", total=step_count)
+        current_task = self._new_task("[white]Determining class diversity", total=step_count)
 
         with self.progress as p:
             for c in self.cost_thresholds:    
@@ -794,7 +794,7 @@ class Recreat(RecreatBase):
         """
         self.printStepInfo("Determine class flow")        
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch))
-        current_task = self.get_task("[white]Determine class-based flows within cost", step_count)
+        current_task = self._new_task("[white]Determine class-based flows within cost", step_count)
 
         with self.progress as p:            
             for c in self.cost_thresholds:
@@ -849,7 +849,7 @@ class Recreat(RecreatBase):
 
         self.printStepInfo("Averaging supply across costs")
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))
-        current_task = self.get_task("[white]Averaging supply", total=step_count)
+        current_task = self._new_task("[white]Averaging supply", total=step_count)
 
         # make result rasters
         # consider the following combinations
@@ -961,7 +961,7 @@ class Recreat(RecreatBase):
 
         self.printStepInfo("Averaging diversity across costs")
         step_count = len(self.cost_thresholds)
-        current_task = self.get_task("[white]Averaging diversity", total=step_count)
+        current_task = self._new_task("[white]Averaging diversity", total=step_count)
 
         with self.progress as p:
 
@@ -1023,7 +1023,7 @@ class Recreat(RecreatBase):
 
         self.printStepInfo("Averaging beneficiaries across costs")
         step_count = len(self.cost_thresholds)
-        current_task = self.get_task("[white]Averaging beneficiaries", total=step_count)
+        current_task = self._new_task("[white]Averaging beneficiaries", total=step_count)
 
         custom_meta = self.lsm_rst.meta.copy()
         custom_meta.update({
@@ -1085,7 +1085,7 @@ class Recreat(RecreatBase):
 
         self.printStepInfo("Averaging flow across costs")        
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)) 
-        current_task = self.get_task("[white]Averaging flow across costs", total=step_count)
+        current_task = self._new_task("[white]Averaging flow across costs", total=step_count)
 
         with self.progress as p:
 
@@ -1170,7 +1170,7 @@ class Recreat(RecreatBase):
         current_lu_clump_slices = ndimage.find_objects(mtx_current_lu_clumps.astype(np.int64)) 
 
         # iterate over clumps of current lu and determine clump sizes
-        clump_progress = self.get_task("[white]Iterate clumps", total=len(current_lu_clump_slices))
+        clump_progress = self._new_task("[white]Iterate clumps", total=len(current_lu_clump_slices))
         
         with self.progress as p:
             
@@ -1215,7 +1215,7 @@ class Recreat(RecreatBase):
         
         self.printStepInfo("Determining per-capita opportunity area")
         step_count = len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)
-        lu_progress = self.get_task("[white]Per-capita assessment", total=step_count)
+        lu_progress = self._new_task("[white]Per-capita assessment", total=step_count)
 
         # get average flow for all lu patches as basis for average per-capita area
         mtx_average_flows = self._read_band("FLOWS/integrated_avg_flow.tif")
@@ -1308,7 +1308,7 @@ class Recreat(RecreatBase):
         included_lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
         
         step_count = len(included_lu_classes)
-        current_task = self.get_task("[white]Assessing minimum cost to closest", total=step_count)
+        current_task = self._new_task("[white]Assessing minimum cost to closest", total=step_count)
 
         # make result layer
         high_val = 9999999
@@ -1359,7 +1359,7 @@ class Recreat(RecreatBase):
         clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))
         
         step_count = len(included_lu_classes) * len(clump_slices)
-        current_task = self.get_task("[white]Assessing cost to closest", total=step_count)
+        current_task = self._new_task("[white]Assessing cost to closest", total=step_count)
 
         with self.progress as p:
             
@@ -1430,7 +1430,7 @@ class Recreat(RecreatBase):
         included_lu_classes = lu_classes if lu_classes is not None else self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
                 
         step_count = len(included_lu_classes)
-        current_task = self.get_task("[white]Averaging cost to closest", total=step_count)
+        current_task = self._new_task("[white]Averaging cost to closest", total=step_count)
 
         # raster for average result
         mtx_average_cost = self._get_value_matrix(dest_datatype=np.float32)
@@ -1796,7 +1796,7 @@ class Recreat(RecreatBase):
         tmp_files = [os.path.join(self.data_path, self.root_path, 'TMP', f) for f in listdir(tmp_path) if isfile(join(tmp_path, f))]
         
         step_count = len(tmp_files)
-        current_task = self.get_task('[red]Removing temporary files', total=step_count)
+        current_task = self._new_task('[red]Removing temporary files', total=step_count)
         
         for f in tmp_files:
             os.remove(f)

@@ -6,6 +6,9 @@ from os import listdir
 from os.path import isfile, join
 import ctypes
 import platform
+import concurrent.futures
+from skimage import data, util, measure
+import pandas as pd  
 
 cv_max_pixel_count = pow(2,40).__str__()
 os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = cv_max_pixel_count
@@ -301,7 +304,7 @@ class Recreat(RecreatBase):
         :rtype: np.ndarray
         """
         self.printStepInfo("Raster reclassification")        
-        current_task = self.get_task("[white]Reclassification", total=len(mappings.keys()))
+        current_task = self._new_task("[white]Reclassification", total=len(mappings.keys()))
 
         # iterate over key-value combinations
         with self.progress:            
@@ -327,25 +330,34 @@ class Recreat(RecreatBase):
         """    
         self.printStepInfo("Detecting clumps")
 
-        # barrier_classes are user-defined classes as well as nodata parts
-        barrier_classes = barrier_classes + [self.nodata_value]
-
         lulc_data = self._get_land_use()
-        barriers_mask = np.isin(lulc_data, barrier_classes, invert=False)
-        lulc_data[barriers_mask] = 0
-
-        clump_connectivity = np.full((3,3), 1)
-        out_clumps = self._get_matrix(fill_value=0, shape=self._get_shape(), dtype=np.int32)
-
-        nr_clumps = ndimage.label(lulc_data, structure=clump_connectivity, output=out_clumps)
-        print(f"{Fore.YELLOW}{Style.BRIGHT} {nr_clumps} CLUMPS FOUND{Style.RESET_ALL}")
-        
-        # update clumps to hold nodata value where clump=0
-        out_clumps[out_clumps == 0] = self.nodata_value
+        nr_clumps, out_clumps = self._detect_clumps_in_raster(lulc_data, barrier_classes=barrier_classes)        
         self._write_file("BASE/clumps.tif", out_clumps, self._get_metadata(np.int32, self.nodata_value))        
         
         # done
         self.taskProgressReportStepCompleted()
+
+    def _detect_clumps_in_raster(self, mtx_data: np.ndarray, barrier_classes: List[int]) -> Tuple[int, np.ndarray]:
+        
+        # barrier_classes are user-defined classes as well as nodata parts
+        # mask raster accordingly
+        barrier_classes = barrier_classes + [self.nodata_value]
+        barriers_mask = np.isin(mtx_data, barrier_classes, invert=False)
+        mtx_data[barriers_mask] = 0
+
+        # determine patches
+        clump_connectivity = np.full((3,3), 1)
+        out_clumps = self._get_matrix(fill_value=0, shape=self._get_shape(), dtype=np.int32)
+        nr_clumps = ndimage.label(mtx_data, structure=clump_connectivity, output=out_clumps)
+
+        # update clumps to hold nodata value where clump=0 (= background)
+        out_clumps[out_clumps == 0] = self.nodata_value
+
+        print(f"{Fore.YELLOW}{Style.BRIGHT} {nr_clumps} CLUMPS FOUND{Style.RESET_ALL}")
+        return nr_clumps, out_clumps
+
+
+
 
     def mask_landuses(self, lu_classes: List[int] = None) -> None:
         """Generate land-use class masks (occurrence masks) for patch, edge, and built-up land-use classes.
@@ -359,7 +371,7 @@ class Recreat(RecreatBase):
         # mask classes of interest into a binary raster to indicate presence/absence of recreational potential
         # we require this for all classes relevant to processing: patch and edge recreational classes, built-up classes
         self.printStepInfo("Creating land-use class masks")
-        current_task = self.get_task('[white]Masking', total=len(classes_for_masking))
+        current_task = self._new_task('[white]Masking', total=len(classes_for_masking))
 
         with self.progress:
             
@@ -422,7 +434,7 @@ class Recreat(RecreatBase):
                 )
 
             self.printStepInfo("Detecting edges")
-            current_task = self.get_task("[white]Detecting edges", total=len(classes_to_assess))
+            current_task = self._new_task("[white]Detecting edges", total=len(classes_to_assess))
 
             with self.progress:
                 
@@ -549,7 +561,7 @@ class Recreat(RecreatBase):
             obj_mask = np.isin(sliced_mtx_clumps, [obj_label], invert=False)
             sliced_mtx_source[~obj_mask] = 0
 
-            # now all pixels outside of clump should be zeroed, and we can determine total supply within sliding window
+            # now all pixels outside of clump should be zeroed, and we can determine total supply within sliding window            
             if mode == 'convolve':            
                 sliding_results = self._moving_window_convolution(sliced_mtx_source, cost)
             elif mode == 'generic_filter':                 
@@ -557,6 +569,7 @@ class Recreat(RecreatBase):
             elif mode == 'ocv_filter2d':
                 sliding_results = self._moving_window_filter2d(sliced_mtx_source, cost)
            
+            # similarly, mask all pixels outside of clump to 0 to assert result constraint to current clump 
             sliding_results[~obj_mask] = 0
             mtx_result[obj_slice] += sliding_results.astype(mtx_source.dtype)
             
@@ -596,7 +609,7 @@ class Recreat(RecreatBase):
         lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
 
         step_count = len(clump_slices) * len(lu_classes) * len(self.cost_thresholds)
-        current_task = self.get_task("[white]Determining clumped supply", total=step_count)
+        current_task = self._new_task("[white]Determining clumped supply", total=step_count)
 
         with self.progress:
             for c in self.cost_thresholds: 
@@ -618,7 +631,6 @@ class Recreat(RecreatBase):
 
                     # mask nodata regions based on clumps
                     lu_supply_mtx[clump_nodata_mask] = self.nodata_value
-
                    
                     # export current cost
                     outfile_name = (
@@ -678,7 +690,7 @@ class Recreat(RecreatBase):
 
         # progress reporting        
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge))
-        current_task = self.get_task("[white]Aggregating clumped supply", total=step_count)
+        current_task = self._new_task("[white]Aggregating clumped supply", total=step_count)
 
         with self.progress:
             
@@ -740,7 +752,7 @@ class Recreat(RecreatBase):
 
         self.printStepInfo("Averaging supply across costs")
         step_count = len(self.cost_thresholds)
-        current_task = self.get_task("[white]Averaging supply", total=step_count)
+        current_task = self._new_task("[white]Averaging supply", total=step_count)
 
         with self.progress as p:
 
@@ -807,7 +819,7 @@ class Recreat(RecreatBase):
         self.printStepInfo("Determining class diversity within costs")        
 
         step_count = (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch)) * len(self.cost_thresholds)
-        current_task = self.get_task("[white]Determining class diversity", total=step_count)
+        current_task = self._new_task("[white]Determining class diversity", total=step_count)
 
         with self.progress as p:
 
@@ -855,7 +867,7 @@ class Recreat(RecreatBase):
 
         self.printStepInfo("Averaging diversity across costs")
         step_count = len(self.cost_thresholds)
-        current_task = self.get_task("[white]Averaging diversity", total=step_count)
+        current_task = self._new_task("[white]Averaging diversity", total=step_count)
 
         with self.progress as p:
 
@@ -978,7 +990,7 @@ class Recreat(RecreatBase):
         clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))        
         
         step_count = len(self.cost_thresholds) * len(clump_slices)
-        current_task = self.get_task("[white]Determining beneficiaries", total=step_count)
+        current_task = self._new_task("[white]Determining beneficiaries", total=step_count)
         
         with self.progress:
             for c in self.cost_thresholds:
@@ -1022,7 +1034,7 @@ class Recreat(RecreatBase):
 
         self.printStepInfo("Averaging beneficiaries across costs")
         step_count = len(self.cost_thresholds)
-        current_task = self.get_task("[white]Averaging beneficiaries", total=step_count)
+        current_task = self._new_task("[white]Averaging beneficiaries", total=step_count)
 
         with self.progress as p:
 
@@ -1153,7 +1165,7 @@ class Recreat(RecreatBase):
         clump_slices = ndimage.find_objects(rst_clumps.astype(np.int64))        
         
         step_count = len(classes_for_proximity_calculation) * len(clump_slices)
-        current_task = self.get_task("[white]Computing distance rasters", total=step_count)
+        current_task = self._new_task("[white]Computing distance rasters", total=step_count)
 
         # iterate over classes and clumps
         with self.progress:
@@ -1169,7 +1181,7 @@ class Recreat(RecreatBase):
         if assess_builtup:
             
             step_count = len(self.lu_classes_builtup) * len(clump_slices)
-            current_task = self.get_task("[white]Computing distance rasters to built-up", total=step_count)
+            current_task = self._new_task("[white]Computing distance rasters to built-up", total=step_count)
             with self.progress:
                 for lu in self.lu_classes_builtup:
                      # make computation
@@ -1200,7 +1212,7 @@ class Recreat(RecreatBase):
         clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))
         
         step_count = len(included_lu_classes) * len(clump_slices)
-        current_task = self.get_task("[white]Assessing cost to closest", total=step_count)
+        current_task = self._new_task("[white]Assessing cost to closest", total=step_count)
 
         with self.progress as p:
             
@@ -1270,7 +1282,7 @@ class Recreat(RecreatBase):
         included_lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
         
         step_count = len(included_lu_classes)
-        current_task = self.get_task("[white]Assessing minimum cost to closest", total=step_count)
+        current_task = self._new_task("[white]Assessing minimum cost to closest", total=step_count)
 
         # make result layer
         high_val = 9999999
@@ -1311,16 +1323,19 @@ class Recreat(RecreatBase):
         included_lu_classes = lu_classes if lu_classes is not None else self.lu_classes_recreation_patch + self.lu_classes_recreation_edge
                 
         step_count = len(included_lu_classes)
-        current_task = self.get_task("[white]Averaging cost to closest", total=step_count)
+        current_task = self._new_task("[white]Averaging cost to closest", total=step_count)
 
         # raster for average result
-        mtx_average_cost = self._get_matrix(0, self._get_shape(), np.float32)
-        mtx_lu_cost_count_considered = self._get_matrix(0, self._get_shape(), np.int32)    
+        mtx_average_cost = self._get_matrix(0, self._get_shape(), np.float64)
+        mtx_lu_cost_count_considered = self._get_matrix(0, self._get_shape(), np.float64)    
         
         if distance_threshold > 0:
             print(f"{Fore.YELLOW}{Style.BRIGHT}Masking costs > {distance_threshold} units{Style.RESET_ALL}")                
 
         with self.progress as p:
+
+            # get clumps raster for masking
+            rst_clumps, clump_nodata_mask = self._get_clumps()
 
             # now operate over clumps, in order to safe some computational time
             for lu in included_lu_classes:
@@ -1349,14 +1364,17 @@ class Recreat(RecreatBase):
         # export average cost grid
         # prior, determine actual average. here, consider per each pixel the number of grids added.
         # self._write_dataset('COSTS/raw_sum_of_cost.tif', mtx_average_cost, mask_nodata=False, custom_metadata=custom_meta)
-        self._write_file('COSTS/cost_count.tif', mtx_lu_cost_count_considered, self._get_metadata(np.int32, self.nodata_value))
+
+        # properly mask nodata values from clumps mask
+        mtx_lu_cost_count_considered[clump_nodata_mask] = self.nodata_value
+        self._write_file('COSTS/cost_count.tif', mtx_lu_cost_count_considered, self._get_metadata(np.float64, self.nodata_value))
                 
         np.divide(mtx_average_cost, mtx_lu_cost_count_considered, out=mtx_average_cost, where=mtx_lu_cost_count_considered > 0)     
         
         # we should now also be able to reset cells with nodata values to the actual nodata_value
-        mtx_average_cost[mtx_lu_cost_count_considered < 0] = self.nodata_value
-
-        self._write_file('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost, self._get_metadata(np.float32, self.nodata_value))
+        # mtx_average_cost[mtx_lu_cost_count_considered < 0] = self.nodata_value
+        mtx_average_cost[clump_nodata_mask] = self.nodata_value
+        self._write_file('INDICATORS/non_weighted_avg_cost.tif', mtx_average_cost, self._get_metadata(np.float64, self.nodata_value))
         
         # if write_scaled_result:
         #     # apply min-max scaling
@@ -1374,6 +1392,54 @@ class Recreat(RecreatBase):
 
 #region flow
 
+
+    def detect_land_use_patches(self, lu_classes: List[int] = None):
+        """Identify contiguous patches of land-uses.
+
+        :param lu_classes: List of land-use classes to assess, defaults to None. If None, all patch and edge classes will be considered.
+        :type lu_classes: List[int], optional
+        """
+        self.printStepInfo("Detecting clumps of land-uses")
+
+        lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
+
+        step_count = len(lu_classes)
+        current_task = self._new_task("[white]Determine clumps of land-uses", total=step_count)
+
+        with self.progress as p:
+
+            for lu in lu_classes:   
+
+                # get class mask
+                mtx_lu_class_mask = self._get_land_use_class_mask(lu)
+                nr_clumps, mtx_clumps = self._detect_clumps_in_raster(mtx_lu_class_mask, barrier_classes=[0])
+                # write result
+                self._write_file(f'CLUMPS_LU/clumps_{lu}.tif', mtx_clumps, self._get_metadata(np.int32, self.nodata_value))
+                p.update(current_task, advance=1)
+
+        self.printStepCompleteInfo()
+
+    def class_patch_flow(self) -> None:
+        """Determine flow to patches of recreational land-use classes.
+        """
+
+        self.printStepInfo("Determine patch flow")        
+
+        lu_classes = (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge) 
+        
+        step_count = len(lu_classes) * len(self.cost_thresholds)
+        current_task = self._new_task("[white]Determine patch flow", step_count)
+
+        with self.progress as p:
+            pass
+
+        self.printStepCompleteInfo()
+
+
+
+
+
+
     def class_flow(self) -> None:
         """Determine the total number of potential beneficiaries (flow to given land-use classes) as the sum of total population, within cost thresholds.
         """
@@ -1381,7 +1447,7 @@ class Recreat(RecreatBase):
         self.printStepInfo("Determine class flow")        
         
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch))
-        current_task = self.get_task("[white]Determine class-based flows within cost", step_count)
+        current_task = self._new_task("[white]Determine class-based flows within cost", step_count)
 
         with self.progress as p:            
             
@@ -1425,7 +1491,7 @@ class Recreat(RecreatBase):
         self.printStepInfo("Aggregating flow within cost")        
 
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_patch) + len(self.lu_classes_recreation_edge)) 
-        current_task = self.get_task("[white]Averaging flow across costs", total=step_count)
+        current_task = self._new_task("[white]Averaging flow across costs", total=step_count)
 
         with self.progress as p:
 
@@ -1460,7 +1526,7 @@ class Recreat(RecreatBase):
         self.printStepInfo("Determining cost-range differences")
 
         step_count = len(self.cost_thresholds)
-        current_task = self.get_task("[white]Iterating cost ranges", total=step_count)
+        current_task = self._new_task("[white]Iterating cost ranges", total=step_count)
         
         rst_clumps, clump_nodata_mask = self._get_clumps()
 
@@ -1506,7 +1572,7 @@ class Recreat(RecreatBase):
         self.printStepInfo("Averaging flow across costs")    
 
         step_count = len(self.cost_thresholds)
-        current_task = self.get_task("[white]Averaging flow across costs", total=step_count)
+        current_task = self._new_task("[white]Averaging flow across costs", total=step_count)
 
         with self.progress as p:
 
@@ -1556,5 +1622,141 @@ class Recreat(RecreatBase):
 
         # done
         self.taskProgressReportStepCompleted()
+
+#endregion
+
+
+#region TEST IMPLEMENTATION
+
+    def make_patch_stats(self):
+        res = self.iterate_over_surface()
+        
+        # Create DataFrame
+        # First, flatten the dictionary
+        data = []
+        for l in res:
+            for key, inner_dict in l.items():
+                for inner_key, values in inner_dict.items():
+                    row = {}
+                    row.update(values)
+                    data.append(row)
+
+        df = pd.DataFrame(data)
+        print(df)
+
+
+
+
+    def iterate_over_surface(self):
+        lu = 840
+
+        results = []
+
+        mtx_clumps, clump_nodata_mask = self._get_clumps()
+        mtx_clumps[mtx_clumps == self.nodata_value] = 0
+        clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))
+            
+        reader, mtx_beneficiaries = self._get_file('DEMAND/disaggregated_population.tif', [self.nodata_value])
+        mtx_beneficiaries[mtx_beneficiaries == self.nodata_value] = 0
+
+        reader, mtx_lu_patches = self._get_file(f'CLUMPS_LU/clumps_{lu}.tif', [self.nodata_value])
+        mtx_lu_patches[mtx_lu_patches == self.nodata_value] = 0
+
+        tbl_lu_patch_props = measure.regionprops_table(mtx_lu_patches, properties=('label', 'num_pixels'))
+        patch_df = pd.DataFrame(tbl_lu_patch_props)
+
+        step_count = len(clump_slices)
+        current_task = self._new_task("[white]Surface iteration", total=step_count)
+
+        with self.progress as p:
+
+            def process_clump(patch_idx):            
+                
+                # clump results will store all patches within costs and corresponding pop of origin cell including coordinates of cell as a reference
+                clump_results = {}
+                
+                obj_slice = clump_slices[patch_idx]
+                obj_label = patch_idx + 1
+
+                # get slice from land-use mask
+                sliced_mtx_source = mtx_lu_patches[obj_slice].copy() 
+                sliced_mtx_demand = mtx_beneficiaries[obj_slice].copy()
+                sliced_mtx_clumps = mtx_clumps[obj_slice]
+
+                # properly mask out current object
+                obj_mask = np.isin(sliced_mtx_clumps, [obj_label], invert=False)
+                
+                sliced_mtx_source[~obj_mask] = 0
+                sliced_mtx_demand[~obj_mask] = 0
+
+                # sliced_mtx_source now contains properly masked lu patches within the current clump
+                # sliced_mtx_demand now contains properly masked demand (disaggr. pop.) within the current clump
+                
+                # iterate over the demand raster, i.e., each value in demand will be assigned to 
+                # patches, depending on a certain distrubution function                
+                rows, cols = sliced_mtx_demand.shape
+                for row in range(rows):
+                    for col in range(cols):
+                        
+                        # we also need to know how many land-uses are within reach, as we have to divide the number of
+                        # beneficiaries to be distributed in this cost to each land
+
+                        current_population_value = sliced_mtx_demand[row,col]
+                        if current_population_value == 0:
+                            continue # nothing to distribute here!
+                        
+                        for c in self.cost_thresholds:
+
+                            kernel_size = c
+                            row_start = max(0, row - kernel_size // 2)
+                            row_end = min(rows, row + kernel_size // 2 + 1)
+                            col_start = max(0, col - kernel_size // 2)
+                            col_end = min(cols, col + kernel_size // 2 + 1)
+                            
+                            patch_labels_in_kernel = sliced_mtx_source[row_start:row_end, col_start:col_end]
+                            # get the unique values that are not backgground!
+                            unique_patch_labels = np.unique(patch_labels_in_kernel)
+
+                            # get properties of patches
+                            for patch_label in unique_patch_labels:
+                                
+                                if patch_label == 0:
+                                    # 0 is the background
+                                    continue
+
+                                if not (row,col) in clump_results.keys():
+                                    clump_results[(row,col)] = {}
+                                    clump_results[(row,col)][patch_label] = {
+                                        'clump_label' : obj_label,
+                                        'land_use' : lu,
+                                        'patch_label' : patch_label, 
+                                        'orig_pop' : current_population_value, 
+                                        'cost' : c
+                                    }    
+
+                                else:
+                                    # if row and col in clump results, then check if the current clump has already been in the list of results
+                                    # do not add it twice; if it is not contained yet, do add it
+                                    if not patch_label in clump_results[(row,col)].keys():
+                                        clump_results[(row,col)][patch_label] = {
+                                            'clump_label' : obj_label,
+                                            'land_use' : lu,
+                                            'patch_label' : patch_label, 
+                                            'orig_pop' : current_population_value, 
+                                            'cost' : c
+                                        }    
+
+                # add clump result to list of results
+                results.append(clump_results)
+                p.update(current_task, advance=1)
+                
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = [executor.submit(process_clump, patch_idx) for patch_idx in range(len(clump_slices))]
+                concurrent.futures.wait(futures)   
+        
+        #done
+        self.printStepCompleteInfo()
+        return results
+
 
 #endregion

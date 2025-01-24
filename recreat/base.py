@@ -42,8 +42,10 @@ class RecreatBase:
     # task progress not supporting static methods at this time
     def _new_progress(self, task_description, total):
         self.progress = self.get_progress_bar()
-        return self.progress.add_task(f"{task_description:<40}", total=total)
+        return self._add_new_task(task_description, total)
 
+    def _add_new_task(self, task_description, total):
+        return self.progress.add_task(f"{task_description:<40}", total=total)
 
     def get_file_path(self, file_name: str, relative_to_root_path: bool = True):
         """Get the fully-qualified path to model file with specified filename.
@@ -68,8 +70,10 @@ class RecreatBase:
             MofNCompleteColumn()
         )
     
-    def get_task(self, task_description, total):
+    def _new_task(self, task_description, total):
         return self._new_progress(task_description, total=total)
+    def _add_task(self, task_desciption, total):
+        return self._add_new_task(task_desciption, total=total)
 
 
     
