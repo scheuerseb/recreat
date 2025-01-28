@@ -1628,7 +1628,7 @@ class Recreat(RecreatBase):
 
 #region TEST IMPLEMENTATION
 
-    def make_patch_stats(self, lu_classes: List[int] = None):
+    def lu_accessibility_tables(self, lu_classes: List[int] = None):
 
         # determine classes to iterate
         lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
@@ -1637,7 +1637,7 @@ class Recreat(RecreatBase):
         df_patch_stats: pd.DataFrame = None
 
         for lu in lu_classes:
-            df_for_class = self.iterate_over_surface(lu=lu)
+            df_for_class = self.lu_accessibility_and_properties(lu=lu)
             path = self.get_file_path(f'FLOWS_DF/flow_df_{lu}.csv')
             df_for_class.to_csv(path, sep=",", index=False)
             
@@ -1647,9 +1647,29 @@ class Recreat(RecreatBase):
         #df_1135.to_excel('c:/users/sebsc/Desktop/test.xlsx', index=False) 
 
 
+    def patch_properties_tables(self, lu_classes: List[int] = None):
+
+        lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
+
+        step_count = len(lu_classes)
+        current_task = self._new_task("[white]Writing patch property table", total=step_count)
+
+        with self.progress as p:
+
+            for lu in lu_classes:
+
+                reader, mtx_lu_patches = self._get_file(f'CLUMPS_LU/clumps_{lu}.tif', [self.nodata_value])
+                print(reader.resolution)
+
+                mtx_lu_patches[mtx_lu_patches == self.nodata_value] = 0
+
+                tbl_lu_patch_props = measure.regionprops_table(mtx_lu_patches, properties=('label', 'num_pixels'))
+                patch_df = pd.DataFrame(tbl_lu_patch_props)
+
+                p.update(current_task, advance=1)
 
 
-    def iterate_over_surface(self, lu) -> pd.DataFrame:
+    def lu_accessibility_and_properties(self, lu) -> pd.DataFrame:
 
         results = []
 
@@ -1758,7 +1778,7 @@ class Recreat(RecreatBase):
 
 
             # flatten results to make a dataframe
-            added_task = self._add_task("Building dataframe...", total=1)
+            added_task = self._add_subtask("Building dataframe...", total=1)
             data = [x for cl in results for x in cl]
             df = pd.DataFrame(data, columns=['clump_label', 'row', 'col', 'land_use', 'patch_label', 'orig_pop', 'cost'])
             p.update(added_task, advance=1)

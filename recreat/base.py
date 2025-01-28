@@ -72,7 +72,7 @@ class RecreatBase:
     
     def _new_task(self, task_description, total):
         return self._new_progress(task_description, total=total)
-    def _add_task(self, task_desciption, total):
+    def _add_subtask(self, task_desciption, total):
         return self._add_new_task(task_desciption, total=total)
 
 
