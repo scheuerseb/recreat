@@ -173,9 +173,15 @@ class Recreat(RecreatBase):
             data_mtx[data_mtx == self.nodata_value] = nodata_replacement_value
         return data_mtx
 
-    def _get_supply_for_land_use_class_and_cost(self, lu: int, cost: int) -> np.ndarray:        
+    def _get_supply_for_land_use_class_and_cost(self, lu: int, cost: int, return_cost_window_difference: bool = False) -> np.ndarray:        
         lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"        
-        filename = f"SUPPLY/totalsupply_class_{lu}_cost_{cost}_clumped.tif" if lu_type == 'patch' else f"SUPPLY/totalsupply_edge_class_{lu}_cost_{cost}_clumped.tif"
+        
+        filename: str = None
+        if not return_cost_window_difference:
+            filename = f"SUPPLY/totalsupply_class_{lu}_cost_{cost}_clumped.tif" if lu_type == 'patch' else f"SUPPLY/totalsupply_edge_class_{lu}_cost_{cost}_clumped.tif"
+        else:
+            filename = f"SUPPLY/totalsupply_{lu}_within_cost_range_{cost}.tif"
+        
         return self._get_data_object(filename, nodata_replacement_value=0)
     
     def _get_supply_for_cost(self, cost: int, return_cost_window_difference: bool = False) -> np.ndarray:
@@ -341,7 +347,7 @@ class Recreat(RecreatBase):
         
         # barrier_classes are user-defined classes as well as nodata parts
         # mask raster accordingly
-        barrier_classes = barrier_classes + [self.nodata_value]
+        barrier_classes += [self.nodata_value]
         barriers_mask = np.isin(mtx_data, barrier_classes, invert=False)
         mtx_data[barriers_mask] = 0
 
@@ -1399,12 +1405,12 @@ class Recreat(RecreatBase):
         :param lu_classes: List of land-use classes to assess, defaults to None. If None, all patch and edge classes will be considered.
         :type lu_classes: List[int], optional
         """
-        self.printStepInfo("Detecting clumps of land-uses")
+        self.printStepInfo("Detecting land-uses patches")
 
         lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
 
         step_count = len(lu_classes)
-        current_task = self._new_task("[white]Determine clumps of land-uses", total=step_count)
+        current_task = self._new_task("[white]Determine patches", total=step_count)
 
         with self.progress as p:
 
@@ -1521,7 +1527,7 @@ class Recreat(RecreatBase):
         return mtx_flow_for_current_cost
             
 
-    def _get_cost_range_differences(self, get_data_method, outfile_template: Template) -> None:
+    def _get_cost_range_differences(self, get_data_method, outfile_template: Template, **kwargs) -> None:
         
         self.printStepInfo("Determining cost-range differences")
 
@@ -1536,7 +1542,7 @@ class Recreat(RecreatBase):
             sorted_costs = sorted(self.cost_thresholds)
             
             # write lowest range directly
-            mtx_lower_range = get_data_method(sorted_costs[0])
+            mtx_lower_range = get_data_method(cost=sorted_costs[0], **kwargs)
             mtx_lower_range[clump_nodata_mask] = self.nodata_value
             
             out_filename = outfile_template.substitute(cost=f"{sorted_costs[0]}") 
@@ -1546,8 +1552,8 @@ class Recreat(RecreatBase):
 
             for i in range(1,len(sorted_costs)):
                 
-                mtx_lower_range = get_data_method(sorted_costs[i-1]) 
-                mtx_current_cost = get_data_method(sorted_costs[i])
+                mtx_lower_range = get_data_method(cost=sorted_costs[i-1], **kwargs) 
+                mtx_current_cost = get_data_method(cost=sorted_costs[i], **kwargs)
 
                 mtx_flow_in_cost_range = self._get_matrix(0, self._get_shape(), np.float64)
                 np.subtract(mtx_current_cost, mtx_lower_range, out=mtx_flow_in_cost_range)
@@ -1628,24 +1634,6 @@ class Recreat(RecreatBase):
 
 #region TEST IMPLEMENTATION
 
-    def lu_accessibility_tables(self, lu_classes: List[int] = None):
-
-        # determine classes to iterate
-        lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
-
-        # store results in df
-        df_patch_stats: pd.DataFrame = None
-
-        for lu in lu_classes:
-            df_for_class = self.lu_accessibility_and_properties(lu=lu)
-            path = self.get_file_path(f'FLOWS_DF/flow_df_{lu}.csv')
-            df_for_class.to_csv(path, sep=",", index=False)
-            
-
-        #df_1135 = df_patch_stats[((df_patch_stats['clump_label'] == 1135))].copy()
-        #df_1135.to_csv('c:/users/sebsc/Desktop/test.csv', sep=",", index=False)
-        #df_1135.to_excel('c:/users/sebsc/Desktop/test.xlsx', index=False) 
-
 
     def patch_properties_tables(self, lu_classes: List[int] = None):
 
@@ -1654,19 +1642,96 @@ class Recreat(RecreatBase):
         step_count = len(lu_classes)
         current_task = self._new_task("[white]Writing patch property table", total=step_count)
 
+        # read resolution as this will be used to compute area (should be in sqm)
+        resolution = self.land_use_map_reader.res
+
         with self.progress as p:
 
+            # iterate over lu classes, determine patch properties using regionprops_table method in skimage,
+            # and store result as parquet file
             for lu in lu_classes:
 
                 reader, mtx_lu_patches = self._get_file(f'CLUMPS_LU/clumps_{lu}.tif', [self.nodata_value])
-                print(reader.resolution)
-
                 mtx_lu_patches[mtx_lu_patches == self.nodata_value] = 0
 
                 tbl_lu_patch_props = measure.regionprops_table(mtx_lu_patches, properties=('label', 'num_pixels'))
                 patch_df = pd.DataFrame(tbl_lu_patch_props)
+                patch_df['land_use'] = lu
+                patch_df['patch_label'] = patch_df['label']                
+                patch_df['area'] = patch_df['num_pixels'] * (resolution[0]**2)
+                patch_df.drop(columns=['label'], inplace=True)
+
+                out_path = self.get_file_path(os.path.join('CLUMPS_LU', f'table_{lu}.pqt'))
+                patch_df.to_parquet(out_path)
 
                 p.update(current_task, advance=1)
+
+
+
+    def make_quality_of_access_map(self, for_lu_classes: List[int], accessibility_ranges: List[List[int]]):
+        
+        quality_mappings: List[Tuple[List[int], float]] = []
+        mtx_clumps, clump_nodata_mask = self._get_clumps()
+
+        # automatically scale integer over cost ranges, which need to be provided in ascending order from best to worst.
+        i: int = 1
+        for cost_range in reversed(accessibility_ranges):
+            quality_mappings.append((cost_range, i))
+            i = i * 10
+
+        print(quality_mappings)
+
+        # iterate over cost ranges and make differences: supply should be >0 to be present; 
+        # a difference of 0 to previous cost ranges would indicate no additional supply; a difference > 0 would indicate additional supply in this cost range
+        # make difference rasters
+       
+        lu = 810
+        current_template = Template("SUPPLY/totalsupply_" + str(lu) + "_within_cost_range_${cost}.tif")
+        self._get_cost_range_differences(self._get_supply_for_land_use_class_and_cost, current_template, lu=lu)
+
+        mtx_out = np.zeros(self._get_shape(), np.int32)
+
+        # iterate over land-use classes
+            # iterate over cost_ranges
+        for cost_range in quality_mappings:
+            # iterate over cost threshold
+            current_scaling_factor = cost_range[1]
+
+            mtx_step = np.zeros(self._get_shape(), np.int32)
+
+            for c in cost_range[0]:
+                c_data = self._get_supply_for_land_use_class_and_cost(lu, c, return_cost_window_difference=True)
+                c_data[c_data > 0] = 1
+                np.add(mtx_step, c_data.astype(np.int32), out=mtx_step)
+
+            # everything in this step added. remask to 0/1 schema and apply scaling factor
+            mtx_step[mtx_step > 0] = current_scaling_factor
+            np.add(mtx_out, mtx_step, out=mtx_out)
+
+        mtx_out[clump_nodata_mask] = self.nodata_value
+        self._write_file(os.path.join('SUPPLY', f'access_to_{lu}.tif'), mtx_out, self._get_metadata(np.int32, self.nodata_value))
+
+                    
+
+
+
+
+    def lu_accessibility_tables(self, lu_classes: List[int] = None):
+
+        # determine classes to iterate
+        lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
+
+        # iterate over classes and store as parquet files
+        for lu in lu_classes:
+            df_for_class = self.lu_accessibility_and_properties(lu=lu)
+            out_path = self.get_file_path(os.path.join('FLOWS_DF', f'flow_df_{lu}.pqt'))
+            df_for_class.to_parquet(out_path, sep=",", index=False)
+            
+
+        #df_1135 = df_patch_stats[((df_patch_stats['clump_label'] == 1135))].copy()
+        #df_1135.to_csv('c:/users/sebsc/Desktop/test.csv', sep=",", index=False)
+        #df_1135.to_excel('c:/users/sebsc/Desktop/test.xlsx', index=False) 
+
 
 
     def lu_accessibility_and_properties(self, lu) -> pd.DataFrame:
