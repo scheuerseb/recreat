@@ -102,7 +102,7 @@ class Recreat(RecreatBase):
 
     def make_environment(self) -> None:
         # create directories, if needed
-        dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'FLOWS', 'CLUMPS_LU', 'PROXIMITY', 'COSTS', 'DIVERSITY', 'BASE']
+        dirs_required = ['DEMAND', 'MASKS', 'SUPPLY', 'INDICATORS', 'FLOWS', 'FLOWS_DF', 'CLUMPS_LU', 'PROXIMITY', 'COSTS', 'DIVERSITY', 'BASE']
         for d in dirs_required:
             current_path = f"{self.data_path}/{self.root_path}/{d}"
             if not os.path.exists(current_path):
@@ -1628,135 +1628,144 @@ class Recreat(RecreatBase):
 
 #region TEST IMPLEMENTATION
 
-    def make_patch_stats(self):
-        res = self.iterate_over_surface()
-        
-        # Create DataFrame
-        # First, flatten the dictionary
-        data = []
-        for l in res:
-            for key, inner_dict in l.items():
-                for inner_key, values in inner_dict.items():
-                    row = {}
-                    row.update(values)
-                    data.append(row)
+    def make_patch_stats(self, lu_classes: List[int] = None):
 
-        df = pd.DataFrame(data)
-        print(df)
+        # determine classes to iterate
+        lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
+
+        # store results in df
+        df_patch_stats: pd.DataFrame = None
+
+        for lu in lu_classes:
+            df_for_class = self.iterate_over_surface(lu=lu)
+            path = self.get_file_path(f'FLOWS_DF/flow_df_{lu}.csv')
+            df_for_class.to_csv(path, sep=",", index=False)
+            
+
+        #df_1135 = df_patch_stats[((df_patch_stats['clump_label'] == 1135))].copy()
+        #df_1135.to_csv('c:/users/sebsc/Desktop/test.csv', sep=",", index=False)
+        #df_1135.to_excel('c:/users/sebsc/Desktop/test.xlsx', index=False) 
 
 
 
 
-    def iterate_over_surface(self):
-        lu = 840
+    def iterate_over_surface(self, lu) -> pd.DataFrame:
 
         results = []
 
         mtx_clumps, clump_nodata_mask = self._get_clumps()
         mtx_clumps[mtx_clumps == self.nodata_value] = 0
         clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))
-            
+
         reader, mtx_beneficiaries = self._get_file('DEMAND/disaggregated_population.tif', [self.nodata_value])
         mtx_beneficiaries[mtx_beneficiaries == self.nodata_value] = 0
 
         reader, mtx_lu_patches = self._get_file(f'CLUMPS_LU/clumps_{lu}.tif', [self.nodata_value])
         mtx_lu_patches[mtx_lu_patches == self.nodata_value] = 0
 
-        tbl_lu_patch_props = measure.regionprops_table(mtx_lu_patches, properties=('label', 'num_pixels'))
-        patch_df = pd.DataFrame(tbl_lu_patch_props)
+        #tbl_lu_patch_props = measure.regionprops_table(mtx_lu_patches, properties=('label', 'num_pixels'))
+        #patch_df = pd.DataFrame(tbl_lu_patch_props)
 
         step_count = len(clump_slices)
-        current_task = self._new_task("[white]Surface iteration", total=step_count)
+        current_task = self._new_task(f"[white]Surface iteration for {lu}", total=step_count)
 
         with self.progress as p:
 
-            def process_clump(patch_idx):            
+            def process_clump(patch_idx):    
                 
                 # clump results will store all patches within costs and corresponding pop of origin cell including coordinates of cell as a reference
                 clump_results = {}
-                
+
                 obj_slice = clump_slices[patch_idx]
                 obj_label = patch_idx + 1
 
                 # get slice from land-use mask
-                sliced_mtx_source = mtx_lu_patches[obj_slice].copy() 
+                sliced_mtx_source = mtx_lu_patches[obj_slice].copy()
                 sliced_mtx_demand = mtx_beneficiaries[obj_slice].copy()
                 sliced_mtx_clumps = mtx_clumps[obj_slice]
 
                 # properly mask out current object
                 obj_mask = np.isin(sliced_mtx_clumps, [obj_label], invert=False)
-                
+
                 sliced_mtx_source[~obj_mask] = 0
                 sliced_mtx_demand[~obj_mask] = 0
 
+                rows, cols = sliced_mtx_demand.shape
+
                 # sliced_mtx_source now contains properly masked lu patches within the current clump
                 # sliced_mtx_demand now contains properly masked demand (disaggr. pop.) within the current clump
-                
+
                 # iterate over the demand raster, i.e., each value in demand will be assigned to 
                 # patches, depending on a certain distrubution function                
-                rows, cols = sliced_mtx_demand.shape
                 for row in range(rows):
                     for col in range(cols):
-                        
+
                         # we also need to know how many land-uses are within reach, as we have to divide the number of
                         # beneficiaries to be distributed in this cost to each land
 
                         current_population_value = sliced_mtx_demand[row,col]
                         if current_population_value == 0:
                             continue # nothing to distribute here!
-                        
-                        for c in self.cost_thresholds:
+
+                        for c in self.cost_thresholds:                                                        
 
                             kernel_size = c
                             row_start = max(0, row - kernel_size // 2)
                             row_end = min(rows, row + kernel_size // 2 + 1)
                             col_start = max(0, col - kernel_size // 2)
                             col_end = min(cols, col + kernel_size // 2 + 1)
-                            
+
                             patch_labels_in_kernel = sliced_mtx_source[row_start:row_end, col_start:col_end]
                             # get the unique values that are not backgground!
                             unique_patch_labels = np.unique(patch_labels_in_kernel)
 
                             # get properties of patches
                             for patch_label in unique_patch_labels:
-                                
+
                                 if patch_label == 0:
                                     # 0 is the background
                                     continue
 
-                                if not (row,col) in clump_results.keys():
-                                    clump_results[(row,col)] = {}
-                                    clump_results[(row,col)][patch_label] = {
-                                        'clump_label' : obj_label,
-                                        'land_use' : lu,
-                                        'patch_label' : patch_label, 
-                                        'orig_pop' : current_population_value, 
-                                        'cost' : c
-                                    }    
+                                # we have to add a row to resultset in case that either (i) row,col is not yet included in the results; or a rec. patch for row,col is not yet included
+                                # the latter may be the case if we increase kernel size  
+                                contains_pixel = (row,col) in clump_results.keys()
+                                contains_patch = False if not contains_pixel else patch_label in clump_results[(row,col)].keys()
 
-                                else:
-                                    # if row and col in clump results, then check if the current clump has already been in the list of results
-                                    # do not add it twice; if it is not contained yet, do add it
-                                    if not patch_label in clump_results[(row,col)].keys():
-                                        clump_results[(row,col)][patch_label] = {
-                                            'clump_label' : obj_label,
-                                            'land_use' : lu,
-                                            'patch_label' : patch_label, 
-                                            'orig_pop' : current_population_value, 
-                                            'cost' : c
-                                        }    
+                                if not contains_pixel or not contains_patch:
+                                    if not contains_pixel:
+                                        clump_results[(row,col)] = {}
 
-                # add clump result to list of results
-                results.append(clump_results)
-                p.update(current_task, advance=1)
+                                    clump_results[(row,col)][patch_label] = [obj_label, row, col, lu, patch_label, current_population_value, c]
+
+                                    
+
+
                 
+
+                # done iterating over all pixels of the current clump. if we have a resultset, add this to the final results
+                # add clump result to list of results
+                flattened_dict = [g for k in clump_results.values() for g in k.values()]
+                if len(flattened_dict) > 0:
+                    results.append(flattened_dict)
+
+                #results.append(clump_results)
+                p.update(current_task, advance=1)
+
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 futures = [executor.submit(process_clump, patch_idx) for patch_idx in range(len(clump_slices))]
                 concurrent.futures.wait(futures)   
-        
-        #done
-        self.printStepCompleteInfo()
-        return results
 
+
+
+            # flatten results to make a dataframe
+            added_task = self._add_task("Building dataframe...", total=1)
+            data = [x for cl in results for x in cl]
+            df = pd.DataFrame(data, columns=['clump_label', 'row', 'col', 'land_use', 'patch_label', 'orig_pop', 'cost'])
+            p.update(added_task, advance=1)
+
+        #done
+        self.printStepCompleteInfo(f"Land-use class {lu} iterated.")
+        return df
+        
 
 #endregion
