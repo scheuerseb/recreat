@@ -1668,8 +1668,17 @@ class Recreat(RecreatBase):
 
 
 
-    def make_quality_of_access_map(self, for_lu_classes: List[int], accessibility_ranges: List[List[int]]):
-        
+    def make_quality_of_access_map(self, lu_classes: List[int], accessibility_ranges: List[List[int]]):
+        """This function generates a mapping of potential accessibility (i.e., presence within defined costs) to specified land-use classes. 
+           For example, this could correspond to a mapping of accessibility to (presence of) any forest-related classes in near, intermediate, 
+           and remote proximity in terms of comparatively lower, moderate, or higher costs. Presence or absence of a given land-use class 
+           is determined as the difference in supply within a specific cost compared to the immediate lower cost range.  
+
+        :param lu_classes: Land-use classes to include in the mapping. The classes will be treated integratively, not separately.  
+        :type lu_classes: List[int]
+        :param accessibility_ranges: List of lists cost ranges to assess. A range may comprise a single or multiple cost thresholds. 
+        :type accessibility_ranges: List[List[int]]
+        """
         quality_mappings: List[Tuple[List[int], float]] = []
         mtx_clumps, clump_nodata_mask = self._get_clumps()
 
@@ -1684,32 +1693,34 @@ class Recreat(RecreatBase):
         # iterate over cost ranges and make differences: supply should be >0 to be present; 
         # a difference of 0 to previous cost ranges would indicate no additional supply; a difference > 0 would indicate additional supply in this cost range
         # make difference rasters
-       
-        lu = 810
-        current_template = Template("SUPPLY/totalsupply_" + str(lu) + "_within_cost_range_${cost}.tif")
-        self._get_cost_range_differences(self._get_supply_for_land_use_class_and_cost, current_template, lu=lu)
 
         mtx_out = np.zeros(self._get_shape(), np.int32)
 
         # iterate over land-use classes
-            # iterate over cost_ranges
-        for cost_range in quality_mappings:
-            # iterate over cost threshold
+        for lu in lu_classes:
+            current_template = Template("SUPPLY/totalsupply_" + str(lu) + "_within_cost_range_${cost}.tif")
+            self._get_cost_range_differences(self._get_supply_for_land_use_class_and_cost, current_template, lu=lu)
+
+        # iterate over cost_ranges
+        for cost_range in quality_mappings:                
+            
+            mtx_step = np.zeros(self._get_shape(), np.int32)
             current_scaling_factor = cost_range[1]
 
-            mtx_step = np.zeros(self._get_shape(), np.int32)
-
-            for c in cost_range[0]:
-                c_data = self._get_supply_for_land_use_class_and_cost(lu, c, return_cost_window_difference=True)
-                c_data[c_data > 0] = 1
-                np.add(mtx_step, c_data.astype(np.int32), out=mtx_step)
+            # iterate over classes considered jointly
+            for lu in lu_classes:
+                # iterate over cost threshold
+                for c in cost_range[0]:
+                    c_data = self._get_supply_for_land_use_class_and_cost(lu, c, return_cost_window_difference=True)
+                    c_data[c_data > 0] = 1
+                    np.add(mtx_step, c_data.astype(np.int32), out=mtx_step)
 
             # everything in this step added. remask to 0/1 schema and apply scaling factor
             mtx_step[mtx_step > 0] = current_scaling_factor
             np.add(mtx_out, mtx_step, out=mtx_out)
 
         mtx_out[clump_nodata_mask] = self.nodata_value
-        self._write_file(os.path.join('SUPPLY', f'access_to_{lu}.tif'), mtx_out, self._get_metadata(np.int32, self.nodata_value))
+        self._write_file(os.path.join('SUPPLY', f'access_to_{"_".join([str(k) for k in lu_classes])}.tif'), mtx_out, self._get_metadata(np.int32, self.nodata_value))
 
                     
 
@@ -1732,7 +1743,8 @@ class Recreat(RecreatBase):
         #df_1135.to_csv('c:/users/sebsc/Desktop/test.csv', sep=",", index=False)
         #df_1135.to_excel('c:/users/sebsc/Desktop/test.xlsx', index=False) 
 
-
+    def map_modelled_flow(self, flow_data: pd.DataFrame) -> None:
+        pass
 
     def lu_accessibility_and_properties(self, lu) -> pd.DataFrame:
 
