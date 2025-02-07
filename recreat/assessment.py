@@ -1988,10 +1988,7 @@ class Recreat(RecreatBase):
             # Iterate over futures as they complete
             for future in concurrent.futures.as_completed(futures):
                 result = future.result()
-                if return_df is None:
-                    return_df = result
-                else:
-                    return_df = pd.concat([return_df, result], ignore_index=True)
+                return_df = result if return_df is None else pd.concat([return_df, result], ignore_index=True)
                 
                 update_int += 1
                 if update_int > 500:
@@ -2008,33 +2005,45 @@ class Recreat(RecreatBase):
 
 #region detailed flow mapping
 
-    def map_flow_from_table(self, path: str, outfile_name: str) -> None:
+    def map_flow_from_table(self, path: str, lu_classes: List[int], outfile_name: str) -> None:
+        
+        self.printStepInfo("Mapping flow from table")
+
         # import table
         flow_df = pd.read_parquet(path)
         grouped_data = flow_df[['land_use', 'patch_label', 'flow']].groupby(['land_use', 'patch_label'], as_index=False).sum()
         grouped_data = grouped_data[grouped_data['flow'] > 0]
-        print(grouped_data)
+
+        # determine relevant land uses
+        lu_classes = lu_classes if lu_classes is not None else set(grouped_data['land_use'].values.tolist())        
+        
+        step_count = len(lu_classes)
+        current_task = self._new_task("Mapping flow to raster", total=step_count)
 
         rst_clumps, clump_nodata_mask = self._get_clumps()
-        unique_landuses = set(grouped_data['land_use'].values.tolist())
-        
         res_mtx = np.zeros(self._get_shape(), np.float32)                
-        for lu in unique_landuses:
-            print(lu)
-            
-            mtx_lu_patches = self._get_lu_patches(lu)
-
-            c_df = grouped_data[(grouped_data['land_use'] == lu)].copy()
-            
-            tmp_mtx = np.zeros(self._get_shape(), np.float32)
-            util.map_array(mtx_lu_patches.astype(np.int32), np.array(c_df['patch_label'].values.tolist()), np.array(c_df['flow'].values.tolist()), out=tmp_mtx)
-
-            np.add(res_mtx, tmp_mtx, out=res_mtx)
         
+        with self.progress as p:
+            for lu in lu_classes:
+                
+                # get portion of data frame relevant for current class
+                c_df = grouped_data[(grouped_data['land_use'] == lu)].copy()
+                # assert data frame is not empty
+                if not c_df.empty:        
+                    mtx_lu_patches = self._get_lu_patches(lu)
+                    tmp_mtx = np.zeros(self._get_shape(), np.float32)
+                    util.map_array(mtx_lu_patches.astype(np.int32), np.array(c_df['patch_label'].values.tolist()), np.array(c_df['flow'].values.tolist()), out=tmp_mtx)
+                    np.add(res_mtx, tmp_mtx, out=res_mtx)
+            
+                p.update(current_task, advance=1)
+
         # done iterations, write result to disk
-        res_mtx[clump_nodata_mask] = self.nodata_value
-        
+        res_mtx[clump_nodata_mask] = self.nodata_value        
         self._write_file(f"INDICATORS/{outfile_name}", res_mtx, self._get_metadata(np.float32, self.nodata_value))
+        
+        # done
         self.printStepCompleteInfo()
+
+
 
 #endregion
