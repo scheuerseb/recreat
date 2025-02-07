@@ -9,6 +9,7 @@ import platform
 import concurrent.futures
 from skimage import data, util, measure
 import pandas as pd  
+import multiprocessing as mp
 
 cv_max_pixel_count = pow(2,40).__str__()
 os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = cv_max_pixel_count
@@ -184,6 +185,14 @@ class Recreat(RecreatBase):
         
         return self._get_data_object(filename, nodata_replacement_value=0)
     
+    def _get_lu_patches(self, lu: int) -> np.ndarray:
+        filename = f"CLUMPS_LU/clumps_{lu}.tif"
+        return self._get_data_object(filename, nodata_replacement_value=0)
+
+    def _get_disaggregated_population(self) -> np.ndarray:
+        filename = f"DEMAND/disaggregated_population.tif"
+        return self._get_data_object(filename, nodata_replacement_value=0)
+
     def _get_supply_for_cost(self, cost: int, return_cost_window_difference: bool = False) -> np.ndarray:
         filename = f"SUPPLY/totalsupply_cost_{cost}.tif" if not return_cost_window_difference else f"SUPPLY/totalsupply_within_cost_range_{cost}.tif"
         return self._get_data_object(filename, nodata_replacement_value=0)
@@ -1631,41 +1640,7 @@ class Recreat(RecreatBase):
 
 #endregion
 
-
-#region TEST IMPLEMENTATION
-
-
-    def patch_properties_tables(self, lu_classes: List[int] = None):
-
-        lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
-
-        step_count = len(lu_classes)
-        current_task = self._new_task("[white]Writing patch property table", total=step_count)
-
-        # read resolution as this will be used to compute area (should be in sqm)
-        resolution = self.land_use_map_reader.res
-
-        with self.progress as p:
-
-            # iterate over lu classes, determine patch properties using regionprops_table method in skimage,
-            # and store result as parquet file
-            for lu in lu_classes:
-
-                reader, mtx_lu_patches = self._get_file(f'CLUMPS_LU/clumps_{lu}.tif', [self.nodata_value])
-                mtx_lu_patches[mtx_lu_patches == self.nodata_value] = 0
-
-                tbl_lu_patch_props = measure.regionprops_table(mtx_lu_patches, properties=('label', 'num_pixels'))
-                patch_df = pd.DataFrame(tbl_lu_patch_props)
-                patch_df['land_use'] = lu
-                patch_df['patch_label'] = patch_df['label']                
-                patch_df['area'] = patch_df['num_pixels'] * (resolution[0]**2)
-                patch_df.drop(columns=['label'], inplace=True)
-
-                out_path = self.get_file_path(os.path.join('CLUMPS_LU', f'table_{lu}.pqt'))
-                patch_df.to_parquet(out_path)
-
-                p.update(current_task, advance=1)
-
+#region quality of access estimation
 
 
     def make_quality_of_access_map(self, lu_classes: List[int], accessibility_ranges: List[List[int]]):
@@ -1720,149 +1695,339 @@ class Recreat(RecreatBase):
             np.add(mtx_out, mtx_step, out=mtx_out)
 
         mtx_out[clump_nodata_mask] = self.nodata_value
-        self._write_file(os.path.join('SUPPLY', f'access_to_{"_".join([str(k) for k in lu_classes])}.tif'), mtx_out, self._get_metadata(np.int32, self.nodata_value))
+        self._write_file(os.path.join('INDICATORS', f'access_to_{"_".join([str(k) for k in lu_classes])}.tif'), mtx_out, self._get_metadata(np.int32, self.nodata_value))           
 
-                    
+#endregion
 
 
 
+#region detailed flow base data generation 
+
+    def patch_properties_tables(self, lu_classes: List[int] = None):
+        """This function computes land-use patch properties, i.e., number of pixels and respective patch size, depending on land-use raster resolution.
+        This is required of patch sizes should be considered in the estimation of detailed flow.
+
+        :param lu_classes: List of land-use classes to include in the assessment, defaults to None
+        :type lu_classes: List[int], optional
+        """
+
+        self.printStepInfo("Determine patch properties")
+        lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
+
+        step_count = len(lu_classes)
+        current_task = self._new_task("[white]Estimating properties", total=step_count)
+
+        # read resolution as this will be used to compute area (should be in sqm)
+        resolution = self.land_use_map_reader.res
+
+        with self.progress as p:
+
+            # iterate over lu classes, determine patch properties using regionprops_table method in skimage,
+            # and store result as parquet file
+            for lu in lu_classes:
+
+                mtx_lu_patches = self._get_lu_patches(lu)
+
+                tbl_lu_patch_props = measure.regionprops_table(mtx_lu_patches, properties=('label', 'num_pixels'))
+                patch_df = pd.DataFrame(tbl_lu_patch_props)
+                patch_df['land_use'] = lu
+                patch_df['patch_label'] = patch_df['label']                
+                patch_df['area'] = patch_df['num_pixels'] * (resolution[0]**2)
+                patch_df.drop(columns=['label'], inplace=True)
+
+                out_path = self.get_file_path(os.path.join('CLUMPS_LU', f'table_{lu}.pqt'))
+                patch_df.to_parquet(out_path, index=False)
+
+                p.update(current_task, advance=1)
+
+        # done
+        self.printStepCompleteInfo()
+        
 
     def lu_accessibility_tables(self, lu_classes: List[int] = None):
+        """This function determines, for each land-use class included in the assessment, and for each clump, the patches and associated costs within each populated pixel. 
+        This method will write, per land-use class, a parquet file containing clump labels, populated pixel coordinates with respect to clump, land-use class, and patch labels 
+        as variables. These data are the basic input data for the modelling of detailed flow.   
+
+        :param lu_classes: Land-use classes to include in the assessment, defaults to None
+        :type lu_classes: List[int], optional
+        """
+
+        self.printStepInfo("Determine flow variables")
 
         # determine classes to iterate
         lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
 
-        # iterate over classes and store as parquet files
-        for lu in lu_classes:
-            df_for_class = self.lu_accessibility_and_properties(lu=lu)
-            out_path = self.get_file_path(os.path.join('FLOWS_DF', f'flow_df_{lu}.pqt'))
-            df_for_class.to_parquet(out_path, sep=",", index=False)
+        step_count = len(lu_classes)
+        current_task = self._new_task("[white]Determine flow variables", total=step_count)
+
+        with self.progress as p:
+
+            # iterate over classes and store as parquet files
+            for lu in lu_classes:
+                
+                df_for_class = self._lu_accessibility_and_properties(lu=lu)
+                out_path = self.get_file_path(os.path.join('FLOWS_DF', f'flow_df_{lu}.pqt'))
+                df_for_class.to_parquet(out_path, index=False)
+                
+                p.update(current_task, advance=1)
             
+        # done    
+        self.printStepCompleteInfo()
 
-        #df_1135 = df_patch_stats[((df_patch_stats['clump_label'] == 1135))].copy()
-        #df_1135.to_csv('c:/users/sebsc/Desktop/test.csv', sep=",", index=False)
-        #df_1135.to_excel('c:/users/sebsc/Desktop/test.xlsx', index=False) 
-
-    def map_modelled_flow(self, flow_data: pd.DataFrame) -> None:
-        pass
-
-    def lu_accessibility_and_properties(self, lu) -> pd.DataFrame:
+ 
+    def _lu_accessibility_and_properties(self, lu: int) -> pd.DataFrame:
 
         results = []
 
         mtx_clumps, clump_nodata_mask = self._get_clumps()
         mtx_clumps[mtx_clumps == self.nodata_value] = 0
         clump_slices = ndimage.find_objects(mtx_clumps.astype(np.int64))
-
-        reader, mtx_beneficiaries = self._get_file('DEMAND/disaggregated_population.tif', [self.nodata_value])
-        mtx_beneficiaries[mtx_beneficiaries == self.nodata_value] = 0
-
-        reader, mtx_lu_patches = self._get_file(f'CLUMPS_LU/clumps_{lu}.tif', [self.nodata_value])
-        mtx_lu_patches[mtx_lu_patches == self.nodata_value] = 0
-
-        #tbl_lu_patch_props = measure.regionprops_table(mtx_lu_patches, properties=('label', 'num_pixels'))
-        #patch_df = pd.DataFrame(tbl_lu_patch_props)
+        
+        # get relevant data
+        mtx_beneficiaries = self._get_disaggregated_population()
+        mtx_lu_patches = self._get_lu_patches(lu)
 
         step_count = len(clump_slices)
-        current_task = self._new_task(f"[white]Surface iteration for {lu}", total=step_count)
+        current_task = self._new_subtask(f"[white]Processing class {lu}", total=step_count)
+
+
+        def process_clump(patch_idx):    
+            
+            # clump results will store all patches within costs and corresponding pop of origin cell including coordinates of cell as a reference
+            clump_results = {}
+
+            obj_slice = clump_slices[patch_idx]
+            obj_label = patch_idx + 1
+
+            # get slice from land-use mask
+            sliced_mtx_source = mtx_lu_patches[obj_slice].copy()
+            sliced_mtx_demand = mtx_beneficiaries[obj_slice].copy()
+            sliced_mtx_clumps = mtx_clumps[obj_slice]
+
+            # properly mask out current object
+            obj_mask = np.isin(sliced_mtx_clumps, [obj_label], invert=False)
+
+            sliced_mtx_source[~obj_mask] = 0
+            sliced_mtx_demand[~obj_mask] = 0
+
+            rows, cols = sliced_mtx_demand.shape
+
+            # sliced_mtx_source now contains properly masked lu patches within the current clump
+            # sliced_mtx_demand now contains properly masked demand (disaggr. pop.) within the current clump
+
+            # iterate over the demand raster, i.e., each value in demand will be assigned to 
+            # patches, depending on a certain distrubution function                
+            for row in range(rows):
+                for col in range(cols):
+
+                    # we also need to know how many land-uses are within reach, as we have to divide the number of
+                    # beneficiaries to be distributed in this cost to each land
+
+                    current_population_value = sliced_mtx_demand[row,col]
+                    if current_population_value == 0:
+                        continue # nothing to distribute here!
+
+                    for c in self.cost_thresholds:                                                        
+
+                        kernel_size = c
+                        row_start = max(0, row - kernel_size // 2)
+                        row_end = min(rows, row + kernel_size // 2 + 1)
+                        col_start = max(0, col - kernel_size // 2)
+                        col_end = min(cols, col + kernel_size // 2 + 1)
+
+                        patch_labels_in_kernel = sliced_mtx_source[row_start:row_end, col_start:col_end]
+                        # get the unique values that are not backgground!
+                        unique_patch_labels = np.unique(patch_labels_in_kernel)
+
+                        # get properties of patches
+                        for patch_label in unique_patch_labels:
+
+                            if patch_label == 0:
+                                # 0 is the background
+                                continue
+
+                            # include the current pixel in the resultset if not yet in there. 
+                            contains_pixel = (row,col) in clump_results.keys()
+                            if not contains_pixel:
+                                clump_results[(row,col)] = {}
+
+                            # add the clump, and indicate whether a clump has been included at lower cost thresholds. 
+                            # this will allow for most flexibility to either consider large clumps within distinct costs, or ignore large clumps in higher cost windows.
+                            contains_patch = False if not contains_pixel else patch_label in clump_results[(row,col)].keys()                                
+                            
+                            multiple_observations = 0
+                            if contains_patch:
+                                multiple_observations = 1
+
+                            # add to results
+                            clump_results[(row,col)][patch_label] = [obj_label, row, col, lu, patch_label, current_population_value, c, multiple_observations]
+
+                                
+            # done iterating over all pixels of the current clump. if we have a resultset, add this to the final results
+            # add clump result to list of results
+            flattened_dict = [g for k in clump_results.values() for g in k.values()]
+            if len(flattened_dict) > 0:
+                results.append(flattened_dict)
+
+            #results.append(clump_results)
+            self.progress.update(current_task, advance=1)
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = [executor.submit(process_clump, patch_idx) for patch_idx in range(len(clump_slices))]
+            concurrent.futures.wait(futures)   
+
+        # flatten results to make a dataframe
+        data = [x for cl in results for x in cl]
+        df = pd.DataFrame(data, columns=['clump_label', 'row', 'col', 'land_use', 'patch_label', 'orig_pop', 'cost', 'multiple_obs'])
+
+        #done
+        # remove task 
+        self.progress.remove_task(current_task)
+        return df
+        
+
+#endregion
+
+#region detailed flow modelling
+    
+    def model_flow(self, lu_classes: List[int], allocation_method: Callable, outfile_path: str) -> pd.DataFrame:
+
+        self.printStepInfo("Estimating flows")
+
+        # determine classes to iterate
+        lu_classes = lu_classes if lu_classes is not None else (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge)
+
+        # result df
+        df_estimated_flows: pd.DataFrame = None
+
+        # make dfs with variables
+        flow_vars: pd.DataFrame = None
+        patch_vars: pd.DataFrame = None
+
+        for lu in lu_classes:
+            # read flow
+            tmp_path = self.get_file_path(os.path.join("FLOWS_DF", f"flow_df_{lu}.pqt"))
+            tmp_df = pd.read_parquet(tmp_path)
+            flow_vars = tmp_df if flow_vars is None else pd.concat([flow_vars, tmp_df], ignore_index=True)
+
+            # read patch
+            tmp_path = self.get_file_path(os.path.join("CLUMPS_LU", f"table_{lu}.pqt"))
+            tmp_df = pd.read_parquet(tmp_path)
+            patch_vars = tmp_df if patch_vars is None else pd.concat([patch_vars, tmp_df], ignore_index=True)
+
+        # merge together, free mem
+        df_flow_vars = pd.merge(left=flow_vars, right=patch_vars, on=['land_use', 'patch_label'], how='left')
+        del flow_vars
+        del patch_vars
+
+        # get unique clumps in df; we iterate over those
+        unique_clumps = list(df_flow_vars["clump_label"].drop_duplicates())
+
+        step_count = len(unique_clumps)
+        current_task = self._new_task("[white]Modelling flow", total=step_count)
 
         with self.progress as p:
 
-            def process_clump(patch_idx):    
+            for clump_label in unique_clumps:
                 
-                # clump results will store all patches within costs and corresponding pop of origin cell including coordinates of cell as a reference
-                clump_results = {}
+                df_of_clump = df_flow_vars[df_flow_vars['clump_label'] == clump_label].copy()
+                tmp_df = self.allocate_flow_to_patches(df_of_clump, allocation_method)
 
-                obj_slice = clump_slices[patch_idx]
-                obj_label = patch_idx + 1
+                # tmp_df is a dataframe containing land_use, patch_label, flow columns
+                # re-add clump label and append to final df
+                tmp_df['clump_label'] = clump_label
+                df_estimated_flows = tmp_df if df_estimated_flows is None else pd.concat([df_estimated_flows, tmp_df], ignore_index=True)
 
-                # get slice from land-use mask
-                sliced_mtx_source = mtx_lu_patches[obj_slice].copy()
-                sliced_mtx_demand = mtx_beneficiaries[obj_slice].copy()
-                sliced_mtx_clumps = mtx_clumps[obj_slice]
-
-                # properly mask out current object
-                obj_mask = np.isin(sliced_mtx_clumps, [obj_label], invert=False)
-
-                sliced_mtx_source[~obj_mask] = 0
-                sliced_mtx_demand[~obj_mask] = 0
-
-                rows, cols = sliced_mtx_demand.shape
-
-                # sliced_mtx_source now contains properly masked lu patches within the current clump
-                # sliced_mtx_demand now contains properly masked demand (disaggr. pop.) within the current clump
-
-                # iterate over the demand raster, i.e., each value in demand will be assigned to 
-                # patches, depending on a certain distrubution function                
-                for row in range(rows):
-                    for col in range(cols):
-
-                        # we also need to know how many land-uses are within reach, as we have to divide the number of
-                        # beneficiaries to be distributed in this cost to each land
-
-                        current_population_value = sliced_mtx_demand[row,col]
-                        if current_population_value == 0:
-                            continue # nothing to distribute here!
-
-                        for c in self.cost_thresholds:                                                        
-
-                            kernel_size = c
-                            row_start = max(0, row - kernel_size // 2)
-                            row_end = min(rows, row + kernel_size // 2 + 1)
-                            col_start = max(0, col - kernel_size // 2)
-                            col_end = min(cols, col + kernel_size // 2 + 1)
-
-                            patch_labels_in_kernel = sliced_mtx_source[row_start:row_end, col_start:col_end]
-                            # get the unique values that are not backgground!
-                            unique_patch_labels = np.unique(patch_labels_in_kernel)
-
-                            # get properties of patches
-                            for patch_label in unique_patch_labels:
-
-                                if patch_label == 0:
-                                    # 0 is the background
-                                    continue
-
-                                # we have to add a row to resultset in case that either (i) row,col is not yet included in the results; or a rec. patch for row,col is not yet included
-                                # the latter may be the case if we increase kernel size  
-                                contains_pixel = (row,col) in clump_results.keys()
-                                contains_patch = False if not contains_pixel else patch_label in clump_results[(row,col)].keys()
-
-                                if not contains_pixel or not contains_patch:
-                                    if not contains_pixel:
-                                        clump_results[(row,col)] = {}
-
-                                    clump_results[(row,col)][patch_label] = [obj_label, row, col, lu, patch_label, current_population_value, c]
-
-                                    
-
-
-                
-
-                # done iterating over all pixels of the current clump. if we have a resultset, add this to the final results
-                # add clump result to list of results
-                flattened_dict = [g for k in clump_results.values() for g in k.values()]
-                if len(flattened_dict) > 0:
-                    results.append(flattened_dict)
-
-                #results.append(clump_results)
                 p.update(current_task, advance=1)
 
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                futures = [executor.submit(process_clump, patch_idx) for patch_idx in range(len(clump_slices))]
-                concurrent.futures.wait(futures)   
+        # store as parquet_file
+        out_path = self.get_file_path(os.path.join("FLOWS", outfile_path))
+        df_estimated_flows.to_parquet(out_path, index=False)
+
+        # done
+        self.printStepCompleteInfo()        
+        return df_estimated_flows
 
 
-
-            # flatten results to make a dataframe
-            added_task = self._add_subtask("Building dataframe...", total=1)
-            data = [x for cl in results for x in cl]
-            df = pd.DataFrame(data, columns=['clump_label', 'row', 'col', 'land_use', 'patch_label', 'orig_pop', 'cost'])
-            p.update(added_task, advance=1)
-
-        #done
-        self.printStepCompleteInfo(f"Land-use class {lu} iterated.")
-        return df
         
+    def allocate_flow_to_patches(self, clump_df: pd.DataFrame, allocation_method) -> pd.DataFrame:
+
+        return_df = None
+
+        # get unique populated places: these are all unique combinations of row and col
+        residential_pixels = clump_df[["row", "col"]].drop_duplicates()
+        location_count = residential_pixels.shape[0]
+
+        current_task = self._new_subtask("[red]Iterating populated pixels", total=location_count)
+        update_int = 0
+
+        def process_location(index, location):
+            
+            df_of_location = clump_df[((clump_df['row'] == location['row']) & (clump_df['col'] == location['col']))]
+            allocation_df = df_of_location[["land_use", "patch_label", "cost", "area", "multiple_obs"]].copy()
+
+            # prepare the result dataframe and add result column accordingly
+            allocation_df['flow'] = 0.0
+            pop_of_pixel = df_of_location['orig_pop'].max()
+            df_current_location = allocation_method(allocation_df, pop_of_pixel)
+            df_current_location = df_current_location[['land_use', 'patch_label', 'flow']].copy()
+
+            return df_current_location
+            
+        with concurrent.futures.ThreadPoolExecutor(max_workers=mp.cpu_count()) as executor:
+            
+            futures = [executor.submit(process_location, index, location) for index, location  in residential_pixels.iterrows()]
+            # Iterate over futures as they complete
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                if return_df is None:
+                    return_df = result
+                else:
+                    return_df = pd.concat([return_df, result], ignore_index=True)
+                
+                update_int += 1
+                if update_int > 500:
+                    self.progress.update(current_task, advance=update_int)
+                    update_int=0
+
+        # done iterating over unique locations in this clump
+        # remote the progress
+        self.progress.remove_task(current_task)
+        # aggregate to final df and return
+        return return_df.groupby(['land_use', 'patch_label']).sum().reset_index()
+
+#endregion
+
+#region detailed flow mapping
+
+    def map_flow_from_table(self, path: str, outfile_name: str) -> None:
+        # import table
+        flow_df = pd.read_parquet(path)
+        grouped_data = flow_df[['land_use', 'patch_label', 'flow']].groupby(['land_use', 'patch_label'], as_index=False).sum()
+        grouped_data = grouped_data[grouped_data['flow'] > 0]
+        print(grouped_data)
+
+        rst_clumps, clump_nodata_mask = self._get_clumps()
+        unique_landuses = set(grouped_data['land_use'].values.tolist())
+        
+        res_mtx = np.zeros(self._get_shape(), np.float32)                
+        for lu in unique_landuses:
+            print(lu)
+            
+            mtx_lu_patches = self._get_lu_patches(lu)
+
+            c_df = grouped_data[(grouped_data['land_use'] == lu)].copy()
+            
+            tmp_mtx = np.zeros(self._get_shape(), np.float32)
+            util.map_array(mtx_lu_patches.astype(np.int32), np.array(c_df['patch_label'].values.tolist()), np.array(c_df['flow'].values.tolist()), out=tmp_mtx)
+
+            np.add(res_mtx, tmp_mtx, out=res_mtx)
+        
+        # done iterations, write result to disk
+        res_mtx[clump_nodata_mask] = self.nodata_value
+        
+        self._write_file(f"INDICATORS/{outfile_name}", res_mtx, self._get_metadata(np.float32, self.nodata_value))
+        self.printStepCompleteInfo()
 
 #endregion
