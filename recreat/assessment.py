@@ -52,6 +52,10 @@ from .disaggregation import SimpleAreaWeightedEngine, DasymetricMappingEngine, D
 from .exceptions import MethodNotImplemented
 from .base import RecreatBase
 
+class Contiguity(Enum):
+    Queen = 0
+    Rook = 1
+
 class Recreat(RecreatBase):
 
     # store params
@@ -337,7 +341,7 @@ class Recreat(RecreatBase):
 
 #region basic processing
 
-    def detect_clumps(self, barrier_classes: List[int]) -> None:
+    def detect_clumps(self, barrier_classes: List[int], contiguity: Contiguity = Contiguity.Queen) -> None:
         """Detect clumps as contiguous areas in the land-use raster that are separated by the specified barrier land-uses. Connectivity is defined as queens contiguity. 
 
         :param barrier_classes: Classes acting as barriers, i.e., separating clumps, defaults to [0]
@@ -346,13 +350,13 @@ class Recreat(RecreatBase):
         self.printStepInfo("Detecting clumps")
 
         lulc_data = self._get_land_use()
-        nr_clumps, out_clumps = self._detect_clumps_in_raster(lulc_data, barrier_classes=barrier_classes)        
+        nr_clumps, out_clumps = self._detect_clumps_in_raster(lulc_data, barrier_classes=barrier_classes, contiguity=contiguity)        
         self._write_file("BASE/clumps.tif", out_clumps, self._get_metadata(np.int32, self.nodata_value))        
         
         # done
         self.taskProgressReportStepCompleted()
 
-    def _detect_clumps_in_raster(self, mtx_data: np.ndarray, barrier_classes: List[int]) -> Tuple[int, np.ndarray]:
+    def _detect_clumps_in_raster(self, mtx_data: np.ndarray, barrier_classes: List[int], contiguity: Contiguity) -> Tuple[int, np.ndarray]:
         
         # barrier_classes are user-defined classes as well as nodata parts
         # mask raster accordingly
@@ -361,7 +365,15 @@ class Recreat(RecreatBase):
         mtx_data[barriers_mask] = 0
 
         # determine patches
+        # by default, setup kernel for queen contiguity
         clump_connectivity = np.full((3,3), 1)
+        # modify kernel for rook contiguity
+        if contiguity is Contiguity.Rook:
+            clump_connectivity[0][0] = 0
+            clump_connectivity[0][2] = 0
+            clump_connectivity[2][0] = 0
+            clump_connectivity[2][2] = 0
+
         out_clumps = self._get_matrix(fill_value=0, shape=self._get_shape(), dtype=np.int32)
         nr_clumps = ndimage.label(mtx_data, structure=clump_connectivity, output=out_clumps)
 
@@ -1408,11 +1420,13 @@ class Recreat(RecreatBase):
 #region flow
 
 
-    def detect_land_use_patches(self, lu_classes: List[int] = None):
+    def detect_land_use_patches(self, lu_classes: List[int] = None, contiguity: Contiguity = Contiguity.Queen):
         """Identify contiguous patches of land-uses.
 
         :param lu_classes: List of land-use classes to assess, defaults to None. If None, all patch and edge classes will be considered.
         :type lu_classes: List[int], optional
+        :param contiguity: Specifies whether to use Queen or Rook contiguity, defaults to Queen.
+        :type contiguity: recreat.Contiguity
         """
         self.printStepInfo("Detecting land-uses patches")
 
@@ -1427,7 +1441,8 @@ class Recreat(RecreatBase):
 
                 # get class mask
                 mtx_lu_class_mask = self._get_land_use_class_mask(lu)
-                nr_clumps, mtx_clumps = self._detect_clumps_in_raster(mtx_lu_class_mask, barrier_classes=[0])
+                nr_clumps, mtx_clumps = self._detect_clumps_in_raster(mtx_lu_class_mask, barrier_classes=[0], contiguity=contiguity)
+                
                 # write result
                 self._write_file(f'CLUMPS_LU/clumps_{lu}.tif', mtx_clumps, self._get_metadata(np.int32, self.nodata_value))
                 p.update(current_task, advance=1)
