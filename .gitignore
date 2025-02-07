@@ -41,6 +41,8 @@
 !docs/fundamentals/*
 !docs/usage
 !docs/usage/*
+!docs/usage_cli
+!docs/usage_cli/*
 !docs/api
 !docs/api/*
 !docs/resources
