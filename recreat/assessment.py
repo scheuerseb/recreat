@@ -1929,7 +1929,8 @@ class Recreat(RecreatBase):
 
         with self.progress as p:
 
-            for clump_label in unique_clumps:
+            # parallelize flow
+            def get_flow_for_clump(clump_label: int):
                 
                 df_of_clump = df_flow_vars[df_flow_vars['clump_label'] == clump_label].copy()
                 tmp_df = self.allocate_flow_to_patches(df_of_clump, allocation_method)
@@ -1937,9 +1938,15 @@ class Recreat(RecreatBase):
                 # tmp_df is a dataframe containing land_use, patch_label, flow columns
                 # re-add clump label and append to final df
                 tmp_df['clump_label'] = clump_label
-                df_estimated_flows = tmp_df if df_estimated_flows is None else pd.concat([df_estimated_flows, tmp_df], ignore_index=True)
-
-                p.update(current_task, advance=1)
+                return tmp_df
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=mp.cpu_count()) as executor:
+                futures = [executor.submit(get_flow_for_clump, clump_label) for clump_label  in unique_clumps]
+                # Iterate over futures as they complete
+                for future in concurrent.futures.as_completed(futures):
+                    result = future.result()            
+                    df_estimated_flows = result if df_estimated_flows is None else pd.concat([df_estimated_flows, result], ignore_index=True)
+                    p.update(current_task, advance=1)
 
         # store as parquet_file
         out_path = self.get_file_path(os.path.join("FLOWS", outfile_path))
