@@ -2005,7 +2005,7 @@ class Recreat(RecreatBase):
 
 #region detailed flow mapping
 
-    def map_flow_from_table(self, path: str, lu_classes: List[int], outfile_name: str) -> None:
+    def map_flow_from_table(self, path: str, outfile_name: str, lu_classes: List[int] = None) -> None:
         
         self.printStepInfo("Mapping flow from table")
 
