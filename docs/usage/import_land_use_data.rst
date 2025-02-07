@@ -1,52 +1,46 @@
 Import land-use data
-====================
+=====================
 
-Land-use is imported into the model from a .tif file source. As outlined here, the file needs 
-to be located in a specified ``root-path`` (that may hold data specific to a given scenario, for example), 
-that is in turn located within the ``data-path``. During import, grid values to be treated as 
-nodata values can be specified, and a fill value to replace nodata values be specified. 
+Land-use is imported into the model from a .tif file source. The file needs to be located in a so-called ``root-path``, 
+i.e., a folder within the ``data-path``. You may consider any given ``root-path`` as a scenario-specific folder, that holds land-use and other
+data specific to a given scenario. 
 
-Depending on whether recreat is used from the CLI through recreat_util, or in a script, 
-land-use data is imported as follows.
+A ``root-path`` and corresponding land-use file to be used in an assessment is specified through the :py:meth:`.set_land_use_map` method. 
+Note that this only sets the respective environment parameters in the model, but does not import the file into the model. The latter is
+conducted through the :py:meth:`.align_land_use_map` method. 
 
-Using recreat_util from the CLI
--------------------------------
-
-When using recreat_util, the root-path is specified as argument of the CLI recreat_util command. 
-The land-use raster to use is then specified through the ``use`` subcommand. This subcommand has the following options:
-
--m, --nodata         Comma-separated list of nodata values.
--f, --fill           Fill value to replace nodata values.
-
-.. code-block::
-
-    recreat_util [options] use [options] <root-path> <landuse-filename> [...]
+This :py:meth:`.align_land_use_map` method allows specifying values to be handled as nodata values, 
+setting the corresponding band to be read from the tif file source, and also allows to reclassify values in the land-use layer. Reclassification is achieved by
+providing a dictionary of mappings (type ``Dict[int, List[int]]``) to the ``reclassification_mappings`` argument, where the dictionary keys correspond to new (destination) class values, and the dictionary values 
+to Lists of one or more (source) class values to be recategorized into the new class value.   
 
 
-Example:
+Examples:
 
-.. code-block::
-    
-    recreat_util [...] use -m 0.0,-127.0 -f 0 current U2018_CLC2018_V2020_20u1.tif [...]
-
-As part of calling recreat using recreat_util, this will import "U2018_CLC2018_V2020_20u1.tif" located in the 
-"current" folder within the data path, treating values of 0 and -127 as nodata values, and 
-replacing all nodata values with the fill value of 0. 
-
-In a script
------------
-
-In a script, a landuse-file is imported using the :py:meth:`.set_land_use_map` method. 
-
-Example:
+The following example sets root path and land-use map, and imports the land-use map into the model: 
 
 .. code-block:: python
 
     my_model.set_land_use_map(
-    root_path='current', 
-    land_use_filename='U2018_CLC2018_V2020_20u1.tif', 
-    nodata_values=[-127.0, 0.0], 
-    nodata_fill_value=0)
+        root_path='current', 
+        land_use_filename='U2018_CLC2018_V2020_20u1.tif'
+    )
+    my_model.align_land_use_map()
 
-This will import "U2018_CLC2018_V2020_20u1.tif" located in the "current" folder within the data path, treating values of 0 and -127 as nodata values, 
-and replacing all nodata values with the fill value of 0. 
+The following example additionally conducts a reclassification of classes 810 to 850 into a new class 800:
+
+.. code-block:: python
+
+    my_model.set_land_use_map(
+        root_path='current', 
+        land_use_filename='U2018_CLC2018_V2020_20u1.tif'
+    )
+
+    mapping = {800: [810, 820, 830, 840, 850]}
+    my_model.align_land_use_map(reclassification_mappings=mapping)
+
+
+.. note::
+
+   A set of folders will be created in the model's ``root-path``, into which outputs will subsequently be written.
+
