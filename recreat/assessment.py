@@ -275,7 +275,7 @@ class Recreat(RecreatBase):
         lulc_file_path = self.get_file_path(land_use_filename, relative_to_root_path=True)
         self.land_use_map_reader = rasterio.open(lulc_file_path)
 
-    def align_land_use_map(self, nodata_values: List[int], band: int = 1, reclassification_mappings: Dict[int, List[int]] = None):
+    def align_land_use_map(self, nodata_values: List[int], band: int = 1, reclassification_mappings: Dict[int, List[int]] = None, overwrite: bool = False):
         """Pre-process land-use map and conduct a reclassification of land-use class values, if needed. Nodata values will be reclassified to internal nodata value (by default: -9999, or as set using set_params method). 
            The pre-processed land-use map will be written into the BASE folder as lulc.tif.
 
@@ -285,13 +285,15 @@ class Recreat(RecreatBase):
         :type band: int, optional
         :param reclassification_mappings: Dictionary mapping new class values to a list of one or more class values to be reclassified, defaults to None.
         :type reclassification_mappings: Dict[int, List[int]], optional
+        :param overwrite: Value indicating if a previously generated LULC raster should be overwritten, e.g., due to adapted reclassification, defaults to False.
+        :type overwrite: bool, optional
         """
 
         self.printStepInfo("Aligning land-use map")
         
         # conduct this if there is no base lulc file
         lulc_file_path = self.get_file_path("BASE/lulc.tif")
-        if not os.path.isfile(lulc_file_path):
+        if not os.path.isfile(lulc_file_path) or overwrite is True:
          
             # get lulc data from datasetreader 
             lulc_data = self.land_use_map_reader.read(band)
