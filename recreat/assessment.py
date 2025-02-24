@@ -245,7 +245,7 @@ class Recreat(RecreatBase):
         
         return self.clumps_matrix, self.clumps_nodata_mask
 
-    def _get_land_use(self) -> np.ndarray:
+    def _get_lulc_map(self) -> np.ndarray:
         if self.land_use_map_matrix is None:
             if not os.path.isfile(self.get_file_path('BASE/lulc.tif')):
                 raise FileNotFoundError('Land use/land cover map not found in BASE folder. Run land use map alignment to create this dataset.')
@@ -351,7 +351,7 @@ class Recreat(RecreatBase):
         """    
         self.printStepInfo("Detecting clumps")
 
-        lulc_data = self._get_land_use()
+        lulc_data = self._get_lulc_map()
         nr_clumps, out_clumps = self._detect_clumps_in_raster(lulc_data, barrier_classes=barrier_classes, contiguity=contiguity)        
         self._write_file("BASE/clumps.tif", out_clumps, self._get_metadata(np.int32, self.nodata_value))        
         
@@ -405,7 +405,7 @@ class Recreat(RecreatBase):
         with self.progress:
             
             # import land-use dataset
-            lulc_data = self._get_land_use()
+            lulc_data = self._get_lulc_map()
             # import clump dataset for masking of outputs           
             clump_data, clump_nodata_mask = self._get_clumps()
 
@@ -428,6 +428,10 @@ class Recreat(RecreatBase):
         # done    
         self.taskProgressReportStepCompleted()
     
+    def edge_dilation(self, lu_classes: List[int]) -> None:
+
+        mtx_to_dilate = self._get_land_use_class_mask()
+
     def detect_edges(self, lu_classes: List[int] = None, ignore_edges_to_class: int = None, buffer_edges: List[int] = None) -> None:
         """Detect edges (patch perimeters) of land-use classes that are defined as edge classes. For classes contained in the buffer_edges list, buffer patch perimeters by one pixel.
 
@@ -468,7 +472,7 @@ class Recreat(RecreatBase):
             with self.progress:
                 
                 # import lulc 
-                lulc_data = self._get_land_use()                
+                lulc_data = self._get_lulc_map()                
                 # import clump dataset for masking of outputs
                 clump_data, clump_nodata_mask = self._get_clumps()
                 
