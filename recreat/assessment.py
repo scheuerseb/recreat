@@ -395,7 +395,7 @@ class Recreat(RecreatBase):
         :type lu_classes: List[int], optional        
         """
 
-        classes_for_masking = self.lu_classes_recreation_edge + self.lu_classes_recreation_patch if lu_classes is None else lu_classes
+        classes_for_masking = (self.lu_classes_recreation_edge + self.lu_classes_recreation_patch) if lu_classes is None else lu_classes
 
         # mask classes of interest into a binary raster to indicate presence/absence of recreational potential
         # we require this for all classes relevant to processing: patch and edge recreational classes, built-up classes
@@ -418,7 +418,7 @@ class Recreat(RecreatBase):
                 # mask with binary values 
                 current_lu_mask[mask] = 1
                 # mask with clump nodata
-                current_lu_mask[clump_nodata_mask] = self.nodata_value
+                current_lu_mask[(clump_nodata_mask) & (current_lu_mask == 0)] = self.nodata_value
                 
                 # write to disk
                 self._write_file(f"MASKS/mask_{lu}.tif", current_lu_mask, self._get_metadata(np.int32, self.nodata_value))
@@ -497,8 +497,7 @@ class Recreat(RecreatBase):
                     
                     else:
                         # read masking raster, reconstruct original data by replacing nodata values with 0
-                        mask_reader, mask_data = self._get_file(f"MASKS/mask_{lu}.tif", [self.nodata_value]) 
-                        mask_data[clump_nodata_mask] = 0
+                        mask_data = self._get_land_use_class_mask(lu)                                                
                         mask_data = mask_data * rst_edgePixelDiversity
                         mask_data[clump_nodata_mask] = self.nodata_value
 
