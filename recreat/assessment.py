@@ -843,7 +843,7 @@ class Recreat(RecreatBase):
 
 #region diversity
 
-    def class_diversity(self) -> None:
+    def class_diversity(self, kernel_shape: str = 'circular') -> None:
         """Determine the diversity of land-use classes with assumed recreational potential within each cost threshold. 
            Additionally, differences between cost thresholds are computed.
         """
@@ -857,16 +857,30 @@ class Recreat(RecreatBase):
 
             # clumps are required to properly mask islands
             rst_clumps, clump_nodata_mask = self._get_clumps()
-
+            
             for c in self.cost_thresholds:    
                 
+                # to determine proportion of each class, we need to determine the total number of pixels in the kernel
+                kernel = self._get_circular_kernel(c) if kernel_shape == 'circular' else np.full((c, c), 1)
+                total_kernel_cell_count = np.sum(kernel)
+                print(f"Kernel sum is equal to {total_kernel_cell_count}")
+
                 mtx_diversity_at_cost = self._get_matrix(0, self._get_shape(), np.int32)
+                mtx_shdi_at_cost = self._get_matrix(0, self._get_shape(), np.float64)
+                #mtx_patch_density_at_cost = self._get_matrix(0, self._get_shape(), np.float64)
 
                 for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
                     
                     # determine opportunity type and get respective dataset
                     mtx_supply = self._get_supply_for_land_use_class_and_cost(lu, c)                   
                     
+                    # mtx_supply holds the number of pixels of class l within kernel of radius c/2
+                    # we need to determine the proportion of each class within the kernel
+                    # this is done by dividing the number of pixels of class l by the total number of pixels in the kernel
+                    # this proportion is then used to determine the shdi
+                    lu_proportion = np.divide(mtx_supply, total_kernel_cell_count)
+                    mtx_shdi_at_cost += (lu_proportion * np.log(lu_proportion)).astype(np.float64)
+
                     mtx_supply[mtx_supply > 0] = 1
                     mtx_diversity_at_cost += mtx_supply.astype(np.int32)
                     
@@ -874,10 +888,14 @@ class Recreat(RecreatBase):
 
                 # mask using clump nodata mask
                 mtx_diversity_at_cost[clump_nodata_mask] = self.nodata_value
+                mtx_shdi_at_cost[clump_nodata_mask] = self.nodata_value
 
                 # export current cost diversity                                
                 self._write_file(f"DIVERSITY/diversity_cost_{c}.tif", mtx_diversity_at_cost, self._get_metadata(np.int32, self.nodata_value))
+                self._write_file(f"DIVERSITY/shdi_cost_{c}.tif", mtx_shdi_at_cost, self._get_metadata(np.float64, self.nodata_value))
                 del mtx_diversity_at_cost
+                del mtx_shdi_at_cost
+
 
         # additionally, compute differences in diversity across cost ranges
         current_template = Template("DIVERSITY/diversity_within_cost_range_${cost}.tif")
