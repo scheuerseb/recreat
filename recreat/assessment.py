@@ -205,6 +205,10 @@ class Recreat(RecreatBase):
         filename = f"SUPPLY/lu_weighted_totalsupply_cost_{cost}.tif" if not return_cost_window_difference else f"SUPPLY/lu_weighted_totalsupply_within_cost_range_{cost}.tif"
         return self._get_data_object(filename, nodata_replacement_value=0)
 
+    def _get_masked_lu_class(self, lu:int) -> np.ndarray:
+        filename = f"MASKS/mask_{lu}.tif"
+        return self._get_data_object(filename, nodata_replacement_value=0)
+
     def _get_land_use_class_mask(self, lu: int) -> np.ndarray:        
         lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
         filename = f"MASKS/mask_{lu}.tif" if lu_type == 'patch' else f"MASKS/edges_{lu}.tif"
@@ -428,9 +432,33 @@ class Recreat(RecreatBase):
         # done    
         self.taskProgressReportStepCompleted()
     
-    def edge_dilation(self, lu_classes: List[int]) -> None:
+    def edge_dilation(self, dilation_params: Dict[int, int]) -> None:
 
-        mtx_to_dilate = self._get_land_use_class_mask()
+        self.printStepInfo("Applying dilation")
+
+        step_count = len(dilation_params.keys())
+        current_task = self._new_task("[white]Dilating classes", total=step_count)
+
+        mtx_clumps, clump_nodata_mask = self._get_clumps() 
+
+        with self.progress as p:
+
+            for lu, steps in dilation_params.items():
+
+                mtx_to_dilate = self._get_land_use_class_mask(lu)
+                out_mtx = np.zeros_like(mtx_to_dilate)
+
+                # binary dilation with <steps> number of iterations 
+                out_mtx = ndimage.binary_dilation(mtx_to_dilate, None, steps).astype(np.float32)
+
+                # mask notata
+                out_mtx[clump_nodata_mask] = self.nodata_value
+
+                # write result to disk
+                self._write_file(os.path.join("MASKS", f"dilated_edge_{lu}.tif"), out_mtx, self._get_metadata(out_mtx.dtype, self.nodata_value))
+                p.update(current_task, advance=1)
+
+        self.printStepCompleteInfo()
 
     def detect_edges(self, lu_classes: List[int] = None, ignore_edges_to_class: int = None, buffer_edges: List[int] = None) -> None:
         """Detect edges (patch perimeters) of land-use classes that are defined as edge classes. For classes contained in the buffer_edges list, buffer patch perimeters by one pixel.
@@ -501,7 +529,7 @@ class Recreat(RecreatBase):
                     
                     else:
                         # read masking raster, reconstruct original data by replacing nodata values with 0
-                        mask_data = self._get_land_use_class_mask(lu)                                                
+                        mask_data = self._get_masked_lu_class(lu)                                                
                         mask_data = mask_data * rst_edgePixelDiversity
                         mask_data[clump_nodata_mask] = self.nodata_value
 
