@@ -36,9 +36,7 @@ destination class values.
 In a script
 -----------
 
-In a script, reclassification is achieved through the :py:meth:`.reclassify` method. The ``mappings`` argument takes a dictionary, where keys correspond 
-to the target class, and values to lists with source class values. 
-
+In a script, reclassification is achieved through the :py:meth:`.reclassify` method. 
 Example:
 
 .. code-block:: python

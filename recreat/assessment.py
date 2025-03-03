@@ -871,7 +871,7 @@ class Recreat(RecreatBase):
 
 #region diversity
 
-    def class_diversity(self) -> None:
+    def class_diversity(self, kernel_shape: str = 'circular') -> None:
         """Determine the diversity of land-use classes with assumed recreational potential within each cost threshold. 
            Additionally, differences between cost thresholds are computed.
         """
@@ -885,16 +885,30 @@ class Recreat(RecreatBase):
 
             # clumps are required to properly mask islands
             rst_clumps, clump_nodata_mask = self._get_clumps()
-
+            
             for c in self.cost_thresholds:    
                 
+                # to determine proportion of each class, we need to determine the total number of pixels in the kernel
+                kernel = self._get_circular_kernel(c) if kernel_shape == 'circular' else np.full((c, c), 1)
+                total_kernel_cell_count = np.sum(kernel)
+                print(f"Kernel sum is equal to {total_kernel_cell_count}")
+
                 mtx_diversity_at_cost = self._get_matrix(0, self._get_shape(), np.int32)
+                mtx_shdi_at_cost = self._get_matrix(0, self._get_shape(), np.float64)
+                #mtx_patch_density_at_cost = self._get_matrix(0, self._get_shape(), np.float64)
 
                 for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
                     
                     # determine opportunity type and get respective dataset
                     mtx_supply = self._get_supply_for_land_use_class_and_cost(lu, c)                   
                     
+                    # mtx_supply holds the number of pixels of class l within kernel of radius c/2
+                    # we need to determine the proportion of each class within the kernel
+                    # this is done by dividing the number of pixels of class l by the total number of pixels in the kernel
+                    # this proportion is then used to determine the shdi                    
+                    lu_proportion = np.divide(mtx_supply, total_kernel_cell_count)
+                    mtx_shdi_at_cost[lu_proportion > 0] += (lu_proportion[lu_proportion > 0] * np.log(lu_proportion[lu_proportion > 0])).astype(np.float64)
+
                     mtx_supply[mtx_supply > 0] = 1
                     mtx_diversity_at_cost += mtx_supply.astype(np.int32)
                     
@@ -902,10 +916,16 @@ class Recreat(RecreatBase):
 
                 # mask using clump nodata mask
                 mtx_diversity_at_cost[clump_nodata_mask] = self.nodata_value
+                mtx_shdi_at_cost[clump_nodata_mask] = self.nodata_value
+                # additionally, shdi to nodata where diversity is 0, as this should not be included imho
+                mtx_shdi_at_cost[mtx_diversity_at_cost == 0] = self.nodata_value
 
                 # export current cost diversity                                
                 self._write_file(f"DIVERSITY/diversity_cost_{c}.tif", mtx_diversity_at_cost, self._get_metadata(np.int32, self.nodata_value))
+                self._write_file(f"DIVERSITY/shdi_cost_{c}.tif", mtx_shdi_at_cost, self._get_metadata(np.float64, self.nodata_value))
                 del mtx_diversity_at_cost
+                del mtx_shdi_at_cost
+
 
         # additionally, compute differences in diversity across cost ranges
         current_template = Template("DIVERSITY/diversity_within_cost_range_${cost}.tif")
@@ -1123,24 +1143,24 @@ class Recreat(RecreatBase):
             if write_non_weighted_result:
                 averaged_beneficiaries = averaged_beneficiaries / len(self.cost_thresholds)
                 averaged_beneficiaries[clump_nodata_mask] = self.nodata_value
-                self._write_file("INDICATORS/non_weighted_avg_population.tif", averaged_beneficiaries, self._get_metadata(np.float64, self.nodata_value))
+                self._write_file("INDICATORS/non_weighted_avg_beneficiaries.tif", averaged_beneficiaries, self._get_metadata(np.float64, self.nodata_value))
                 
                 # if write_scaled_result:
                 #     # apply min-max scaling
                 #     scaler = MinMaxScaler()
                 #     average_pop = scaler.fit_transform(average_pop.reshape([-1,1]))
-                #     self._write_dataset('INDICATORS/scaled_non_weighted_avg_population.tif', average_pop.reshape(self.lsm_mtx.shape))
+                #     self._write_dataset('INDICATORS/scaled_non_weighted_avg_beneficiaries.tif', average_pop.reshape(self.lsm_mtx.shape))
 
             if cost_weights is not None:
                 cost_weighted_averaged_beneficiaries = cost_weighted_averaged_beneficiaries / sum(cost_weights.values())
                 cost_weighted_averaged_beneficiaries[clump_nodata_mask] = self.nodata_value
-                self._write_file("INDICATORS/cost_weighted_avg_population.tif", cost_weighted_averaged_beneficiaries, self._get_metadata(np.float64, self.nodata_value))
+                self._write_file("INDICATORS/cost_weighted_avg_beneficiaries.tif", cost_weighted_averaged_beneficiaries, self._get_metadata(np.float64, self.nodata_value))
                 
                 # if write_scaled_result:
                 #     # apply min-max scaling
                 #     scaler = MinMaxScaler()
                 #     cost_weighted_average_pop = scaler.fit_transform(cost_weighted_average_pop.reshape([-1,1]))
-                #     self._write_dataset('INDICATORS/scaled_cost_weighted_avg_population.tif', cost_weighted_average_pop.reshape(self.lsm_mtx.shape))
+                #     self._write_dataset('INDICATORS/scaled_cost_weighted_avg_beneficiaries.tif', cost_weighted_average_pop.reshape(self.lsm_mtx.shape))
 
         # done
         self.taskProgressReportStepCompleted()
