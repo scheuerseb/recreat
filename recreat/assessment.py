@@ -969,7 +969,7 @@ class Recreat(RecreatBase):
                 
                 if cost_weights is not None:
                     mtx_current_diversity = self._get_diversity_for_cost(c, return_cost_window_difference=True) 
-                    cost_weighted_average_diversity += (average_diversity.astype(np.float64) * cost_weights[c])
+                    cost_weighted_average_diversity += (mtx_current_diversity.astype(np.float64) * cost_weights[c])
                 
                 p.update(current_task, advance=1)
 
