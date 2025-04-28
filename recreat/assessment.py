@@ -483,6 +483,7 @@ class Recreat(RecreatBase):
         # determine edge pixels of edge-only classes such as water opportunities
 
         classes_to_assess = lu_classes if lu_classes is not None else self.lu_classes_recreation_edge
+        print(self.lu_classes_recreation_edge)
         
         if (len(classes_to_assess) > 0):
             
@@ -520,7 +521,7 @@ class Recreat(RecreatBase):
                         ptr = ctypes.cast(ctypes.pointer(user_data), ctypes.c_void_p)
                         div_filter = LowLevelCallable(self.clib.div_filter, user_data=ptr, signature="int (double *, intptr_t, double *, void *)")              
                     else:
-                        user_values = [lu, 0]
+                        user_values = [lu, self.nodata_value] # was 0
                         user_data = (ctypes.c_int * 10)(*user_values)
                         ptr = ctypes.cast(ctypes.pointer(user_data), ctypes.c_void_p)
                         div_filter = LowLevelCallable(self.clib.div_filter_ignore_class, user_data=ptr, signature="int (double *, intptr_t, double *, void *)")              
@@ -533,6 +534,7 @@ class Recreat(RecreatBase):
                     # depending on whether to grow edge or not, intersect with land-use mask to have edge within land-use, or
                     # extending outside.
                     if lu in buffer_edges:
+                        print(f"{lu} is in buffered_edges")
                         rst_edgePixelDiversity[clump_nodata_mask] = self.nodata_value
                         self._write_file(f"MASKS/edges_{lu}.tif", rst_edgePixelDiversity.astype(np.int32), self._get_metadata(np.int32, self.nodata_value))                        
                     
