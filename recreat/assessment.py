@@ -205,9 +205,21 @@ class Recreat(RecreatBase):
         filename = f"SUPPLY/lu_weighted_totalsupply_cost_{cost}.tif" if not return_cost_window_difference else f"SUPPLY/lu_weighted_totalsupply_within_cost_range_{cost}.tif"
         return self._get_data_object(filename, nodata_replacement_value=0)
 
-    def _get_land_use_class_mask(self, lu: int) -> np.ndarray:        
+    def _get_masked_lu_class(self, lu:int) -> np.ndarray:
+        filename = f"MASKS/mask_{lu}.tif"
+        return self._get_data_object(filename, nodata_replacement_value=0)
+
+    def _get_land_use_class_mask(self, lu: int, dilated_edges: List[int] = None) -> np.ndarray:        
         lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
-        filename = f"MASKS/mask_{lu}.tif" if lu_type == 'patch' else f"MASKS/edges_{lu}.tif"
+        
+        if lu_type == "edge":
+            file_prefix = "edges"
+            if dilated_edges is not None:
+                # check if current edge class should be imported as dilated edge
+                if lu in dilated_edges:
+                    file_prefix = "dilated_edges"
+        
+        filename = f"MASKS/mask_{lu}.tif" if lu_type == 'patch' else f"MASKS/{file_prefix}_{lu}.tif"
         return self._get_data_object(filename, nodata_replacement_value=0)
     
     def _get_diversity_for_cost(self, cost: int, return_cost_window_difference: bool = False) -> np.ndarray:
@@ -428,9 +440,34 @@ class Recreat(RecreatBase):
         # done    
         self.taskProgressReportStepCompleted()
     
-    def edge_dilation(self, lu_classes: List[int]) -> None:
+    def edge_dilation(self, dilation_params: Dict[int, int]) -> None:
 
-        mtx_to_dilate = self._get_land_use_class_mask()
+        self.printStepInfo("Applying dilation")
+
+        step_count = len(dilation_params.keys())
+        current_task = self._new_task("[white]Dilating classes", total=step_count)
+
+        mtx_clumps, clump_nodata_mask = self._get_clumps() 
+
+        with self.progress as p:
+
+            for lu, steps in dilation_params.items():
+
+                # here, we create a dilated edge layer, so do not treat edge class as dilated in the _get_land_use_class_mask method 
+                mtx_to_dilate = self._get_land_use_class_mask(lu, dilated_edges=None)
+                out_mtx = np.zeros_like(mtx_to_dilate)
+
+                # binary dilation with <steps> number of iterations 
+                out_mtx = ndimage.binary_dilation(mtx_to_dilate, None, steps).astype(np.float32)
+
+                # mask notata
+                out_mtx[clump_nodata_mask] = self.nodata_value
+
+                # write result to disk
+                self._write_file(os.path.join("MASKS", f"dilated_edges_{lu}.tif"), out_mtx, self._get_metadata(out_mtx.dtype, self.nodata_value))
+                p.update(current_task, advance=1)
+
+        self.printStepCompleteInfo()
 
     def detect_edges(self, lu_classes: List[int] = None, ignore_edges_to_class: int = None, buffer_edges: List[int] = None) -> None:
         """Detect edges (patch perimeters) of land-use classes that are defined as edge classes. For classes contained in the buffer_edges list, buffer patch perimeters by one pixel.
@@ -446,6 +483,7 @@ class Recreat(RecreatBase):
         # determine edge pixels of edge-only classes such as water opportunities
 
         classes_to_assess = lu_classes if lu_classes is not None else self.lu_classes_recreation_edge
+        print(self.lu_classes_recreation_edge)
         
         if (len(classes_to_assess) > 0):
             
@@ -483,7 +521,7 @@ class Recreat(RecreatBase):
                         ptr = ctypes.cast(ctypes.pointer(user_data), ctypes.c_void_p)
                         div_filter = LowLevelCallable(self.clib.div_filter, user_data=ptr, signature="int (double *, intptr_t, double *, void *)")              
                     else:
-                        user_values = [lu, 0]
+                        user_values = [lu, self.nodata_value] # was 0
                         user_data = (ctypes.c_int * 10)(*user_values)
                         ptr = ctypes.cast(ctypes.pointer(user_data), ctypes.c_void_p)
                         div_filter = LowLevelCallable(self.clib.div_filter_ignore_class, user_data=ptr, signature="int (double *, intptr_t, double *, void *)")              
@@ -496,12 +534,13 @@ class Recreat(RecreatBase):
                     # depending on whether to grow edge or not, intersect with land-use mask to have edge within land-use, or
                     # extending outside.
                     if lu in buffer_edges:
+                        print(f"{lu} is in buffered_edges")
                         rst_edgePixelDiversity[clump_nodata_mask] = self.nodata_value
                         self._write_file(f"MASKS/edges_{lu}.tif", rst_edgePixelDiversity.astype(np.int32), self._get_metadata(np.int32, self.nodata_value))                        
                     
                     else:
                         # read masking raster, reconstruct original data by replacing nodata values with 0
-                        mask_data = self._get_land_use_class_mask(lu)                                                
+                        mask_data = self._get_masked_lu_class(lu)                                                
                         mask_data = mask_data * rst_edgePixelDiversity
                         mask_data[clump_nodata_mask] = self.nodata_value
 
@@ -619,13 +658,15 @@ class Recreat(RecreatBase):
 
 #region supply-related methods
 
-    def class_total_supply(self, lu_classes: List[int] = None, mode: str = 'ocv_filter2d') -> None:
+    def class_total_supply(self, lu_classes: List[int] = None, mode: str = 'ocv_filter2d', dilated_edges: List[int] = None) -> None:
         """Determine class total supply.
 
         :param lu_classes: List of classes for which supply should be determined, by default None. If None, determine supply for all patch and edge classes.
         :type lu_classes: List[int], optional
         :param mode: Method to perform moving window operation. One of 'generic_filter', 'convolve', or 'ocv_filter2d', defaults to 'ocv_filter2d'.
         :type mode: str, optional
+        :param dilated_edges: List of edge classes that shall be imported as dilated edge.
+        :type dilated_edges: List[int], optional
         """        
 
         dtype_to_use = np.int32
@@ -649,7 +690,9 @@ class Recreat(RecreatBase):
                     
                     # determine source of list
                     lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
-                    lu_mask = self._get_land_use_class_mask(lu)
+                    # get lu mask; assert to retrieve dilated edge mask, if needed
+                    # downstream in the assessment, treat edge or dilated edge the same
+                    lu_mask = self._get_land_use_class_mask(lu, dilated_edges=dilated_edges)
 
                     # get result of windowed operation
                     lu_supply_mtx = self._sum_values_in_kernel(
@@ -677,7 +720,7 @@ class Recreat(RecreatBase):
         # done
         self.taskProgressReportStepCompleted()
 
-    def _get_aggregate_class_total_supply_for_cost(self, cost, lu_weights = None, write_non_weighted_result = True, task_progress = None):                        
+    def _get_aggregate_class_total_supply_for_cost(self, cost, lu_classes: List[int] = None, lu_weights = None, write_non_weighted_result = True, task_progress = None):                        
         
         current_total_supply_at_cost = None
         current_weighted_total_supply_at_cost = None
@@ -688,7 +731,8 @@ class Recreat(RecreatBase):
         if lu_weights is not None:
             current_weighted_total_supply_at_cost = self._get_matrix(0, self._get_shape(), np.float64)
         
-        for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
+        classes_to_process = (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge) if lu_classes is None else lu_classes
+        for lu in classes_to_process:                
             
             # determine source of list
             lu_supply_mtx = self._get_supply_for_land_use_class_and_cost(lu, cost)
@@ -709,7 +753,7 @@ class Recreat(RecreatBase):
         # return aggregated grids for given cost
         return current_total_supply_at_cost, current_weighted_total_supply_at_cost
     
-    def aggregate_class_total_supply(self, lu_weights: Dict[any,float] = None, write_non_weighted_result: bool = True) -> None:
+    def aggregate_class_total_supply(self, lu_classes: List[int] = None, lu_weights: Dict[any,float] = None, write_non_weighted_result: bool = True) -> None:
         """Aggregate total supply of land-use classes within each specified cost threshold. A weighting schema may be supplied, in which case a weighted average is determined as the sum of weighted class supply divided by the sum of all weights.
 
         :param lu_weights: Dictionary of land-use class weights, where keys refer to land-use classes, and values to weights. If specified, weighted total supply will be determined, defaults to None.
@@ -730,7 +774,7 @@ class Recreat(RecreatBase):
                         
             for c in self.cost_thresholds:
                 # get aggregation for current cost threshold
-                current_total_supply_at_cost, current_lu_weighted_total_supply_at_cost = self._get_aggregate_class_total_supply_for_cost(cost=c, lu_weights=lu_weights, write_non_weighted_result=write_non_weighted_result, task_progress=current_task)                                           
+                current_total_supply_at_cost, current_lu_weighted_total_supply_at_cost = self._get_aggregate_class_total_supply_for_cost(cost=c, lu_classes=lu_classes, lu_weights=lu_weights, write_non_weighted_result=write_non_weighted_result, task_progress=current_task)                                           
 
                 # mask nodata areas and export total for costs
                 if write_non_weighted_result:  
@@ -877,9 +921,9 @@ class Recreat(RecreatBase):
                     # mtx_supply holds the number of pixels of class l within kernel of radius c/2
                     # we need to determine the proportion of each class within the kernel
                     # this is done by dividing the number of pixels of class l by the total number of pixels in the kernel
-                    # this proportion is then used to determine the shdi
+                    # this proportion is then used to determine the shdi                    
                     lu_proportion = np.divide(mtx_supply, total_kernel_cell_count)
-                    mtx_shdi_at_cost += (lu_proportion * np.log(lu_proportion)).astype(np.float64)
+                    mtx_shdi_at_cost[lu_proportion > 0] += (lu_proportion[lu_proportion > 0] * np.log(lu_proportion[lu_proportion > 0])).astype(np.float64)
 
                     mtx_supply[mtx_supply > 0] = 1
                     mtx_diversity_at_cost += mtx_supply.astype(np.int32)
@@ -889,6 +933,8 @@ class Recreat(RecreatBase):
                 # mask using clump nodata mask
                 mtx_diversity_at_cost[clump_nodata_mask] = self.nodata_value
                 mtx_shdi_at_cost[clump_nodata_mask] = self.nodata_value
+                # additionally, shdi to nodata where diversity is 0, as this should not be included imho
+                mtx_shdi_at_cost[mtx_diversity_at_cost == 0] = self.nodata_value
 
                 # export current cost diversity                                
                 self._write_file(f"DIVERSITY/diversity_cost_{c}.tif", mtx_diversity_at_cost, self._get_metadata(np.int32, self.nodata_value))
@@ -939,7 +985,7 @@ class Recreat(RecreatBase):
                 
                 if cost_weights is not None:
                     mtx_current_diversity = self._get_diversity_for_cost(c, return_cost_window_difference=True) 
-                    cost_weighted_average_diversity += (average_diversity.astype(np.float64) * cost_weights[c])
+                    cost_weighted_average_diversity += (mtx_current_diversity.astype(np.float64) * cost_weights[c])
                 
                 p.update(current_task, advance=1)
 
@@ -1113,24 +1159,24 @@ class Recreat(RecreatBase):
             if write_non_weighted_result:
                 averaged_beneficiaries = averaged_beneficiaries / len(self.cost_thresholds)
                 averaged_beneficiaries[clump_nodata_mask] = self.nodata_value
-                self._write_file("INDICATORS/non_weighted_avg_population.tif", averaged_beneficiaries, self._get_metadata(np.float64, self.nodata_value))
+                self._write_file("INDICATORS/non_weighted_avg_beneficiaries.tif", averaged_beneficiaries, self._get_metadata(np.float64, self.nodata_value))
                 
                 # if write_scaled_result:
                 #     # apply min-max scaling
                 #     scaler = MinMaxScaler()
                 #     average_pop = scaler.fit_transform(average_pop.reshape([-1,1]))
-                #     self._write_dataset('INDICATORS/scaled_non_weighted_avg_population.tif', average_pop.reshape(self.lsm_mtx.shape))
+                #     self._write_dataset('INDICATORS/scaled_non_weighted_avg_beneficiaries.tif', average_pop.reshape(self.lsm_mtx.shape))
 
             if cost_weights is not None:
                 cost_weighted_averaged_beneficiaries = cost_weighted_averaged_beneficiaries / sum(cost_weights.values())
                 cost_weighted_averaged_beneficiaries[clump_nodata_mask] = self.nodata_value
-                self._write_file("INDICATORS/cost_weighted_avg_population.tif", cost_weighted_averaged_beneficiaries, self._get_metadata(np.float64, self.nodata_value))
+                self._write_file("INDICATORS/cost_weighted_avg_beneficiaries.tif", cost_weighted_averaged_beneficiaries, self._get_metadata(np.float64, self.nodata_value))
                 
                 # if write_scaled_result:
                 #     # apply min-max scaling
                 #     scaler = MinMaxScaler()
                 #     cost_weighted_average_pop = scaler.fit_transform(cost_weighted_average_pop.reshape([-1,1]))
-                #     self._write_dataset('INDICATORS/scaled_cost_weighted_avg_population.tif', cost_weighted_average_pop.reshape(self.lsm_mtx.shape))
+                #     self._write_dataset('INDICATORS/scaled_cost_weighted_avg_beneficiaries.tif', cost_weighted_average_pop.reshape(self.lsm_mtx.shape))
 
         # done
         self.taskProgressReportStepCompleted()
@@ -1245,7 +1291,7 @@ class Recreat(RecreatBase):
         # done
         self.taskProgressReportStepCompleted()
 
-    def cost_to_closest(self, lu_classes = None) -> None:
+    def cost_to_closest(self, lu_classes = None, dilated_edges: List[int] = None) -> None:
         
         # several assumptions need to be considered when computing costs:
         # the output of distances is...
@@ -1276,8 +1322,8 @@ class Recreat(RecreatBase):
                 # complete cost raster
                 mtx_proximity_to_lu = self._get_proximity_raster_for_lu(lu) 
                 
-                # complete mask raster
-                mtx_lu_mask = self._get_land_use_class_mask(lu)
+                # complete mask raster; assert to retrieve dilated edge layer, if needed
+                mtx_lu_mask = self._get_land_use_class_mask(lu, dilated_edges=dilated_edges)
 
                 # iterate over patches, and for each patch, determine whether sum of mask is 0 (then all 0 costs are nodata)
                 # or whether sum of mask > 0, then 0 are actual within-lu costs, and remaining values should be > 0 for the current lu
@@ -1443,7 +1489,7 @@ class Recreat(RecreatBase):
 #region flow
 
 
-    def detect_land_use_patches(self, lu_classes: List[int] = None, contiguity: Contiguity = Contiguity.Queen):
+    def detect_land_use_patches(self, lu_classes: List[int] = None, contiguity: Contiguity = Contiguity.Queen, dilated_edges: List[int] = None):
         """Identify contiguous patches of land-uses.
 
         :param lu_classes: List of land-use classes to assess, defaults to None. If None, all patch and edge classes will be considered.
@@ -1462,8 +1508,8 @@ class Recreat(RecreatBase):
 
             for lu in lu_classes:   
 
-                # get class mask
-                mtx_lu_class_mask = self._get_land_use_class_mask(lu)
+                # get class mask; assert to retrieve dilated edges if needed
+                mtx_lu_class_mask = self._get_land_use_class_mask(lu, dilated_edges=dilated_edges)
                 nr_clumps, mtx_clumps = self._detect_clumps_in_raster(mtx_lu_class_mask, barrier_classes=[0], contiguity=contiguity)
                 
                 # write result
@@ -1493,7 +1539,7 @@ class Recreat(RecreatBase):
 
 
 
-    def class_flow(self) -> None:
+    def class_flow(self, lu_classes: List[int] = None, dilated_edges: List[int] = None) -> None:
         """Determine the total number of potential beneficiaries (flow to given land-use classes) as the sum of total population, within cost thresholds.
         """
 
@@ -1501,6 +1547,8 @@ class Recreat(RecreatBase):
         
         step_count = len(self.cost_thresholds) * (len(self.lu_classes_recreation_edge) + len(self.lu_classes_recreation_patch))
         current_task = self._new_task("[white]Determine class-based flows within cost", step_count)
+
+        lu_classes_for_assessment = (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge) if lu_classes is None else lu_classes
 
         with self.progress as p:            
             
@@ -1511,11 +1559,12 @@ class Recreat(RecreatBase):
                 
                 mtx_pop = self._get_beneficiaries_for_cost(c)
 
-                for lu in (self.lu_classes_recreation_patch + self.lu_classes_recreation_edge):                
+                for lu in lu_classes_for_assessment:                
                     
                     # determine source of list
                     lu_type = "patch" if lu in self.lu_classes_recreation_patch else "edge"
-                    mtx_lu = self._get_land_use_class_mask(lu)
+                    # get land use mask, assert to retrieve dilated edge layer if needed
+                    mtx_lu = self._get_land_use_class_mask(lu, dilated_edges=dilated_edges)
                     
                     mtx_res = self._get_matrix(0, self._get_shape(), np.int32)
                     np.multiply(mtx_lu, mtx_pop, out=mtx_res)                                        
