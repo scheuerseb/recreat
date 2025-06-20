@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.abspath('..'))
 
 project = "recreat"
 author = "Sebastian Scheuer"
-version = "0.2.5"
+version = "0.3.0"
 release = version
 
 now = datetime.now()

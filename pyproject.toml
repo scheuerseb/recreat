@@ -1,6 +1,6 @@
 [project]
 name = "recreat"
-version = "0.2.6"
+version = "0.3.0"
 
 authors = [
   { name="Sebastian Scheuer", email="seb.scheuer@outlook.de" },
